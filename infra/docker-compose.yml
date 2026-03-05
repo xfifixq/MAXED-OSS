@@ -1,0 +1,322 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # SHARED INFRASTRUCTURE
+  # ============================================
+
+  postgres:
+    image: postgres:16
+    container_name: maxed-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: maxed-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # 1. BIGCAPITAL (Bookkeeping)
+  # ============================================
+
+  bigcapital-mysql:
+    image: mysql:8.0
+    container_name: maxed-bigcapital-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${BIGCAPITAL_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${BIGCAPITAL_MYSQL_DATABASE}
+      MYSQL_USER: ${BIGCAPITAL_MYSQL_USER}
+      MYSQL_PASSWORD: ${BIGCAPITAL_MYSQL_PASSWORD}
+    volumes:
+      - bigcapital_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bigcapital-server:
+    image: bigcapital/bigcapital-server:latest
+    container_name: maxed-bigcapital-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: bigcapital-mysql
+      DB_USER: ${BIGCAPITAL_MYSQL_USER}
+      DB_PASSWORD: ${BIGCAPITAL_MYSQL_PASSWORD}
+      DB_NAME: ${BIGCAPITAL_MYSQL_DATABASE}
+      DB_PORT: 3306
+    depends_on:
+      bigcapital-mysql:
+        condition: service_healthy
+
+  bigcapital-webapp:
+    image: bigcapital/bigcapital-webapp:latest
+    container_name: maxed-bigcapital-webapp
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      API_URL: http://bigcapital-server:3000
+    depends_on:
+      - bigcapital-server
+
+  # ============================================
+  # 2. PAPERLESS-NGX (Document Management)
+  # ============================================
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: maxed-paperless
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBHOST: postgres
+      PAPERLESS_DBPORT: 5432
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: ${POSTGRES_USER}
+      PAPERLESS_DBPASS: ${POSTGRES_PASSWORD}
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_URL: http://localhost:8000
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_consume:/usr/src/paperless/consume
+      - paperless_export:/usr/src/paperless/export
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ============================================
+  # 3. N8N (Workflow Automation)
+  # ============================================
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: maxed-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      WEBHOOK_URL: http://localhost:5678
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================
+  # 4. METABASE (BI/Reporting)
+  # ============================================
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: maxed-metabase
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER}
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+      MB_DB_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================
+  # 5. DOCUSEAL (E-Signatures)
+  # ============================================
+
+  docuseal:
+    image: docuseal/docuseal:latest
+    container_name: maxed-docuseal
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    volumes:
+      - docuseal_data:/data
+
+  # ============================================
+  # 6. INVOICE NINJA v5 (Invoicing)
+  # ============================================
+
+  invoiceninja-mysql:
+    image: mysql:8.0
+    container_name: maxed-invoiceninja-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${INVOICENINJA_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${INVOICENINJA_MYSQL_DATABASE}
+      MYSQL_USER: ${INVOICENINJA_MYSQL_USER}
+      MYSQL_PASSWORD: ${INVOICENINJA_MYSQL_PASSWORD}
+    volumes:
+      - invoiceninja_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  invoiceninja:
+    image: invoiceninja/invoiceninja:5
+    container_name: maxed-invoiceninja
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      APP_URL: http://localhost:8080
+      APP_KEY: ${INVOICENINJA_APP_KEY}
+      DB_HOST: invoiceninja-mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${INVOICENINJA_MYSQL_DATABASE}
+      DB_USERNAME: ${INVOICENINJA_MYSQL_USER}
+      DB_PASSWORD: ${INVOICENINJA_MYSQL_PASSWORD}
+      IN_USER_EMAIL: admin@maxed.dev
+      IN_PASSWORD: maxed2024
+      REQUIRE_HTTPS: "false"
+    volumes:
+      - invoiceninja_public:/var/www/app/public
+      - invoiceninja_storage:/var/www/app/storage
+    depends_on:
+      invoiceninja-mysql:
+        condition: service_healthy
+
+  # ============================================
+  # 7. TWENTY CRM
+  # ============================================
+
+  twenty:
+    image: twentycrm/twenty:latest
+    container_name: maxed-twenty
+    restart: unless-stopped
+    ports:
+      - "3004:3000"
+    environment:
+      PG_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/twenty
+      ACCESS_TOKEN_SECRET: ${TWENTY_ACCESS_TOKEN_SECRET}
+      LOGIN_TOKEN_SECRET: ${TWENTY_LOGIN_TOKEN_SECRET}
+      REFRESH_TOKEN_SECRET: ${TWENTY_REFRESH_TOKEN_SECRET}
+      FRONT_BASE_URL: http://localhost:3004
+      SERVER_URL: http://localhost:3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ============================================
+  # 8. KIMAI (Time Tracking)
+  # ============================================
+
+  kimai-mysql:
+    image: mysql:8.0
+    container_name: maxed-kimai-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${KIMAI_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${KIMAI_MYSQL_DATABASE}
+      MYSQL_USER: ${KIMAI_MYSQL_USER}
+      MYSQL_PASSWORD: ${KIMAI_MYSQL_PASSWORD}
+    volumes:
+      - kimai_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kimai:
+    image: kimai/kimai2:apache
+    container_name: maxed-kimai
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      ADMINMAIL: ${KIMAI_ADMIN_EMAIL}
+      ADMINPASS: ${KIMAI_ADMIN_PASSWORD}
+      DATABASE_URL: mysql://${KIMAI_MYSQL_USER}:${KIMAI_MYSQL_PASSWORD}@kimai-mysql:3306/${KIMAI_MYSQL_DATABASE}
+    depends_on:
+      kimai-mysql:
+        condition: service_healthy
+
+  # ============================================
+  # 9. MATTERMOST (Team Chat)
+  # ============================================
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    container_name: maxed-mattermost
+    restart: unless-stopped
+    ports:
+      - "8065:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+    volumes:
+      - mattermost_config:/mattermost/config
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_plugins:/mattermost/plugins
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  bigcapital_mysql_data:
+  paperless_data:
+  paperless_media:
+  paperless_consume:
+  paperless_export:
+  n8n_data:
+  docuseal_data:
+  invoiceninja_mysql_data:
+  invoiceninja_public:
+  invoiceninja_storage:
+  kimai_mysql_data:
+  mattermost_config:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_plugins:

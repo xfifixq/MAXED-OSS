@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Firm {
+  id          String       @id @default(uuid())
+  name        String
+  email       String
+  phone       String?
+  plan        String       @default("free")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  clients     Client[]
+  teamMembers TeamMember[]
+  workflows   Workflow[]
+}
+
+model Client {
+  id               String           @id @default(uuid())
+  firmId           String
+  firm             Firm             @relation(fields: [firmId], references: [id])
+  name             String
+  email            String
+  phone            String?
+  businessType     String?
+  annualRevenue    Float?
+  employeeCount    Int?
+  bigcapitalId     String?
+  paperlessTag     String?
+  invoiceNinjaId   String?
+  twentyCrmId      String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  documents        Document[]
+  invoices         Invoice[]
+  advisorySessions AdvisorySession[]
+  scenarios        Scenario[]
+  messages         Message[]
+}
+
+model TeamMember {
+  id           String   @id @default(uuid())
+  firmId       String
+  firm         Firm     @relation(fields: [firmId], references: [id])
+  name         String
+  email        String
+  role         String   @default("staff")
+  kimaiUserId  String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+}
+
+model Document {
+  id             String   @id @default(uuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id])
+  title          String
+  type           String
+  paperlessDocId String?
+  status         String   @default("uploaded")
+  createdAt      DateTime @default(now())
+}
+
+model Invoice {
+  id              String    @id @default(uuid())
+  clientId        String
+  client          Client    @relation(fields: [clientId], references: [id])
+  amount          Float
+  status          String    @default("draft")
+  invoiceNinjaId  String?
+  dueDate         DateTime
+  paidDate        DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model Workflow {
+  id         String   @id @default(uuid())
+  firmId     String
+  firm       Firm     @relation(fields: [firmId], references: [id])
+  name       String
+  status     String   @default("active")
+  n8nFlowId  String?
+  createdAt  DateTime @default(now())
+}
+
+model AdvisorySession {
+  id        String     @id @default(uuid())
+  clientId  String
+  client    Client     @relation(fields: [clientId], references: [id])
+  type      String
+  summary   String?
+  createdAt DateTime   @default(now())
+  scenarios Scenario[]
+}
+
+model Scenario {
+  id              String           @id @default(uuid())
+  clientId        String
+  client          Client           @relation(fields: [clientId], references: [id])
+  sessionId       String?
+  session         AdvisorySession? @relation(fields: [sessionId], references: [id])
+  question        String
+  optionChosen    String?
+  outcome         String?
+  projectedImpact Float?
+  actualImpact    Float?
+  createdAt       DateTime         @default(now())
+  resolvedAt      DateTime?
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id])
+  senderType String
+  content    String
+  createdAt  DateTime @default(now())
+}

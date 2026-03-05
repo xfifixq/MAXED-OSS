@@ -1,0 +1,199 @@
+{
+  "name": "New Client Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-client",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4000-a000-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "new-client-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://invoice-ninja:80/api/v1/clients",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Token",
+              "value": "={{ $env.INVOICE_NINJA_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.body.name }}"
+            },
+            {
+              "name": "contacts",
+              "value": "={{ [{\"email\": $json.body.email, \"first_name\": $json.body.firstName, \"last_name\": $json.body.lastName}] }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.body.phone }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4000-a000-000000000002",
+      "name": "Create Client in Invoice Ninja",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://paperless:8000/api/tags/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Token {{ $env.PAPERLESS_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "client:{{ $json.body.name }}"
+            },
+            {
+              "name": "matching_algorithm",
+              "value": "1"
+            },
+            {
+              "name": "match",
+              "value": "={{ $json.body.name }}"
+            },
+            {
+              "name": "is_insensitive",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4000-a000-000000000003",
+      "name": "Create Tag in Paperless-ngx",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [760, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:4000/api/firms/{{ $json.body.firmId }}/clients",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.MAXED_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.body.name }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $json.body.email }}"
+            },
+            {
+              "name": "invoiceNinjaId",
+              "value": "={{ $('Create Client in Invoice Ninja').item.json.data.id }}"
+            },
+            {
+              "name": "paperlessTagId",
+              "value": "={{ $('Create Tag in Paperless-ngx').item.json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4000-a000-000000000004",
+      "name": "Update Client in Maxed API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1020, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Create Client in Invoice Ninja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Client in Invoice Ninja": {
+      "main": [
+        [
+          {
+            "node": "Create Tag in Paperless-ngx",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Tag in Paperless-ngx": {
+      "main": [
+        [
+          {
+            "node": "Update Client in Maxed API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "maxed-oss"
+  },
+  "tags": []
+}
