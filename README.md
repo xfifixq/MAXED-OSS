@@ -48,15 +48,33 @@ Maxed replaces $20,000–$76,000/year in fragmented SaaS tools with a single sel
 | **`client-portal/`** | Client-facing portal. Clients view invoices, upload documents, send messages, sign proposals. | Next.js 14, Tailwind |
 | **`opencpa/`** | Marketing/landing page. Tool directory showing open-source alternatives to paid CPA software. PDF cost-savings report generator. Waitlist signup. | Next.js 14, Tailwind, jsPDF |
 | **`infra/`** | Docker Compose stack for all 9 services + databases + nginx. | Docker, Nginx |
-| **Bigcapital** | Double-entry bookkeeping. Chart of accounts, journal entries, financial statements. | Self-hosted |
-| **Paperless-ngx** | OCR document management. Auto-scans, tags, and indexes uploaded tax returns, receipts, engagement letters. | Self-hosted |
-| **n8n** | Workflow automation. Pre-built flows: new-client sync (creates client across all tools), document auto-tagging, daily financial sync from Bigcapital. | Self-hosted |
-| **Metabase** | Business intelligence. Revenue dashboards, client analytics, invoice performance, advisory impact tracking. | Self-hosted |
-| **DocuSeal** | E-signatures. Create and send proposals/engagement letters for client signatures. | Self-hosted |
-| **Invoice Ninja** | Professional invoicing. Create invoices, accept payments, track receivables. | Self-hosted |
-| **Twenty CRM** | Client relationship management. Track interactions, pipeline, contact info. | Self-hosted |
-| **Kimai** | Time tracking. Staff logs billable hours per client/engagement. | Self-hosted |
-| **Mattermost** | Team chat. Internal firm communication, channels per client/project. | Self-hosted |
+| [**Bigcapital**](https://github.com/bigcapitalhq/bigcapital) | Double-entry bookkeeping. Chart of accounts, journal entries, financial statements. | Self-hosted |
+| [**Paperless-ngx**](https://github.com/paperless-ngx/paperless-ngx) | OCR document management. Auto-scans, tags, and indexes uploaded tax returns, receipts, engagement letters. | Self-hosted |
+| [**n8n**](https://github.com/n8n-io/n8n) | Workflow automation. Pre-built flows: new-client sync (creates client across all tools), document auto-tagging, daily financial sync from Bigcapital. | Self-hosted |
+| [**Metabase**](https://github.com/metabase/metabase) | Business intelligence. Revenue dashboards, client analytics, invoice performance, advisory impact tracking. | Self-hosted |
+| [**DocuSeal**](https://github.com/docusealco/docuseal) | E-signatures. Create and send proposals/engagement letters for client signatures. | Self-hosted |
+| [**Invoice Ninja**](https://github.com/invoiceninja/invoiceninja) | Professional invoicing. Create invoices, accept payments, track receivables. | Self-hosted |
+| [**Twenty CRM**](https://github.com/twentyhq/twenty) | Client relationship management. Track interactions, pipeline, contact info. | Self-hosted |
+| [**Kimai**](https://github.com/kimai/kimai) | Time tracking. Staff logs billable hours per client/engagement. | Self-hosted |
+| [**Mattermost**](https://github.com/mattermost/mattermost) | Team chat. Internal firm communication, channels per client/project. | Self-hosted |
+
+---
+
+## Bundled Open-Source Projects
+
+Every tool below is free and self-hosted. No subscriptions, no per-seat fees, no API keys to buy.
+
+| Tool | GitHub | License | Replaces |
+|------|--------|---------|----------|
+| Bigcapital | [bigcapitalhq/bigcapital](https://github.com/bigcapitalhq/bigcapital) | AGPL-3.0 | QuickBooks, Xero |
+| Paperless-ngx | [paperless-ngx/paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) | GPL-3.0 | SmartVault, ShareFile |
+| n8n | [n8n-io/n8n](https://github.com/n8n-io/n8n) | Sustainable Use | Zapier, Make |
+| Metabase | [metabase/metabase](https://github.com/metabase/metabase) | AGPL-3.0 | Tableau, Power BI |
+| DocuSeal | [docusealco/docuseal](https://github.com/docusealco/docuseal) | AGPL-3.0 | DocuSign, PandaDoc |
+| Invoice Ninja | [invoiceninja/invoiceninja](https://github.com/invoiceninja/invoiceninja) | AAL | FreshBooks, Bill.com |
+| Twenty CRM | [twentyhq/twenty](https://github.com/twentyhq/twenty) | AGPL-3.0 | Salesforce, HubSpot |
+| Kimai | [kimai/kimai](https://github.com/kimai/kimai) | AGPL-3.0 | Harvest, Toggl |
+| Mattermost | [mattermost/mattermost](https://github.com/mattermost/mattermost) | MIT + Enterprise | Slack, Teams |
 
 ---
 
@@ -78,31 +96,30 @@ git clone https://github.com/your-org/MAXED-OSS.git
 cd MAXED-OSS
 ```
 
-### Step 2: Generate secrets and start infrastructure
+### Step 2: Run the setup script
+
+The setup script generates all secrets, installs dependencies, runs database migrations, and seeds sample data — one command:
 
 ```bash
-cd infra
-
-# Generate the missing secrets in .env
-# Invoice Ninja needs a base64 app key:
-echo "INVOICENINJA_APP_KEY=base64:$(openssl rand -base64 32)" >> .env
-
-# Twenty CRM needs three JWT secrets:
-echo "TWENTY_ACCESS_TOKEN_SECRET=$(openssl rand -hex 32)" >> .env
-echo "TWENTY_LOGIN_TOKEN_SECRET=$(openssl rand -hex 32)" >> .env
-echo "TWENTY_REFRESH_TOKEN_SECRET=$(openssl rand -hex 32)" >> .env
-
-# Start all 9 services + databases
-docker compose up -d
+./setup.sh
 ```
 
-Wait 2-3 minutes for all services to initialize. Check status:
+This will:
+1. Generate strong random passwords for all databases and services in `infra/.env`
+2. Generate the Invoice Ninja APP_KEY, Twenty CRM JWT secrets, and NextAuth secrets
+3. Install npm dependencies for the platform, dashboard, client portal, and opencpa
+4. Start all Docker containers
+5. Run Prisma migrations and seed sample data
+
+Wait 2-3 minutes for all services to initialize after the script finishes. Check status:
 
 ```bash
-docker compose ps
+cd infra && docker compose ps
 ```
 
 All containers should show `Up` or `Up (healthy)`.
+
+> **Prefer to do it manually?** See [Manual Secret Generation](#manual-secret-generation) at the bottom of this file.
 
 ### Step 3: Set up the Platform API
 
@@ -179,26 +196,9 @@ Open `http://localhost:3007`.
 
 ### Must-Do (Day Before)
 
-- [ ] **Generate real secrets.** Replace every password in `infra/.env` and every `NEXTAUTH_SECRET` in `dashboard/.env.local`. The shipped defaults are dev-only.
+- [ ] **Run `./setup.sh`** — generates all secrets, installs deps, starts Docker, runs migrations, seeds data. If you already ran it during development, run `./setup.sh --secrets-only` to just regenerate production-strength passwords.
 
-- [ ] **Set the Invoice Ninja APP_KEY.** If you haven't already:
-  ```bash
-  echo "INVOICENINJA_APP_KEY=base64:$(openssl rand -base64 32)" >> infra/.env
-  ```
-
-- [ ] **Set the Twenty CRM secrets.** If blank in `.env`:
-  ```bash
-  echo "TWENTY_ACCESS_TOKEN_SECRET=$(openssl rand -hex 32)" >> infra/.env
-  echo "TWENTY_LOGIN_TOKEN_SECRET=$(openssl rand -hex 32)" >> infra/.env
-  echo "TWENTY_REFRESH_TOKEN_SECRET=$(openssl rand -hex 32)" >> infra/.env
-  ```
-
-- [ ] **Run `docker compose up -d` and verify all containers are healthy.** Some services (Bigcapital, Twenty) can take 60-90 seconds on first start.
-
-- [ ] **Run Prisma migrations and seed.**
-  ```bash
-  cd platform && npx prisma migrate deploy && npx prisma db seed
-  ```
+- [ ] **Verify all containers are healthy:** `cd infra && docker compose ps`. Some services (Bigcapital, Twenty) can take 60-90 seconds on first start.
 
 - [ ] **Set up the firm's data.** Either:
   - Edit `platform/prisma/seed.js` with the real firm name, clients, etc. and re-seed, OR
@@ -385,6 +385,38 @@ The biggest RAM consumers are PostgreSQL, Metabase, and Mattermost. For a demo o
 
 ---
 
+## Manual Secret Generation
+
+If you prefer not to use `setup.sh`, generate secrets by hand:
+
+```bash
+cd infra
+
+# Replace default database passwords in .env with strong randoms
+sed -i "s/POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/BIGCAPITAL_MYSQL_ROOT_PASSWORD=.*/BIGCAPITAL_MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/BIGCAPITAL_MYSQL_PASSWORD=.*/BIGCAPITAL_MYSQL_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/INVOICENINJA_MYSQL_ROOT_PASSWORD=.*/INVOICENINJA_MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/INVOICENINJA_MYSQL_PASSWORD=.*/INVOICENINJA_MYSQL_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/KIMAI_MYSQL_ROOT_PASSWORD=.*/KIMAI_MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/KIMAI_MYSQL_PASSWORD=.*/KIMAI_MYSQL_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/PAPERLESS_ADMIN_PASSWORD=.*/PAPERLESS_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/N8N_BASIC_AUTH_PASSWORD=.*/N8N_BASIC_AUTH_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/KIMAI_ADMIN_PASSWORD=.*/KIMAI_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
+
+# Generate app keys and JWT secrets
+sed -i "s|INVOICENINJA_APP_KEY=.*|INVOICENINJA_APP_KEY=base64:$(openssl rand -base64 32)|" .env
+sed -i "s/TWENTY_ACCESS_TOKEN_SECRET=.*/TWENTY_ACCESS_TOKEN_SECRET=$(openssl rand -hex 32)/" .env
+sed -i "s/TWENTY_LOGIN_TOKEN_SECRET=.*/TWENTY_LOGIN_TOKEN_SECRET=$(openssl rand -hex 32)/" .env
+sed -i "s/TWENTY_REFRESH_TOKEN_SECRET=.*/TWENTY_REFRESH_TOKEN_SECRET=$(openssl rand -hex 32)/" .env
+
+# Generate NextAuth secret
+cd ../dashboard
+sed -i "s/NEXTAUTH_SECRET=.*/NEXTAUTH_SECRET=$(openssl rand -hex 32)/" .env.local
+```
+
+---
+
 ## License
 
-Open source. Individual bundled tools retain their own licenses (Paperless-ngx: GPL-3.0, n8n: Sustainable Use License, Invoice Ninja: AAL, Metabase: AGPL-3.0, etc.). Check each project for details.
+Open source. Individual bundled tools retain their own licenses — see the [Bundled Open-Source Projects](#bundled-open-source-projects) table for each license. Check each project's repository for full terms.
