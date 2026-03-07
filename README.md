@@ -78,16 +78,171 @@ Every tool below is free and self-hosted. No subscriptions, no per-seat fees, no
 
 ---
 
-## Prerequisites
+## Deployment Options
 
-- **Docker** and **Docker Compose** (v2+)
-- **Node.js 18+** and **npm**
-- **8 GB RAM minimum** (16 GB recommended — you're running 9 services + 4 databases)
-- A Linux server or VM (Ubuntu 22.04+ recommended). Works on macOS for dev.
+Maxed can be deployed two ways. Choose the one that fits your situation:
+
+| Option | Best For | Requirements |
+|--------|----------|-------------|
+| **DigitalOcean Droplet** (recommended) | Production, demos, onboarding clients | DigitalOcean account, ~$48/mo for 8GB droplet |
+| **Local (Docker Desktop)** | Development only | 16 GB RAM, Docker Desktop, Windows/macOS |
+
+> **Why DigitalOcean?** Running 9 services + 4 databases needs ~8-16 GB RAM. Most dev laptops struggle with this. A $48/mo DigitalOcean droplet (8 GB) handles it easily, runs 24/7, and is accessible from anywhere.
 
 ---
 
-## Quick Start — Get It Running
+## Quick Start — DigitalOcean Deployment (Recommended)
+
+### Step 1: Create a Droplet
+
+1. Go to [cloud.digitalocean.com](https://cloud.digitalocean.com) and create a new Droplet:
+   - **Image:** Ubuntu 24.04 LTS
+   - **Size:** 8 GB RAM / 4 vCPUs / 160 GB SSD ($48/mo) — or 16 GB for comfortable headroom
+   - **Region:** Pick the closest to your firm
+   - **Authentication:** SSH key (recommended) or password
+
+2. Note your Droplet's IP address (e.g., `164.90.xxx.xxx`).
+
+### Step 2: SSH in and install Docker
+
+```bash
+ssh root@YOUR_DROPLET_IP
+
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+
+# Install Node.js 18+
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+apt-get install -y nodejs
+
+# Verify
+docker --version
+node --version
+```
+
+### Step 3: Clone and run setup
+
+```bash
+git clone https://github.com/your-org/MAXED-OSS.git
+cd MAXED-OSS
+chmod +x setup.sh
+./setup.sh
+```
+
+This will:
+1. Generate strong random passwords for all databases and services
+2. Generate Invoice Ninja APP_KEY, Twenty CRM JWT secrets, NextAuth secrets
+3. Install npm dependencies for platform, dashboard, client portal, and opencpa
+4. Start all Docker containers
+5. Run Prisma migrations and seed sample data (1 firm, 5 clients)
+
+Wait 2-3 minutes for all services to initialize. Check status:
+
+```bash
+cd infra && docker compose ps
+```
+
+All containers should show `Up` or `Up (healthy)`.
+
+### Step 4: Update URLs for your Droplet IP
+
+Replace `localhost` with your Droplet IP in all config files:
+
+```bash
+cd ~/MAXED-OSS
+
+# Set your Droplet IP
+export DROPLET_IP="YOUR_DROPLET_IP"
+
+# Update platform API
+sed -i "s|localhost:5432|localhost:5432|" platform/.env
+
+# Update dashboard env
+sed -i "s|http://localhost:4000|http://$DROPLET_IP:4000|g" dashboard/.env.local
+sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" dashboard/.env.local
+sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" dashboard/.env.local
+sed -i "s|http://localhost:3003|http://$DROPLET_IP:3003|g" dashboard/.env.local
+sed -i "s|http://localhost:3002|http://$DROPLET_IP:3002|g" dashboard/.env.local
+sed -i "s|http://localhost:5678|http://$DROPLET_IP:5678|g" dashboard/.env.local
+sed -i "s|http://localhost:8065|http://$DROPLET_IP:8065|g" dashboard/.env.local
+sed -i "s|http://localhost:8001|http://$DROPLET_IP:8001|g" dashboard/.env.local
+sed -i "s|http://localhost:3004|http://$DROPLET_IP:3004|g" dashboard/.env.local
+sed -i "s|http://localhost:3005|http://$DROPLET_IP:3005|g" dashboard/.env.local
+
+# Update client portal env
+sed -i "s|http://localhost:4000|http://$DROPLET_IP:4000|g" client-portal/.env.local
+sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" client-portal/.env.local
+sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" client-portal/.env.local
+sed -i "s|http://localhost:3003|http://$DROPLET_IP:3003|g" client-portal/.env.local
+
+# Update docker services that reference localhost
+sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" infra/docker-compose.yml
+sed -i "s|http://localhost:5678|http://$DROPLET_IP:5678|g" infra/docker-compose.yml
+sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" infra/docker-compose.yml
+sed -i "s|http://localhost:3004|http://$DROPLET_IP:3004|g" infra/docker-compose.yml
+sed -i "s|http://localhost:8065|http://$DROPLET_IP:8065|g" infra/docker-compose.yml
+
+# Restart Docker services with updated URLs
+cd infra && docker compose down && docker compose up -d
+```
+
+### Step 5: Open firewall ports
+
+```bash
+ufw allow 22/tcp     # SSH
+ufw allow 3000:9000/tcp  # All service ports
+ufw enable
+```
+
+> For production, use nginx reverse proxy (already included in `infra/nginx/`) and only expose 80/443.
+
+### Step 6: Start the Platform API + Apps
+
+```bash
+cd ~/MAXED-OSS
+
+# Start the API (background)
+cd platform && npm start &
+
+# Start the dashboard (background)
+cd ../dashboard && npm run dev &
+
+# Start the client portal (background)
+cd ../client-portal && npm run dev &
+```
+
+> **Tip:** For production, use `pm2` to keep these running:
+> ```bash
+> npm install -g pm2
+> cd ~/MAXED-OSS/platform && pm2 start server.js --name maxed-api
+> cd ~/MAXED-OSS/dashboard && pm2 start npm --name maxed-dashboard -- run dev
+> cd ~/MAXED-OSS/client-portal && pm2 start npm --name maxed-portal -- run dev
+> ```
+
+### Step 7: Access everything
+
+Open these URLs in your browser (replace `YOUR_DROPLET_IP`):
+
+| Service | URL |
+|---------|-----|
+| **Dashboard** | `http://YOUR_DROPLET_IP:3005` |
+| **Client Portal** | `http://YOUR_DROPLET_IP:3006` |
+| **Platform API** | `http://YOUR_DROPLET_IP:4000/health` |
+| **Bigcapital** | `http://YOUR_DROPLET_IP:3001` |
+| **Paperless-ngx** | `http://YOUR_DROPLET_IP:8000` |
+| **n8n** | `http://YOUR_DROPLET_IP:5678` |
+| **Metabase** | `http://YOUR_DROPLET_IP:3002` |
+| **DocuSeal** | `http://YOUR_DROPLET_IP:3003` |
+| **Invoice Ninja** | `http://YOUR_DROPLET_IP:8080` |
+| **Twenty CRM** | `http://YOUR_DROPLET_IP:3004` |
+| **Kimai** | `http://YOUR_DROPLET_IP:8001` |
+| **Mattermost** | `http://YOUR_DROPLET_IP:8065` |
+
+---
+
+## Quick Start — Local Development (Docker Desktop)
+
+> **Warning:** Running all 9 services locally requires 16 GB RAM minimum. If your machine has 8 GB or less, use the DigitalOcean deployment above.
 
 ### Step 1: Clone and enter the repo
 
@@ -98,28 +253,15 @@ cd MAXED-OSS
 
 ### Step 2: Run the setup script
 
-The setup script generates all secrets, installs dependencies, runs database migrations, and seeds sample data — one command:
-
 ```bash
 ./setup.sh
 ```
 
-This will:
-1. Generate strong random passwords for all databases and services in `infra/.env`
-2. Generate the Invoice Ninja APP_KEY, Twenty CRM JWT secrets, and NextAuth secrets
-3. Install npm dependencies for the platform, dashboard, client portal, and opencpa
-4. Start all Docker containers
-5. Run Prisma migrations and seed sample data
-
-Wait 2-3 minutes for all services to initialize after the script finishes. Check status:
+Wait 2-3 minutes for all services to initialize. Check status:
 
 ```bash
 cd infra && docker compose ps
 ```
-
-All containers should show `Up` or `Up (healthy)`.
-
-> **Prefer to do it manually?** See [Manual Secret Generation](#manual-secret-generation) at the bottom of this file.
 
 ### Step 3: Set up the Platform API
 
@@ -149,10 +291,6 @@ npm run dev
 
 Open `http://localhost:3005` in your browser.
 
-**Login credentials:**
-- Email: `admin@maxed.dev`
-- Password: `maxed2024`
-
 ### Step 5: Start the Client Portal
 
 ```bash
@@ -179,16 +317,18 @@ Open `http://localhost:3007`.
 
 | Service | URL | Username | Password |
 |---------|-----|----------|----------|
-| **Dashboard** | http://localhost:3005 | `admin@maxed.dev` | `maxed2024` |
-| **Paperless-ngx** | http://localhost:8000 | `admin` | `maxed2024` |
-| **n8n** | http://localhost:5678 | `admin` | `maxed2024` |
-| **Invoice Ninja** | http://localhost:8080 | `admin@maxed.dev` | `maxed2024` |
-| **Kimai** | http://localhost:8001 | `admin@maxed.dev` | `maxed2024` |
-| **Bigcapital** | http://localhost:3001 | *(create on first visit)* | |
-| **Metabase** | http://localhost:3002 | *(create on first visit)* | |
-| **DocuSeal** | http://localhost:3003 | *(create on first visit)* | |
-| **Twenty CRM** | http://localhost:3004 | *(create on first visit)* | |
-| **Mattermost** | http://localhost:8065 | *(create on first visit)* | |
+| **Dashboard** | :3005 | `admin@maxed.dev` | `maxed2024` |
+| **Paperless-ngx** | :8000 | `admin` | `maxed2024` |
+| **n8n** | :5678 | `admin` | `maxed2024` |
+| **Invoice Ninja** | :8080 | `admin@maxed.dev` | `maxed2024` |
+| **Kimai** | :8001 | `admin@maxed.dev` | `maxed2024` |
+| **Bigcapital** | :3001 | *(create on first visit)* | |
+| **Metabase** | :3002 | *(create on first visit)* | |
+| **DocuSeal** | :3003 | *(create on first visit)* | |
+| **Twenty CRM** | :3004 | *(create on first visit)* | |
+| **Mattermost** | :8065 | *(create on first visit)* | |
+
+> **Note:** If you ran `./setup.sh`, passwords were regenerated. Check the terminal output for the new shared admin password, or look in `infra/.env`.
 
 ---
 
@@ -204,23 +344,23 @@ Open `http://localhost:3007`.
   - Edit `platform/prisma/seed.js` with the real firm name, clients, etc. and re-seed, OR
   - Use the Dashboard UI to create the firm and add clients manually.
 
-- [ ] **Import n8n workflows.** Go to `http://localhost:5678`, import the three JSON files from `platform/n8n-workflows/`:
+- [ ] **Import n8n workflows.** Go to n8n (:5678), import the three JSON files from `platform/n8n-workflows/`:
   1. `new-client-sync.json` — auto-creates clients in Invoice Ninja + Paperless when added via API
   2. `document-auto-tag.json` — auto-tags documents after OCR
   3. `daily-financial-sync.json` — syncs financial data from Bigcapital nightly
 
   After importing, update the credential/environment variables inside n8n for each workflow.
 
-- [ ] **Configure Metabase.** On first visit to `http://localhost:3002`:
+- [ ] **Configure Metabase.** On first visit to :3002:
   1. Create an admin account
-  2. Connect it to the PostgreSQL database (`host: postgres`, `port: 5432`, `db: maxed_unified`, `user: maxed`, `pass: maxed_dev_2024`)
+  2. Connect it to the PostgreSQL database (`host: postgres`, `port: 5432`, `db: maxed_unified`, `user: maxed`, `pass: <from infra/.env>`)
   3. Build the four dashboards referenced in the Dashboard (Revenue, Clients, Invoices, Advisory) or use Metabase's auto-dashboard feature
 
-- [ ] **Configure Bigcapital.** Visit `http://localhost:3001`, create an organization, set up chart of accounts. This becomes the firm's bookkeeping system.
+- [ ] **Configure Bigcapital.** Visit :3001, create an organization, set up chart of accounts. This becomes the firm's bookkeeping system.
 
-- [ ] **Configure DocuSeal.** Visit `http://localhost:3003`, create templates for engagement letters and proposals.
+- [ ] **Configure DocuSeal.** Visit :3003, create templates for engagement letters and proposals.
 
-- [ ] **Configure Mattermost.** Visit `http://localhost:8065`, create the workspace, invite team members, create channels.
+- [ ] **Configure Mattermost.** Visit :8065, create the workspace, invite team members, create channels.
 
 ### Production Deployment Checklist
 
@@ -234,7 +374,7 @@ Open `http://localhost:3007`.
     -d time.maxed.dev -d opencpa.maxed.dev
   ```
 
-- [ ] **Update all `.env.local` URLs.** Replace `localhost` with your actual domain in:
+- [ ] **Update all `.env.local` URLs.** Replace `localhost` or Droplet IP with your actual domain in:
   - `dashboard/.env.local`
   - `client-portal/.env.local`
   - `platform/.env`
@@ -248,6 +388,16 @@ Open `http://localhost:3007`.
   cd opencpa && npm run build && npm start
   ```
 
+- [ ] **Use pm2 for process management.**
+  ```bash
+  npm install -g pm2
+  pm2 start platform/server.js --name maxed-api
+  cd dashboard && pm2 start npm --name maxed-dashboard -- start
+  cd client-portal && pm2 start npm --name maxed-portal -- start
+  pm2 save
+  pm2 startup  # auto-start on reboot
+  ```
+
 - [ ] **Set up backups.** At minimum, back up:
   - PostgreSQL: `pg_dump` all 6 databases
   - MySQL: `mysqldump` for bigcapital, invoiceninja, kimai
@@ -259,7 +409,7 @@ Open `http://localhost:3007`.
 
 ## API Endpoints Reference
 
-Base URL: `http://localhost:4000`
+Base URL: `http://YOUR_SERVER:4000`
 
 ```
 GET    /health                           Health check
@@ -361,13 +511,13 @@ MAXED-OSS/
 
 ## Hardware Recommendations
 
-| Deployment | RAM | CPU | Storage |
-|-----------|-----|-----|---------|
-| Dev/Demo | 8 GB | 2 cores | 20 GB |
-| Small firm (1-5 staff) | 16 GB | 4 cores | 100 GB SSD |
-| Mid firm (5-20 staff) | 32 GB | 8 cores | 250 GB SSD |
+| Deployment | RAM | CPU | Storage | Cost |
+|-----------|-----|-----|---------|------|
+| **DigitalOcean (recommended)** | 8 GB | 4 vCPUs | 160 GB SSD | ~$48/mo |
+| DigitalOcean (comfortable) | 16 GB | 8 vCPUs | 320 GB SSD | ~$96/mo |
+| Local Dev/Demo | 16 GB+ | 4+ cores | 20 GB | Your machine |
 
-The biggest RAM consumers are PostgreSQL, Metabase, and Mattermost. For a demo or small firm, 16 GB is comfortable.
+The biggest RAM consumers are PostgreSQL, Metabase, and Mattermost. For a demo or small firm, 8 GB on DigitalOcean is sufficient.
 
 ---
 
@@ -375,13 +525,17 @@ The biggest RAM consumers are PostgreSQL, Metabase, and Mattermost. For a demo o
 
 **Container won't start:** Check logs with `docker compose logs <service-name>`. Most issues are database connection timing — restart the specific service: `docker compose restart <service-name>`.
 
-**Prisma migration fails:** Make sure PostgreSQL is running and the `DATABASE_URL` in `platform/.env` is correct. The database must exist first (created by `init-databases.sql`).
+**Prisma migration fails:** Make sure PostgreSQL is running and the `DATABASE_URL` in `platform/.env` is correct. The database must exist first (created by `init-databases.sql`). If using DigitalOcean, `DATABASE_URL` should point to `localhost:5432` (Prisma runs on the same server as Docker).
 
-**Dashboard shows "Failed to fetch" errors:** The Platform API isn't running or the URL in `dashboard/.env.local` is wrong. Check that `http://localhost:4000/health` returns OK.
+**Dashboard shows "Failed to fetch" errors:** The Platform API isn't running or the URL in `dashboard/.env.local` is wrong. Check that `http://YOUR_SERVER:4000/health` returns OK.
 
 **Invoice Ninja 500 errors:** The `APP_KEY` is likely missing. Generate it and restart: `docker compose restart invoiceninja`.
 
 **Twenty CRM won't load:** Token secrets may be blank. Generate them, then `docker compose restart twenty`.
+
+**Docker Desktop disk corruption (Windows):** If you see `input/output error` during pulls, Docker Desktop's virtual disk is corrupted. Quit Docker Desktop → `wsl --shutdown` → Docker Desktop Settings → Troubleshoot → Clean/Purge data → Restart. Consider using DigitalOcean instead to avoid local resource issues.
+
+**WSL2 won't start (0x800705aa):** Your machine is low on RAM. Close heavy apps, reboot, or switch to DigitalOcean deployment.
 
 ---
 
