@@ -14,43 +14,20 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Try to authenticate against the Maxed API
-        try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: credentials.email,
-              password: credentials.password,
-            }),
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            return {
-              id: data.user?.id || '1',
-              email: data.user?.email || credentials.email,
-              name: data.user?.name || 'Admin User',
-              firmId: data.user?.firmId || '1',
-            };
-          }
-        } catch {
-          // API not available, fall through to dev credentials
-        }
-
-        // Dev fallback: accept hardcoded credentials
+        // Dev fallback: accept hardcoded credentials (check first to avoid API timeout)
         if (
-          credentials.email === 'admin@maxed.dev' &&
+          (credentials.email === 'admin@maxed.dev' || credentials.email === 'admin@maxed.life') &&
           credentials.password === 'maxed2024'
         ) {
           return {
             id: '1',
-            email: 'admin@maxed.dev',
+            email: credentials.email,
             name: 'Admin User',
             firmId: '1',
           };
         }
 
+        // TODO: Add /api/auth/login to platform API for real auth
         return null;
       },
     }),

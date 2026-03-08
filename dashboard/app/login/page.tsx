@@ -2,12 +2,11 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = '/dashboard';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,7 +28,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
-      setError('Invalid email or password. Try admin@maxed.dev / maxed2024');
+      setError('Invalid email or password. Try admin@maxed.dev or admin@maxed.life / maxed2024');
     } else if (result?.ok) {
       router.push(callbackUrl);
     }
@@ -110,7 +109,7 @@ export default function LoginPage() {
 
           <div className="mt-6 pt-6 border-t border-gray-100">
             <p className="text-xs text-gray-400 text-center">
-              Dev credentials: admin@maxed.dev / maxed2024
+              Dev credentials: admin@maxed.dev or admin@maxed.life / maxed2024
             </p>
           </div>
         </div>
