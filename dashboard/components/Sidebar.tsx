@@ -4,6 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+const MODULE_URLS: Record<string, string> = {
+  NEXT_PUBLIC_MATTERMOST_URL: process.env.NEXT_PUBLIC_MATTERMOST_URL || '/dashboard/chat',
+  NEXT_PUBLIC_KIMAI_URL: process.env.NEXT_PUBLIC_KIMAI_URL || '/dashboard/time-tracking',
+  NEXT_PUBLIC_TWENTY_URL: process.env.NEXT_PUBLIC_TWENTY_URL || '/dashboard/crm',
+};
+
 const navItems = [
   {
     name: 'Dashboard',
@@ -153,10 +159,11 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           if (item.external) {
+            const resolvedUrl = MODULE_URLS[item.externalUrl!] || item.href;
             return (
               <a
                 key={item.name}
-                href={typeof window !== 'undefined' ? (process.env[item.externalUrl!] || item.href) : item.href}
+                href={resolvedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="sidebar-link"

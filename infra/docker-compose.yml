@@ -173,6 +173,10 @@ services:
     restart: unless-stopped
     ports:
       - "3003:3000"
+    environment:
+      HOST: sign.maxed.life
+      FORCE_SSL: "true"
+      SECRET_KEY_BASE: ${DOCUSEAL_SECRET_KEY_BASE}
     volumes:
       - docuseal_data:/data
 
