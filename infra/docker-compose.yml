@@ -103,7 +103,7 @@ services:
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_OCR_LANGUAGE: eng
-      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_URL: https://docs.maxed.life
     volumes:
       - paperless_data:/usr/src/paperless/data
       - paperless_media:/usr/src/paperless/media
@@ -135,7 +135,7 @@ services:
       N8N_BASIC_AUTH_ACTIVE: "true"
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
-      WEBHOOK_URL: http://localhost:5678
+      WEBHOOK_URL: https://flow.maxed.life
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -204,15 +204,15 @@ services:
     ports:
       - "8080:80"
     environment:
-      APP_URL: http://localhost:8080
+      APP_URL: https://billing.maxed.life
       APP_KEY: ${INVOICENINJA_APP_KEY}
       DB_HOST: invoiceninja-mysql
       DB_PORT: 3306
       DB_DATABASE: ${INVOICENINJA_MYSQL_DATABASE}
       DB_USERNAME: ${INVOICENINJA_MYSQL_USER}
       DB_PASSWORD: ${INVOICENINJA_MYSQL_PASSWORD}
-      IN_USER_EMAIL: admin@maxed.dev
-      IN_PASSWORD: maxed2024
+      IN_USER_EMAIL: ${INVOICENINJA_ADMIN_EMAIL:-admin@maxed.life}
+      IN_PASSWORD: ${INVOICENINJA_ADMIN_PASSWORD}
       REQUIRE_HTTPS: "false"
     volumes:
       - invoiceninja_public:/var/www/app/public
@@ -236,8 +236,8 @@ services:
       ACCESS_TOKEN_SECRET: ${TWENTY_ACCESS_TOKEN_SECRET}
       LOGIN_TOKEN_SECRET: ${TWENTY_LOGIN_TOKEN_SECRET}
       REFRESH_TOKEN_SECRET: ${TWENTY_REFRESH_TOKEN_SECRET}
-      FRONT_BASE_URL: http://localhost:3004
-      SERVER_URL: http://localhost:3004
+      FRONT_BASE_URL: https://crm.maxed.life
+      SERVER_URL: https://crm.maxed.life
     depends_on:
       postgres:
         condition: service_healthy
@@ -290,7 +290,7 @@ services:
     environment:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
-      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_SITEURL: https://chat.maxed.life
     volumes:
       - mattermost_config:/mattermost/config
       - mattermost_data:/mattermost/data
@@ -299,6 +299,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # ============================================
+  # NGINX (Reverse Proxy)
+  # ============================================
+
+  nginx:
+    image: nginx:alpine
+    container_name: maxed-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - postgres
+      - redis
 
 volumes:
   postgres_data:
