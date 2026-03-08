@@ -1,13 +1,13 @@
 'use client';
 
-const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678';
+const TWENTY_URL = process.env.NEXT_PUBLIC_TWENTY_URL || 'http://localhost:3004';
 
-export default function WorkflowsPage() {
+export default function CRMPage() {
   return (
     <div className="h-[calc(100vh-4rem)]">
       <iframe
-        src={N8N_URL}
-        title="Workflow Automation"
+        src={TWENTY_URL}
+        title="CRM"
         className="w-full h-full border-0"
         allow="fullscreen"
       />
