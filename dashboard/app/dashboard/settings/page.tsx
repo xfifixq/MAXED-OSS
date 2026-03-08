@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 
 interface TeamMember {
   id: string;
@@ -73,9 +74,7 @@ export default function SettingsPage() {
           </div>
           <div className="text-right">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-50 text-brand-700 text-sm font-semibold">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+              <Image src="/maxed_acc_logo.png" alt="" width={16} height={16} className="w-4 h-4 object-contain" />
               Pro
             </span>
             <p className="text-xs text-gray-500 mt-1">$199/month</p>

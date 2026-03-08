@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: 'Client Portal | MAXED Financial',
   description: 'Securely access your financial documents, invoices, and communicate with your accounting team.',
   viewport: 'width=device-width, initial-scale=1',
+  icons: {
+    icon: '/maxed_acc_logo.png',
+    apple: '/maxed_acc_logo.png',
+  },
 };
 
 export default function RootLayout({

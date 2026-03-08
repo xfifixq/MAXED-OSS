@@ -10,6 +10,10 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: 'OpenCPA — Cut Your CPA Software Costs by 50-80%',
+  icons: {
+    icon: '/maxed_acc_logo.png',
+    apple: '/maxed_acc_logo.png',
+  },
   description:
     'CPA firms spend $20,000–$76,000/year on fragmented software. OpenCPA maps every commercial tool to a free or low-cost open-source alternative so you can cut your software costs by 50-80%.',
   keywords: [
