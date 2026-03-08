@@ -312,11 +312,12 @@ services:
     image: nginx:alpine
     container_name: maxed-nginx
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL: mount these after running setup-ssl.sh on the server
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - postgres
       - redis

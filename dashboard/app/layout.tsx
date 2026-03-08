@@ -4,6 +4,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Maxed Platform - CPA Firm Dashboard',
   description: 'Unified dashboard for CPA firm management, advisory, and automation.',
+  icons: {
+    icon: '/maxed_acc_logo.png',
+    apple: '/maxed_acc_logo.png',
+  },
 };
 
 export default function RootLayout({

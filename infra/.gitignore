@@ -1,0 +1,2 @@
+# Infra env - contains DB passwords and secrets
+.env

@@ -146,41 +146,42 @@ All containers should show `Up` or `Up (healthy)`.
 
 ### Step 4: Update URLs for your Droplet IP
 
-Replace `localhost` with your Droplet IP in all config files:
+Replace `157.245.116.168` with your Droplet IP in all config files:
 
 ```bash
+
 cd ~/MAXED-OSS
 
 # Set your Droplet IP
 export DROPLET_IP="YOUR_DROPLET_IP"
 
 # Update platform API
-sed -i "s|localhost:5432|localhost:5432|" platform/.env
+sed -i "s|157.245.116.168:5432|157.245.116.168:5432|" platform/.env
 
 # Update dashboard env
-sed -i "s|http://localhost:4000|http://$DROPLET_IP:4000|g" dashboard/.env.local
-sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" dashboard/.env.local
-sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" dashboard/.env.local
-sed -i "s|http://localhost:3003|http://$DROPLET_IP:3003|g" dashboard/.env.local
-sed -i "s|http://localhost:3002|http://$DROPLET_IP:3002|g" dashboard/.env.local
-sed -i "s|http://localhost:5678|http://$DROPLET_IP:5678|g" dashboard/.env.local
-sed -i "s|http://localhost:8065|http://$DROPLET_IP:8065|g" dashboard/.env.local
-sed -i "s|http://localhost:8001|http://$DROPLET_IP:8001|g" dashboard/.env.local
-sed -i "s|http://localhost:3004|http://$DROPLET_IP:3004|g" dashboard/.env.local
-sed -i "s|http://localhost:3005|http://$DROPLET_IP:3005|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:4000|http://$DROPLET_IP:4000|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:8000|http://$DROPLET_IP:8000|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:8080|http://$DROPLET_IP:8080|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:3003|http://$DROPLET_IP:3003|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:3002|http://$DROPLET_IP:3002|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:5678|http://$DROPLET_IP:5678|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:8065|http://$DROPLET_IP:8065|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:8001|http://$DROPLET_IP:8001|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:3004|http://$DROPLET_IP:3004|g" dashboard/.env.local
+sed -i "s|http://157.245.116.168:3005|http://$DROPLET_IP:3005|g" dashboard/.env.local
 
 # Update client portal env
-sed -i "s|http://localhost:4000|http://$DROPLET_IP:4000|g" client-portal/.env.local
-sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" client-portal/.env.local
-sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" client-portal/.env.local
-sed -i "s|http://localhost:3003|http://$DROPLET_IP:3003|g" client-portal/.env.local
+sed -i "s|http://157.245.116.168:4000|http://$DROPLET_IP:4000|g" client-portal/.env.local
+sed -i "s|http://157.245.116.168:8000|http://$DROPLET_IP:8000|g" client-portal/.env.local
+sed -i "s|http://157.245.116.168:8080|http://$DROPLET_IP:8080|g" client-portal/.env.local
+sed -i "s|http://157.245.116.168:3003|http://$DROPLET_IP:3003|g" client-portal/.env.local
 
-# Update docker services that reference localhost
-sed -i "s|http://localhost:8000|http://$DROPLET_IP:8000|g" infra/docker-compose.yml
-sed -i "s|http://localhost:5678|http://$DROPLET_IP:5678|g" infra/docker-compose.yml
-sed -i "s|http://localhost:8080|http://$DROPLET_IP:8080|g" infra/docker-compose.yml
-sed -i "s|http://localhost:3004|http://$DROPLET_IP:3004|g" infra/docker-compose.yml
-sed -i "s|http://localhost:8065|http://$DROPLET_IP:8065|g" infra/docker-compose.yml
+# Update docker services that reference 157.245.116.168
+sed -i "s|http://157.245.116.168:8000|http://$DROPLET_IP:8000|g" infra/docker-compose.yml
+sed -i "s|http://157.245.116.168:5678|http://$DROPLET_IP:5678|g" infra/docker-compose.yml
+sed -i "s|http://157.245.116.168:8080|http://$DROPLET_IP:8080|g" infra/docker-compose.yml
+sed -i "s|http://157.245.116.168:3004|http://$DROPLET_IP:3004|g" infra/docker-compose.yml
+sed -i "s|http://157.245.116.168:8065|http://$DROPLET_IP:8065|g" infra/docker-compose.yml
 
 # Restart Docker services with updated URLs
 cd infra && docker compose down && docker compose up -d
@@ -279,7 +280,7 @@ npx prisma db seed
 npm start
 ```
 
-The API is now running on `http://localhost:4000`. Verify: `curl http://localhost:4000/health`
+The API is now running on `http://157.245.116.168:4000`. Verify: `curl http://157.245.116.168:4000/health`
 
 ### Step 4: Start the Dashboard
 
@@ -289,7 +290,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3005` in your browser.
+Open `http://157.245.116.168:3005` in your browser.
 
 ### Step 5: Start the Client Portal
 
@@ -299,7 +300,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3006`.
+Open `http://157.245.116.168:3006`.
 
 ### Step 6: (Optional) Start the OpenCPA marketing site
 
@@ -309,7 +310,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3007`.
+Open `http://157.245.116.168:3007`.
 
 ---
 
@@ -317,7 +318,7 @@ Open `http://localhost:3007`.
 
 | Service | URL | Username | Password |
 |---------|-----|----------|----------|
-| **Dashboard** | :3005 | `admin@maxed.dev` | `maxed2024` |
+| **Dashboard** | :3005 | `admin@maxed.dev` or `admin@maxed.life` | `maxed2024` |
 | **Paperless-ngx** | :8000 | `admin` | `maxed2024` |
 | **n8n** | :5678 | `admin` | `maxed2024` |
 | **Invoice Ninja** | :8080 | `admin@maxed.dev` | `maxed2024` |
@@ -362,41 +363,156 @@ Open `http://localhost:3007`.
 
 - [ ] **Configure Mattermost.** Visit :8065, create the workspace, invite team members, create channels.
 
-### Production Deployment Checklist
+### Production Deployment Guide (Step-by-Step)
 
-- [ ] **DNS.** Point `*.maxed.dev` (or your domain) to your server IP. Each subdomain maps to a service — see the nginx config.
+This section documents the full production deployment process for `*.maxed.life` (or your domain) on a DigitalOcean droplet. Follow these steps in order.
 
-- [ ] **SSL/TLS.** Uncomment the SSL block in `infra/nginx/nginx.conf` and set up Let's Encrypt:
-  ```bash
-  certbot certonly --standalone -d app.maxed.dev -d portal.maxed.dev -d api.maxed.dev \
-    -d books.maxed.dev -d docs.maxed.dev -d flow.maxed.dev -d reports.maxed.dev \
-    -d sign.maxed.dev -d billing.maxed.dev -d crm.maxed.dev -d chat.maxed.dev \
-    -d time.maxed.dev -d opencpa.maxed.dev
-  ```
+#### 1. Server Setup
 
-- [ ] **Update all `.env.local` URLs.** Replace `localhost` or Droplet IP with your actual domain in:
-  - `dashboard/.env.local`
-  - `client-portal/.env.local`
-  - `platform/.env`
+```bash
+ssh root@YOUR_SERVER_IP
 
-- [ ] **Update nginx `proxy_pass` entries.** For production, services talk to each other inside Docker — the config already handles this for most services, but `host.docker.internal` entries (dashboard, portal, API) need to be updated if those apps run inside Docker too.
+# Install Docker
+curl -fsSL https://get.docker.com | sh
 
-- [ ] **Build Next.js apps for production.**
-  ```bash
-  cd dashboard && npm run build && npm start
-  cd client-portal && npm run build && npm start
-  cd opencpa && npm run build && npm start
-  ```
+# Install Node.js 18+
+curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+apt-get install -y nodejs
 
-- [ ] **Use pm2 for process management.**
-  ```bash
-  npm install -g pm2
-  pm2 start platform/server.js --name maxed-api
-  cd dashboard && pm2 start npm --name maxed-dashboard -- start
-  cd client-portal && pm2 start npm --name maxed-portal -- start
-  pm2 save
-  pm2 startup  # auto-start on reboot
-  ```
+# Verify
+docker --version && node --version
+```
+
+#### 2. Clone and Configure Environment
+
+```bash
+git clone https://github.com/your-org/MAXED-OSS.git
+cd MAXED-OSS
+```
+
+**Create env files** (they are gitignored — copy from `.env.example` or create manually):
+
+- **`infra/.env`** — Regenerate all passwords with `openssl rand -base64 24`. Required: `POSTGRES_PASSWORD`, `BIGCAPITAL_MYSQL_*`, `INVOICENINJA_MYSQL_*`, `KIMAI_MYSQL_*`, `PAPERLESS_ADMIN_PASSWORD`, `N8N_BASIC_AUTH_PASSWORD`, `KIMAI_ADMIN_PASSWORD`, `KIMAI_ADMIN_EMAIL=admin@maxed.life`. Generate `INVOICENINJA_APP_KEY=base64:$(openssl rand -base64 32)` and Twenty secrets with `openssl rand -hex 32`. Update `MM_SQLSETTINGS_DATASOURCE` to use the new Postgres password (URL-encode special chars: `/` → `%2F`, `+` → `%2B`).
+
+- **`dashboard/.env.local`** — Set `NEXT_PUBLIC_*` URLs to `https://*.maxed.life`, `NEXTAUTH_SECRET` (from `openssl rand -base64 32`), `NEXTAUTH_URL=https://app.maxed.life`.
+
+- **`client-portal/.env.local`** — Same `NEXT_PUBLIC_*` URLs.
+
+- **`platform/.env`** — Keep `DATABASE_URL` pointing to `localhost:5432` (API runs on same host as Postgres).
+
+#### 3. Start Docker Infrastructure
+
+```bash
+cd ~/MAXED-OSS/infra
+chmod +x start.sh
+./start.sh   # Generates missing secrets, starts all containers
+```
+
+Wait 2–3 minutes. Verify: `docker compose ps` — all should show `Up`.
+
+#### 4. Fix nginx for Production (Linux)
+
+The default nginx config uses `host.docker.internal`, which fails on Linux. Apply these fixes:
+
+**docker-compose.yml** — Add `network_mode: host` to the nginx service (remove `ports:` if present).
+
+**nginx/nginx.conf** — Replace all `host.docker.internal` and Docker service names with `127.0.0.1` and the correct host ports:
+
+```bash
+cd ~/MAXED-OSS/infra
+sed -i 's/host\.docker\.internal/127.0.0.1/g' nginx/nginx.conf
+sed -i 's/bigcapital-webapp:3001/127.0.0.1:3001/g' nginx/nginx.conf
+sed -i 's/paperless:8000/127.0.0.1:8000/g' nginx/nginx.conf
+sed -i 's/n8n:5678/127.0.0.1:5678/g' nginx/nginx.conf
+sed -i 's/metabase:3000/127.0.0.1:3002/g' nginx/nginx.conf
+sed -i 's/docuseal:3000/127.0.0.1:3003/g' nginx/nginx.conf
+sed -i 's/invoiceninja:80/127.0.0.1:8080/g' nginx/nginx.conf
+sed -i 's/twenty:3000/127.0.0.1:3004/g' nginx/nginx.conf
+sed -i 's/mattermost:8065/127.0.0.1:8065/g' nginx/nginx.conf
+sed -i 's/kimai:8001/127.0.0.1:8001/g' nginx/nginx.conf
+```
+
+#### 5. Build and Run Node Apps
+
+```bash
+cd ~/MAXED-OSS
+
+# Platform API
+cd platform && npm install && npm start &
+
+# Dashboard (remove output: 'standalone' from next.config.js if present)
+cd ../dashboard && npm install && npm run build
+
+# Client portal
+cd ../client-portal && npm install && npm run build
+
+# OpenCPA (add -p 3007 to start script if needed)
+cd ../opencpa && npm install && npm run build
+```
+
+#### 6. Start with PM2
+
+```bash
+npm install -g pm2
+
+cd ~/MAXED-OSS/platform
+pm2 start npm --name maxed-api -- start
+
+cd ~/MAXED-OSS/dashboard
+pm2 start npm --name maxed-dashboard -- start
+
+cd ~/MAXED-OSS/client-portal
+pm2 start npm --name maxed-portal -- start
+
+cd ~/MAXED-OSS/opencpa
+pm2 start npm --name maxed-opencpa -- start
+
+pm2 save
+pm2 startup   # Run the command it prints
+```
+
+#### 7. Start nginx
+
+```bash
+cd ~/MAXED-OSS/infra
+docker compose up -d nginx --force-recreate
+```
+
+#### 8. Verify
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1 -H "Host: app.maxed.life"
+# Should return 307 (redirect to login)
+```
+
+#### 9. DNS and SSL
+
+- Point `*.maxed.life` (or your domain) A records to your server IP (e.g. `app.maxed.life`, `api.maxed.life`, etc.).
+- After DNS propagates, run the SSL setup script on the server:
+
+```bash
+cd ~/MAXED-OSS/infra
+chmod +x setup-ssl.sh
+./setup-ssl.sh
+```
+
+This installs certbot, obtains Let's Encrypt certs for all subdomains, and switches nginx to HTTPS with HTTP→HTTPS redirects. Ensure `dashboard/.env.local` has `NEXTAUTH_URL=https://app.maxed.life`.
+
+**Login credentials:** `admin@maxed.dev` or `admin@maxed.life` / `maxed2024`
+
+---
+
+### Production Deployment Checklist (Summary)
+
+- [ ] **DNS.** Point `*.maxed.dev` (or your domain) to your server IP.
+
+- [ ] **SSL/TLS.** Uncomment the SSL block in `infra/nginx/nginx.conf` and set up Let's Encrypt (see Step 9 above).
+
+- [ ] **Update all `.env.local` URLs** to use your production domain (e.g. `https://api.maxed.life`).
+
+- [ ] **nginx config.** Use `network_mode: host` and `127.0.0.1` for all upstreams (see Step 4).
+
+- [ ] **Build Next.js apps** with `npm run build`, then run with `npm start` via pm2.
 
 - [ ] **Set up backups.** At minimum, back up:
   - PostgreSQL: `pg_dump` all 6 databases
@@ -525,7 +641,7 @@ The biggest RAM consumers are PostgreSQL, Metabase, and Mattermost. For a demo o
 
 **Container won't start:** Check logs with `docker compose logs <service-name>`. Most issues are database connection timing — restart the specific service: `docker compose restart <service-name>`.
 
-**Prisma migration fails:** Make sure PostgreSQL is running and the `DATABASE_URL` in `platform/.env` is correct. The database must exist first (created by `init-databases.sql`). If using DigitalOcean, `DATABASE_URL` should point to `localhost:5432` (Prisma runs on the same server as Docker).
+**Prisma migration fails:** Make sure PostgreSQL is running and the `DATABASE_URL` in `platform/.env` is correct. The database must exist first (created by `init-databases.sql`). If using DigitalOcean, `DATABASE_URL` should point to `157.245.116.168:5432` (Prisma runs on the same server as Docker).
 
 **Dashboard shows "Failed to fetch" errors:** The Platform API isn't running or the URL in `dashboard/.env.local` is wrong. Check that `http://YOUR_SERVER:4000/health` returns OK.
 

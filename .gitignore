@@ -1,0 +1,14 @@
+node_modules
+
+# Environment files - NEVER commit (contain secrets)
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+**/.env
+**/.env.local
+**/.env.*.local

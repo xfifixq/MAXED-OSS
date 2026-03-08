@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function HomePage() {
@@ -23,8 +24,8 @@ export default function HomePage() {
       <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white/80 backdrop-blur-lg">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600">
-              <span className="text-lg font-bold text-white">O</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden bg-[#0a0a0a]">
+              <Image src="/maxed_acc_logo.png" alt="Maxed" width={36} height={36} className="object-contain p-0.5" />
             </div>
             <span className="text-xl font-bold text-gray-900">OpenCPA</span>
           </Link>

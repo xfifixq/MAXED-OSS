@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { signOut } from 'next-auth/react';
 
 export default function TopBar() {
@@ -12,6 +13,7 @@ export default function TopBar() {
       <div className="flex items-center justify-between">
         {/* Firm name */}
         <div className="flex items-center gap-3 pl-10 lg:pl-0">
+          <Image src="/maxed_acc_logo.png" alt="Maxed" width={80} height={32} className="h-8 w-auto" />
           <h2 className="text-lg font-semibold text-gray-900">Maxed CPA</h2>
           <span className="badge-blue hidden sm:inline-flex">Pro Plan</span>
         </div>
