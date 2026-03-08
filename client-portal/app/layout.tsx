@@ -25,6 +25,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
+      <head>
+        <link rel="icon" href="/maxed_acc_logo.png" type="image/png" sizes="any" />
+        <link rel="apple-touch-icon" href="/maxed_acc_logo.png" />
+      </head>
       <body className={`${inter.className} min-h-screen`}>
         {children}
       </body>

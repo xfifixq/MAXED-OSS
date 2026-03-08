@@ -122,10 +122,8 @@ export default function HomePage() {
               </p>
             </div>
             <div className="card text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#0a0a0a] overflow-hidden">
+                <Image src="/maxed_acc_logo.png" alt="Maxed" width={48} height={48} className="object-contain p-1" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900">Instant Report</h3>
               <p className="mt-2 text-sm text-gray-600">
