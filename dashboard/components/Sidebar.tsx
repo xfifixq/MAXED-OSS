@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -136,10 +137,8 @@ export default function Sidebar() {
     <>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 flex-shrink-0">
-          <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
+        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-[#0a0a0a] flex-shrink-0 overflow-hidden">
+          <Image src="/maxed_acc_logo.png" alt="Maxed" width={36} height={36} className="object-contain p-0.5" />
         </div>
         {!collapsed && (
           <div>

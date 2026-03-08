@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
@@ -41,8 +42,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           <div className="flex items-center justify-between h-16">
             {/* Firm Name */}
             <Link href="/portal" className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center">
-                <span className="text-sm font-bold text-white">M</span>
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center overflow-hidden bg-[#0a0a0a]">
+                <Image src="/maxed_acc_logo.png" alt="Maxed" width={36} height={36} className="object-contain p-0.5" />
               </div>
               <span className="text-lg font-semibold text-gray-900 hidden sm:block">
                 {FIRM_NAME}

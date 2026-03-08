@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 
 export default function ThanksPage() {
@@ -99,8 +100,8 @@ export default function ThanksPage() {
       <footer className="border-t border-gray-200 bg-gray-900 py-8 text-white">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 sm:flex-row sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-brand-600">
-              <span className="text-sm font-bold text-white">O</span>
+            <div className="flex h-7 w-7 items-center justify-center rounded-md overflow-hidden bg-[#0a0a0a]">
+              <Image src="/maxed_acc_logo.png" alt="Maxed" width={28} height={28} className="object-contain p-0.5" />
             </div>
             <span className="font-semibold">OpenCPA</span>
           </div>

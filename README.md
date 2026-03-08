@@ -487,8 +487,16 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1 -H "Host: app.maxed.li
 
 #### 9. DNS and SSL
 
-- Point `*.maxed.life` (or your domain) A record to your server IP.
-- After DNS propagates, run certbot for SSL (stop nginx first, then start after).
+- Point `*.maxed.life` (or your domain) A records to your server IP (e.g. `app.maxed.life`, `api.maxed.life`, etc.).
+- After DNS propagates, run the SSL setup script on the server:
+
+```bash
+cd ~/MAXED-OSS/infra
+chmod +x setup-ssl.sh
+./setup-ssl.sh
+```
+
+This installs certbot, obtains Let's Encrypt certs for all subdomains, and switches nginx to HTTPS with HTTP→HTTPS redirects. Ensure `dashboard/.env.local` has `NEXTAUTH_URL=https://app.maxed.life`.
 
 **Login credentials:** `admin@maxed.dev` or `admin@maxed.life` / `maxed2024`
 

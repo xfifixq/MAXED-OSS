@@ -311,6 +311,9 @@ services:
     network_mode: host
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # SSL: mount these after running setup-ssl.sh on the server
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - postgres
       - redis
