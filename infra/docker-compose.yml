@@ -67,9 +67,20 @@ services:
       DB_PASSWORD: ${BIGCAPITAL_MYSQL_PASSWORD}
       DB_NAME: ${BIGCAPITAL_MYSQL_DATABASE}
       DB_PORT: 3306
+      MAIL_HOST: localhost
+      MAIL_PORT: 25
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      MAIL_SECURE: "false"
     depends_on:
       bigcapital-mysql:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
 
   bigcapital-webapp:
     image: bigcapitalhq/webapp:latest
@@ -80,7 +91,8 @@ services:
     environment:
       API_URL: http://bigcapital-server:3000
     depends_on:
-      - bigcapital-server
+      bigcapital-server:
+        condition: service_healthy
 
   # ============================================
   # 2. PAPERLESS-NGX (Document Management)
@@ -103,7 +115,9 @@ services:
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_OCR_LANGUAGE: eng
-      PAPERLESS_URL: http://docs.maxed.life
+      PAPERLESS_URL: https://docs.maxed.life
+      PAPERLESS_AUTO_LOGIN_USERNAME: ${PAPERLESS_ADMIN_USER}
+      PAPERLESS_ENABLE_HTTP_REMOTE_USER: "true"
     volumes:
       - paperless_data:/usr/src/paperless/data
       - paperless_media:/usr/src/paperless/media
@@ -132,10 +146,11 @@ services:
       DB_POSTGRESDB_DATABASE: n8n
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_ACTIVE: "false"
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
-      WEBHOOK_URL: http://flow.maxed.life
+      N8N_USER_MANAGEMENT_DISABLED: "true"
+      WEBHOOK_URL: https://flow.maxed.life
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -174,7 +189,7 @@ services:
     ports:
       - "3003:3000"
     environment:
-      HOST: sign.maxed.life
+      HOST: https://sign.maxed.life
       FORCE_SSL: "false"
       SECRET_KEY_BASE: ${DOCUSEAL_SECRET_KEY_BASE}
     volumes:
@@ -208,8 +223,10 @@ services:
     ports:
       - "8080:80"
     environment:
-      APP_URL: http://billing.maxed.life
+      APP_URL: https://billing.maxed.life
       APP_KEY: ${INVOICENINJA_APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
       DB_HOST: invoiceninja-mysql
       DB_PORT: 3306
       DB_DATABASE: ${INVOICENINJA_MYSQL_DATABASE}
@@ -218,12 +235,20 @@ services:
       IN_USER_EMAIL: ${INVOICENINJA_ADMIN_EMAIL:-admin@maxed.life}
       IN_PASSWORD: ${INVOICENINJA_ADMIN_PASSWORD}
       REQUIRE_HTTPS: "false"
+      TRUSTED_PROXIES: "*"
+      IS_DOCKER: "true"
     volumes:
       - invoiceninja_public:/var/www/app/public
       - invoiceninja_storage:/var/www/app/storage
     depends_on:
       invoiceninja-mysql:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
 
   # ============================================
   # 7. TWENTY CRM
@@ -240,11 +265,20 @@ services:
       ACCESS_TOKEN_SECRET: ${TWENTY_ACCESS_TOKEN_SECRET}
       LOGIN_TOKEN_SECRET: ${TWENTY_LOGIN_TOKEN_SECRET}
       REFRESH_TOKEN_SECRET: ${TWENTY_REFRESH_TOKEN_SECRET}
-      FRONT_BASE_URL: http://crm.maxed.life
-      SERVER_URL: http://crm.maxed.life
+      FRONT_BASE_URL: https://crm.maxed.life
+      SERVER_URL: https://crm.maxed.life
+      SIGN_IN_PREFILLED: "true"
+      IS_SIGN_UP_DISABLED: "false"
+      DEFAULT_SUBDOMAIN: "default"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/healthz || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
 
   # ============================================
   # 8. KIMAI (Time Tracking)
@@ -294,7 +328,7 @@ services:
     environment:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
-      MM_SERVICESETTINGS_SITEURL: http://chat.maxed.life
+      MM_SERVICESETTINGS_SITEURL: https://chat.maxed.life
     volumes:
       - mattermost_config:/mattermost/config
       - mattermost_data:/mattermost/data

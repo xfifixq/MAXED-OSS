@@ -1,16 +1,15 @@
 'use client';
 
+import ServiceFrame from '@/components/ServiceFrame';
+
 const SERVICE_URL = process.env.NEXT_PUBLIC_INVOICE_NINJA_URL || 'http://localhost:8080';
 
 export default function InvoicingPage() {
   return (
-    <div className="h-[calc(100vh-4rem)]">
-      <iframe
-        src={SERVICE_URL}
-        title="Invoicing"
-        className="w-full h-full border-0 rounded-xl"
-        allow="fullscreen; clipboard-write; clipboard-read"
-      />
-    </div>
+    <ServiceFrame
+      src={SERVICE_URL}
+      title="Invoicing"
+      fallbackMessage="The Invoice Ninja service is starting up. It may take 1-2 minutes on first launch while the database migrates."
+    />
   );
 }

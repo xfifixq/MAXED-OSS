@@ -16,9 +16,10 @@ model Firm {
   plan        String       @default("free")
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
-  clients     Client[]
-  teamMembers TeamMember[]
-  workflows   Workflow[]
+  clients            Client[]
+  teamMembers        TeamMember[]
+  workflows          Workflow[]
+  serviceCredentials ServiceCredential[]
 }
 
 model Client {
@@ -121,4 +122,19 @@ model Message {
   senderType String
   content    String
   createdAt  DateTime @default(now())
+}
+
+model ServiceCredential {
+  id          String   @id @default(uuid())
+  firmId      String
+  firm        Firm     @relation(fields: [firmId], references: [id])
+  service     String
+  token       String?
+  username    String?
+  password    String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([firmId, service])
 }

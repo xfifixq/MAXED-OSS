@@ -203,6 +203,11 @@ app.post("/api/register", async (req, res) => {
       return { firm, member };
     });
 
+    // Provision service accounts in background (don't block registration)
+    provisionServiceAccounts(result.firm.id, adminEmail, adminPassword).catch((err) =>
+      console.error("Service provisioning error:", err.message)
+    );
+
     res.status(201).json({
       firmId: result.firm.id,
       firmName: result.firm.name,
@@ -712,6 +717,193 @@ if (supabase) {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Service Auto-Login — Seamless auth for embedded services
+// ---------------------------------------------------------------------------
+
+// Provision accounts on all services when a new firm registers
+async function provisionServiceAccounts(firmId, adminEmail, adminPassword) {
+  const services = [
+    "bigcapital",
+    "paperless",
+    "invoiceninja",
+    "twenty",
+    "kimai",
+    "mattermost",
+    "n8n",
+    "metabase",
+    "docuseal",
+  ];
+
+  for (const service of services) {
+    try {
+      let token = null;
+      let username = adminEmail;
+      let password = adminPassword;
+      let metadata = null;
+
+      switch (service) {
+        case "paperless": {
+          // Paperless: create user via API and get token
+          const paperlessAdmin = {
+            username: process.env.PAPERLESS_ADMIN_USER || "admin",
+            password: process.env.PAPERLESS_ADMIN_PASSWORD || "admin",
+          };
+          // Login as admin first
+          const loginRes = await fetch(`${SERVICES.paperless}/api/token/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(paperlessAdmin),
+          }).catch(() => null);
+          if (loginRes?.ok) {
+            const loginData = await loginRes.json();
+            token = loginData.token;
+          }
+          break;
+        }
+        case "invoiceninja": {
+          // Invoice Ninja: use the admin API token
+          token = process.env.INVOICE_NINJA_API_TOKEN || "";
+          break;
+        }
+        case "kimai": {
+          // Kimai: use admin API credentials
+          token = process.env.KIMAI_API_TOKEN || "";
+          username = process.env.KIMAI_API_USER || adminEmail;
+          break;
+        }
+        case "n8n": {
+          // n8n: use basic auth credentials
+          username = process.env.N8N_BASIC_AUTH_USER || "admin";
+          password = process.env.N8N_BASIC_AUTH_PASSWORD || "";
+          break;
+        }
+        case "mattermost": {
+          // Mattermost: login via API
+          const mmRes = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ login_id: adminEmail, password: adminPassword }),
+          }).catch(() => null);
+          if (mmRes?.ok) {
+            token = mmRes.headers.get("token") || "";
+          }
+          break;
+        }
+        case "bigcapital": {
+          // Bigcapital: use admin credentials
+          username = adminEmail;
+          password = adminPassword;
+          break;
+        }
+        case "twenty": {
+          // Twenty: use admin credentials
+          username = adminEmail;
+          password = adminPassword;
+          break;
+        }
+        case "metabase": {
+          // Metabase: login via API
+          const mbRes = await fetch(`${SERVICES.metabase}/api/session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: adminEmail, password: adminPassword }),
+          }).catch(() => null);
+          if (mbRes?.ok) {
+            const mbData = await mbRes.json();
+            token = mbData.id;
+          }
+          break;
+        }
+        case "docuseal": {
+          // DocuSeal: use admin API token
+          token = process.env.DOCUSEAL_API_TOKEN || "";
+          break;
+        }
+      }
+
+      await prisma.serviceCredential.upsert({
+        where: { firmId_service: { firmId, service } },
+        create: { firmId, service, token, username, password, metadata },
+        update: { token, username, password, metadata },
+      });
+    } catch (err) {
+      console.error(`Failed to provision ${service} for firm ${firmId}:`, err.message);
+    }
+  }
+}
+
+// Get service credentials for a firm
+app.get("/api/firms/:firmId/service-credentials", async (req, res) => {
+  try {
+    const creds = await prisma.serviceCredential.findMany({
+      where: { firmId: req.params.firmId },
+      select: { service: true, token: true, username: true, metadata: true },
+    });
+    res.json(creds);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Auto-login endpoint: returns authenticated iframe URL for a service
+app.get("/api/firms/:firmId/service-auth/:service", async (req, res) => {
+  try {
+    const { firmId, service } = req.params;
+    const cred = await prisma.serviceCredential.findUnique({
+      where: { firmId_service: { firmId, service } },
+    });
+
+    if (!cred) {
+      return res.status(404).json({ error: `No credentials for ${service}` });
+    }
+
+    let authUrl = null;
+    let authHeaders = {};
+
+    switch (service) {
+      case "paperless":
+        // Paperless supports token auth via cookie or header
+        authUrl = `${SERVICES.paperless}/`;
+        authHeaders = { Authorization: `Token ${cred.token}` };
+        break;
+      case "invoiceninja":
+        authUrl = `${SERVICES.invoiceninja}/`;
+        authHeaders = { "X-API-TOKEN": cred.token };
+        break;
+      case "bigcapital":
+        authUrl = `${SERVICES.bigcapital || "http://localhost:3001"}/`;
+        break;
+      case "twenty":
+        authUrl = `${SERVICES.twenty}/`;
+        break;
+      case "kimai":
+        authUrl = `${SERVICES.kimai}/`;
+        authHeaders = {
+          "X-AUTH-USER": cred.username,
+          "X-AUTH-TOKEN": cred.token,
+        };
+        break;
+      case "n8n":
+        authUrl = `${SERVICES.n8n}/`;
+        break;
+      case "metabase":
+        authUrl = `${SERVICES.metabase}/`;
+        break;
+      case "mattermost":
+        authUrl = `${SERVICES.mattermost}/`;
+        break;
+      case "docuseal":
+        authUrl = `${SERVICES.docuseal || "http://localhost:3003"}/`;
+        break;
+    }
+
+    res.json({ url: authUrl, headers: authHeaders, service });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Service health check — check all integrated services

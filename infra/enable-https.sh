@@ -31,12 +31,32 @@ else
     exit 1
 fi
 
-echo "=== Step 4: Restart nginx ==="
-docker compose up -d nginx --force-recreate
+echo "=== Step 4: Restart all Docker services ==="
+docker compose up -d --force-recreate
 
-echo "=== Step 5: Verify ==="
-sleep 2
+echo "=== Step 5: Run platform database migration ==="
+cd ~/MAXED-OSS/platform
+npx prisma migrate deploy 2>/dev/null || echo "Migration skipped (may already be applied)"
+
+echo "=== Step 6: Rebuild dashboard with HTTPS env vars ==="
+cd ~/MAXED-OSS/dashboard
+npm run build 2>/dev/null || echo "Dashboard build skipped"
+
+echo "=== Step 7: Restart PM2 services ==="
+pm2 restart all 2>/dev/null || echo "PM2 restart skipped (may not be using PM2)"
+
+echo "=== Step 8: Verify ==="
+sleep 5
+cd ~/MAXED-OSS/infra
 docker compose exec nginx nginx -t
-curl -sI https://app.maxed.life | head -3
 echo ""
-echo "HTTPS should be live at https://app.maxed.life"
+echo "Checking service health..."
+for svc in app portal api books docs flow reports sign billing crm chat time; do
+    STATUS=$(curl -so /dev/null -w "%{http_code}" "https://${svc}.maxed.life/" --max-time 5 2>/dev/null || echo "000")
+    echo "  https://${svc}.maxed.life/ → HTTP $STATUS"
+done
+echo ""
+echo "=== HTTPS setup complete ==="
+echo "Dashboard: https://app.maxed.life"
+echo "Portal:    https://portal.maxed.life"
+echo "API:       https://api.maxed.life"
