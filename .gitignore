@@ -1,4 +1,10 @@
-node_modules
+**/node_modules
+dashboard/node_modules
+client-portal/node_modules
+opencpa/node_modules
+platform/node_modules
+infra/node_modules
+infra/node_modules
 
 # Environment files - NEVER commit (contain secrets)
 .env
@@ -12,3 +18,15 @@ node_modules
 **/.env
 **/.env.local
 **/.env.*.local
+
+# Build outputs
+.next/
+dist/
+.turbo/
+
+# Logs and OS
+*.log
+.DS_Store
+
+# SSL / keys
+*.pem

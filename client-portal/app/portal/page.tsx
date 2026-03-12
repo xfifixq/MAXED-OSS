@@ -22,7 +22,7 @@ export default function PortalHomePage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const name = localStorage.getItem('clientName') || 'Valued Client';
+    const name = localStorage.getItem('clientName') || 'Client';
     setClientName(name);
 
     const clientId = localStorage.getItem('clientId');

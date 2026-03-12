@@ -193,7 +193,7 @@ export default function HomePage() {
 
             {submitted ? (
               <div className="mt-8 rounded-lg bg-emerald-900/30 p-4 text-emerald-300">
-                Thanks for joining! We&apos;ll be in touch soon.
+                You have been added to our waitlist. We will be in touch soon.
               </div>
             ) : (
               <form

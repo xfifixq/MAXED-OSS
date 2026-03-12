@@ -33,7 +33,7 @@ export default function LoginPage() {
 
       const data = await res.json();
       localStorage.setItem('clientId', data.clientId || data.id || 'demo-client-1');
-      localStorage.setItem('clientName', data.name || data.clientName || 'Valued Client');
+      localStorage.setItem('clientName', data.name || data.clientName || 'Client');
       localStorage.setItem('clientEmail', email);
       router.push('/portal');
     } catch (err: any) {

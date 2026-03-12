@@ -46,11 +46,11 @@ export default function ThanksPage() {
           </div>
 
           <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 sm:text-4xl">
-            You&apos;re on the list!
+            You have been added to the waitlist
           </h1>
 
           <p className="mt-4 text-lg leading-relaxed text-gray-600">
-            Thanks for joining the OpenCPA waitlist. We&apos;ll notify you when new
+            You have been added to the OpenCPA waitlist. We will notify you when new
             tools, migration guides, and cost-saving strategies are available for
             your firm.
           </p>
@@ -82,8 +82,7 @@ export default function ThanksPage() {
                 <svg className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
-                Share OpenCPA with a colleague who&apos;s tired of overpaying for
-                software
+                Share OpenCPA with a colleague seeking cost-effective alternatives
               </li>
             </ul>
           </div>
