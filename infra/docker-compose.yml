@@ -101,7 +101,7 @@ services:
     container_name: maxed-bigcapital-webapp
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3001:80"
     environment:
       API_URL: http://bigcapital-server:3000
     depends_on:
