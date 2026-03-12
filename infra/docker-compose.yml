@@ -79,6 +79,12 @@ services:
       SYSTEM_USER_FULLNAME: "Maxed Admin"
       SYSTEM_USER_EMAIL: ${INVOICENINJA_ADMIN_EMAIL:-admin@maxed.life}
       SYSTEM_USER_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+      # Storage — local filesystem (no S3 required)
+      S3_BUCKET: local
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: none
+      S3_SECRET_ACCESS_KEY: none
+      STORAGE_DRIVER: local
     depends_on:
       bigcapital-mysql:
         condition: service_healthy
@@ -267,8 +273,12 @@ services:
       SERVER_URL: https://crm.maxed.life
       STORAGE_TYPE: local
       STORAGE_LOCAL_PATH: .local-storage
+      REDIS_URL: redis://redis:6379
+      CACHE_STORAGE_TYPE: redis
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # ============================================
@@ -297,7 +307,7 @@ services:
     container_name: maxed-kimai
     restart: unless-stopped
     ports:
-      - "8001:8080"
+      - "8001:8001"
     environment:
       ADMINMAIL: ${KIMAI_ADMIN_EMAIL}
       ADMINPASS: ${KIMAI_ADMIN_PASSWORD}
