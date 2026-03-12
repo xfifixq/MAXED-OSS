@@ -1,13 +1,13 @@
 'use client';
 
-const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678';
+const KIMAI_URL = process.env.NEXT_PUBLIC_KIMAI_URL || 'http://localhost:8001';
 
-export default function WorkflowsPage() {
+export default function TimeTrackingPage() {
   return (
     <div className="h-[calc(100vh-4rem)]">
       <iframe
-        src={N8N_URL}
-        title="Workflow Automation"
+        src={KIMAI_URL}
+        title="Time Tracking"
         className="w-full h-full border-0"
         allow="fullscreen"
       />

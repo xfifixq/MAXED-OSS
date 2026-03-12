@@ -5,12 +5,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const MODULE_URLS: Record<string, string> = {
-  NEXT_PUBLIC_MATTERMOST_URL: process.env.NEXT_PUBLIC_MATTERMOST_URL || '/dashboard/chat',
-  NEXT_PUBLIC_KIMAI_URL: process.env.NEXT_PUBLIC_KIMAI_URL || '/dashboard/time-tracking',
-  NEXT_PUBLIC_TWENTY_URL: process.env.NEXT_PUBLIC_TWENTY_URL || '/dashboard/crm',
-};
-
 const navItems = [
   {
     name: 'Dashboard',
@@ -92,8 +86,6 @@ const navItems = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ),
-    external: true,
-    externalUrl: 'NEXT_PUBLIC_MATTERMOST_URL',
   },
   {
     name: 'Time Tracking',
@@ -103,8 +95,6 @@ const navItems = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
-    external: true,
-    externalUrl: 'NEXT_PUBLIC_KIMAI_URL',
   },
   {
     name: 'CRM',
@@ -114,8 +104,6 @@ const navItems = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
     ),
-    external: true,
-    externalUrl: 'NEXT_PUBLIC_TWENTY_URL',
   },
   {
     name: 'Settings',
@@ -156,43 +144,17 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          if (item.external) {
-            const resolvedUrl = MODULE_URLS[item.externalUrl!] || item.href;
-            return (
-              <a
-                key={item.name}
-                href={resolvedUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="sidebar-link"
-                onClick={() => setMobileOpen(false)}
-              >
-                {item.icon}
-                {!collapsed && (
-                  <>
-                    <span className="flex-1">{item.name}</span>
-                    <svg className="w-3.5 h-3.5 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </>
-                )}
-              </a>
-            );
-          }
-
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`sidebar-link ${isActive(item.href) ? 'active' : ''}`}
-              onClick={() => setMobileOpen(false)}
-            >
-              {item.icon}
-              {!collapsed && <span>{item.name}</span>}
-            </Link>
-          );
-        })}
+        {navItems.map((item) => (
+          <Link
+            key={item.name}
+            href={item.href}
+            className={`sidebar-link ${isActive(item.href) ? 'active' : ''}`}
+            onClick={() => setMobileOpen(false)}
+          >
+            {item.icon}
+            {!collapsed && <span>{item.name}</span>}
+          </Link>
+        ))}
       </nav>
 
       {/* Collapse toggle (desktop) */}
