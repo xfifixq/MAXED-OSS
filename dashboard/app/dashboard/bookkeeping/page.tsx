@@ -1,13 +1,13 @@
 'use client';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_DOCUSEAL_URL || 'http://localhost:3003';
+const SERVICE_URL = process.env.NEXT_PUBLIC_BIGCAPITAL_URL || 'http://localhost:3001';
 
-export default function ProposalsPage() {
+export default function BookkeepingPage() {
   return (
     <div className="h-[calc(100vh-4rem)]">
       <iframe
         src={SERVICE_URL}
-        title="Proposals & E-Signatures"
+        title="Bookkeeping"
         className="w-full h-full border-0 rounded-xl"
         allow="fullscreen; clipboard-write; clipboard-read"
       />

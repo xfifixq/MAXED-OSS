@@ -103,7 +103,7 @@ services:
       PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER}
       PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_OCR_LANGUAGE: eng
-      PAPERLESS_URL: https://docs.maxed.life
+      PAPERLESS_URL: http://docs.maxed.life
     volumes:
       - paperless_data:/usr/src/paperless/data
       - paperless_media:/usr/src/paperless/media
@@ -135,7 +135,7 @@ services:
       N8N_BASIC_AUTH_ACTIVE: "true"
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
-      WEBHOOK_URL: https://flow.maxed.life
+      WEBHOOK_URL: http://flow.maxed.life
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
@@ -175,7 +175,7 @@ services:
       - "3003:3000"
     environment:
       HOST: sign.maxed.life
-      FORCE_SSL: "true"
+      FORCE_SSL: "false"
       SECRET_KEY_BASE: ${DOCUSEAL_SECRET_KEY_BASE}
     volumes:
       - docuseal_data:/data
@@ -208,7 +208,7 @@ services:
     ports:
       - "8080:80"
     environment:
-      APP_URL: https://billing.maxed.life
+      APP_URL: http://billing.maxed.life
       APP_KEY: ${INVOICENINJA_APP_KEY}
       DB_HOST: invoiceninja-mysql
       DB_PORT: 3306
@@ -240,8 +240,8 @@ services:
       ACCESS_TOKEN_SECRET: ${TWENTY_ACCESS_TOKEN_SECRET}
       LOGIN_TOKEN_SECRET: ${TWENTY_LOGIN_TOKEN_SECRET}
       REFRESH_TOKEN_SECRET: ${TWENTY_REFRESH_TOKEN_SECRET}
-      FRONT_BASE_URL: https://crm.maxed.life
-      SERVER_URL: https://crm.maxed.life
+      FRONT_BASE_URL: http://crm.maxed.life
+      SERVER_URL: http://crm.maxed.life
     depends_on:
       postgres:
         condition: service_healthy
@@ -294,7 +294,7 @@ services:
     environment:
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
-      MM_SERVICESETTINGS_SITEURL: https://chat.maxed.life
+      MM_SERVICESETTINGS_SITEURL: http://chat.maxed.life
     volumes:
       - mattermost_config:/mattermost/config
       - mattermost_data:/mattermost/data

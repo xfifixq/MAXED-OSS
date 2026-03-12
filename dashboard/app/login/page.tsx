@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
@@ -106,9 +107,12 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-gray-100">
-            <p className="text-xs text-gray-400 text-center">
-              Dev credentials: admin@maxed.dev or admin@maxed.life / maxed2024
+          <div className="mt-6 pt-6 border-t border-gray-100 text-center space-y-2">
+            <p className="text-sm text-gray-500">
+              New to Maxed?{' '}
+              <Link href="/register" className="text-brand-600 hover:text-brand-700 font-medium">
+                Create an account
+              </Link>
             </p>
           </div>
         </div>

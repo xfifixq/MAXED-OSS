@@ -42,7 +42,7 @@ function StatCard({
             <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
           )}
         </div>
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color}`}>
           {icon}
         </div>
       </div>
@@ -200,7 +200,7 @@ export default function DashboardHome() {
           loading={loading}
           color="bg-blue-50"
           icon={
-            <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           }
@@ -211,7 +211,7 @@ export default function DashboardHome() {
           loading={loading}
           color="bg-green-50"
           icon={
-            <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           }
@@ -222,7 +222,7 @@ export default function DashboardHome() {
           loading={loading}
           color="bg-yellow-50"
           icon={
-            <svg className="w-6 h-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           }
@@ -233,33 +233,30 @@ export default function DashboardHome() {
           loading={loading}
           color="bg-red-50"
           icon={
-            <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           }
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quick Actions */}
-        <div className="card p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-3">
-            {quickActions.map((action) => (
-              <Link
-                key={action.label}
-                href={action.href}
-                className={`flex flex-col items-center gap-2 p-4 rounded-xl text-center transition-colors ${action.color}`}
-              >
-                {action.icon}
-                <span className="text-xs font-medium">{action.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
+      {/* Quick Actions */}
+      <div className="flex flex-wrap gap-2">
+        {quickActions.map((action) => (
+          <Link
+            key={action.label}
+            href={action.href}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${action.color}`}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </Link>
+        ))}
+      </div>
 
-        {/* Recent Activity */}
-        <div className="card lg:col-span-2">
+      {/* Recent Activity */}
+      <div className="grid grid-cols-1 gap-6">
+        <div className="card">
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-900">Recent Activity</h3>
           </div>

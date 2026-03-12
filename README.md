@@ -78,6 +78,79 @@ Every tool below is free and self-hosted. No subscriptions, no per-seat fees, no
 
 ---
 
+## Complete Tool Replacement Matrix
+
+Every CPA SaaS tool listed below has been verified as replaced or integrated. The "How" column explains exactly what Maxed component handles it.
+
+| Category | Paid Tool | Annual Cost | Maxed Replacement | How It Works |
+|----------|-----------|-------------|-------------------|-------------|
+| **Bookkeeping / GL** | QuickBooks Online | $18,000 | Bigcapital | Full double-entry GL, chart of accounts, journal entries, balance sheet, P&L. Self-hosted at port 3001. |
+| **Bookkeeping / GL** | FreshBooks | $10,200 | Bigcapital | Same as above. Bigcapital covers invoicing + bookkeeping. |
+| **Bookkeeping / GL** | Xero | $9,000 | Bigcapital | Full replacement. Financial statements, bank rec, multi-currency. |
+| **Bookkeeping / GL** | Accounting CS | $4,000 | Bigcapital | Enterprise GL features via Bigcapital's AGPL-3.0 platform. |
+| **Advisory / Valuation** | Valuebuilder | $9,000 | Advisory Suite (built-in) | Scenario planning in dashboard. What-if tax scenarios, projected vs actual impact tracking. |
+| **Advisory / Valuation** | Corvee Tax Planning | $6,000 | Advisory Suite (built-in) | Platform API stores scenarios per client. Dashboard advisory page for modeling. |
+| **Advisory / Valuation** | Reach Reporting | $3,600 | Advisory Suite + Metabase | Metabase dashboards for financial reporting + advisory scenario data. |
+| **Audit / Engagement** | CaseWare | $6,000 | Audit Suite (built-in) | Document management via Paperless-ngx + engagement tracking via platform API. |
+| **Audit / Engagement** | Audit Dashboard | $3,600 | Metabase | Custom dashboards connecting to the unified database for audit metrics. |
+| **BI / Reporting** | Fathom | $5,000 | Metabase | Full BI platform. Connect to any database, build dashboards, schedule reports. Port 3002. |
+| **BI / Reporting** | Spotlight Reporting | $3,000 | Metabase | Same. Metabase supports 20+ database types and embedded dashboards. |
+| **BI / Reporting** | Jirav | $2,400 | Metabase | Financial planning dashboards via Metabase questions and models. |
+| **BI / Reporting** | LivePlan | $2,400 | Metabase | Business planning dashboards with Metabase's visualization engine. |
+| **Practice Management** | CCH iFirm | $4,800 | Practice Hub (built-in) | Platform API + Dashboard: client management, workflow tracking, team assignments. |
+| **Practice Management** | Karbon | $4,200 | Practice Hub (built-in) | n8n workflows automate client onboarding, document processing, reminders. |
+| **Practice Management** | TaxDome | $4,000 | Practice Hub (built-in) | Dashboard + client portal + document management + invoicing = TaxDome replacement. |
+| **Practice Management** | Canopy | $3,960 | Practice Hub (built-in) | Same unified platform approach. All practice management in one place. |
+| **Practice Management** | Financial Cents | $2,940 | Practice Hub (built-in) | Workflow management via n8n + client tracking via platform API. |
+| **Practice Management** | Jetpack Workflow | $2,160 | Practice Hub (built-in) | n8n workflow automation replaces Jetpack's workflow engine. |
+| **Proposals / Engagement Letters** | Ignition | $4,000 | DocuSeal | Create templates, send for e-signature, track status. Port 3003. |
+| **Proposals / Engagement Letters** | GoProposal | $3,180 | DocuSeal | Same. DocuSeal supports custom templates with fillable fields. |
+| **Proposals / Engagement Letters** | Anchor | $2,400 | DocuSeal | Proposal creation + e-signature + status tracking. |
+| **Proposals / Engagement Letters** | PandaDoc | $2,400 | DocuSeal | Full document workflow with audit trail. |
+| **Client Communication / Portal** | Liscio | $3,600 | Chatwoot (Mattermost) + Client Portal | Client portal for messages, document upload. Mattermost for internal comms. |
+| **Client Communication / Portal** | Truss | $2,400 | Client Portal (built-in) | Next.js client portal at port 3006: invoices, documents, messages, proposals. |
+| **Client Communication / Portal** | YakChat | $1,200 | Mattermost + Client Portal | Combined internal chat + client-facing portal. |
+| **Client Communication / Portal** | Canopy Portal | $0 | Client Portal (built-in) | Free tier replaced by built-in client portal. |
+| **CRM** | Salesforce | $3,600 | Twenty CRM | Full CRM: contacts, companies, pipelines, activities. GraphQL + REST API. Port 3004. |
+| **CRM** | HubSpot | $2,400 | Twenty CRM | Twenty provides deal pipeline, contact management, activity timeline. |
+| **Document Management** | SmartVault | $2,700 | Paperless-ngx | OCR document management with auto-tagging, search, and organization. Port 8000. |
+| **Document Management** | ShareFile | $2,400 | Paperless-ngx | Secure document storage, sharing, and search. |
+| **Document Management** | File Cabinet CS | $2,000 | Paperless-ngx | Full document management with correspondent (client) linking. |
+| **Document Management** | Box | $1,200 | Paperless-ngx | Cloud storage replacement with OCR and smart tagging. |
+| **Document Management** | Verifyle | $348 | Paperless-ngx | Secure document sharing via Paperless-ngx + client portal. |
+| **E-Signatures / PDF** | Adobe Acrobat | $2,000 | DocuSeal | PDF creation, e-signatures, form filling. |
+| **E-Signatures / PDF** | Adobe Sign | $1,800 | DocuSeal | E-signature workflows with audit trail. |
+| **E-Signatures / PDF** | DocuSign | $1,500 | DocuSeal | Full e-signature replacement. Templates + submissions + tracking. |
+| **Team Communication** | Microsoft Teams | $1,440 | Mattermost | Team chat, channels, file sharing, integrations. Port 8065. |
+| **Team Communication** | Slack | $525 | Mattermost | Same. Mattermost supports webhooks, bots, and integrations. |
+| **Workflow Automation** | Zapier | $1,200 | n8n | Visual workflow builder. 400+ integrations. Webhooks, cron triggers. Port 5678. |
+| **Workflow Automation** | Make | $1,200 | n8n | Same. n8n is the most capable OSS automation platform. |
+| **Time Tracking** | Toggl | $1,200 | Kimai | Time tracking with projects, activities, hourly rates, reports. Port 8001. |
+| **Time Tracking** | Clockify Pro | $840 | Kimai | Same. Kimai supports multiple users, export, and invoicing integration. |
+| **Time Tracking** | Harvest | $660 | Kimai | Time + expense tracking with project-based billing. |
+| **Tax Preparation** | UltraTax CS | $8,000 | *Integrated via API* | Cannot be replaced (IRS e-filing). Connect via n8n webhooks. |
+| **Tax Preparation** | Lacerte | $5,500 | *Integrated via API* | Same. Use n8n to sync client data. |
+| **Tax Preparation** | ProConnect | $3,000 | *Integrated via API* | Same. Export/import via n8n scheduled workflows. |
+| **Tax Preparation** | Drake | $2,695 | *Integrated via API* | Same. Manual or automated data sync. |
+| **Tax Preparation** | ProSeries | $1,800 | *Integrated via API* | Same. Webhook-based integration. |
+
+> **Tax preparation** tools cannot be replaced by open-source software because they require IRS e-filing certification, annual tax code updates, and state-specific compliance. Maxed integrates with them via n8n workflows for data sync.
+
+---
+
+## Supabase Integration (Optional)
+
+Maxed can use [Supabase](https://supabase.com) as a managed PostgreSQL backend instead of self-hosted Docker Postgres. This gives you:
+
+- **Managed database** with automatic backups, point-in-time recovery
+- **File storage** via Supabase Storage buckets (for client documents)
+- **Auth** capabilities (social login, MFA) if you want to extend beyond NextAuth
+- **Realtime** subscriptions for live dashboard updates
+
+To use Supabase, update `platform/.env` with your Supabase connection strings. See [DEVELOPER-SETUP.md](DEVELOPER-SETUP.md#10-supabase-optional--managed-database--auth--storage) for full instructions.
+
+---
+
 ## Deployment Options
 
 Maxed can be deployed two ways. Choose the one that fits your situation:
@@ -527,28 +600,52 @@ This installs certbot, obtains Let's Encrypt certs for all subdomains, and switc
 
 Base URL: `http://YOUR_SERVER:4000`
 
+All `/api` routes require `X-API-Key` header when `MAXED_API_KEY` is set. Rate limited to 200 req/min per IP.
+
 ```
-GET    /health                           Health check
+GET    /health                                    Health check
 
-POST   /api/firms                        Create firm
-GET    /api/firms                        List firms
-GET    /api/firms/:id                    Get firm (with clients + team)
-GET    /api/firms/:firmId/stats          Firm dashboard stats
+POST   /api/auth/login                             Staff login (email + password)
+POST   /api/clients/login                          Client portal login (email)
 
-POST   /api/firms/:firmId/clients        Add client
-GET    /api/firms/:firmId/clients        List clients
+POST   /api/firms                                  Create firm
+GET    /api/firms                                  List firms
+GET    /api/firms/:id                              Get firm (with clients + team)
+GET    /api/firms/:firmId/stats                    Firm dashboard stats
+POST   /api/firms/:firmId/clients                  Add client
+GET    /api/firms/:firmId/clients                  List clients
 
-POST   /api/clients/:clientId/scenarios  Create what-if scenario
-GET    /api/clients/:clientId/scenarios  List scenarios
+POST   /api/clients/:clientId/scenarios            Create what-if scenario
+GET    /api/clients/:clientId/scenarios            List scenarios
+POST   /api/clients/:clientId/documents            Add document record
+GET    /api/clients/:clientId/documents            List documents
+POST   /api/clients/:clientId/invoices             Create invoice
+GET    /api/clients/:clientId/invoices             List invoices
+POST   /api/clients/:clientId/messages             Send message
+GET    /api/clients/:clientId/messages             List messages
 
-POST   /api/clients/:clientId/documents  Add document record
-GET    /api/clients/:clientId/documents  List documents
+--- Service Proxies ---
+GET    /api/services/paperless/documents           Paperless document search
+GET    /api/services/paperless/documents/:id/thumb  Document thumbnail
+GET    /api/services/paperless/tags                 List Paperless tags
+GET    /api/services/docuseal/templates             DocuSeal templates
+GET    /api/services/docuseal/submissions           DocuSeal submissions
+POST   /api/services/docuseal/submissions           Send for signature
+GET    /api/services/n8n/workflows                  List n8n workflows
+GET    /api/services/n8n/executions                 Recent workflow runs
+POST   /api/services/n8n/workflows/:id/activate     Activate workflow
+GET    /api/services/kimai/timesheets               List timesheets
+POST   /api/services/kimai/timesheets               Create timesheet entry
+GET    /api/services/kimai/projects                 List Kimai projects
+GET    /api/services/kimai/activities               List activities
+GET    /api/services/invoiceninja/invoices          List Invoice Ninja invoices
+GET    /api/services/invoiceninja/clients           List Invoice Ninja clients
+GET    /api/services/status                         All services health check
 
-POST   /api/clients/:clientId/invoices   Create invoice
-GET    /api/clients/:clientId/invoices   List invoices
-
-POST   /api/clients/:clientId/messages   Send message
-GET    /api/clients/:clientId/messages   List messages
+--- Supabase (when configured) ---
+POST   /api/storage/upload                          Upload file to Supabase Storage
+GET    /api/storage/url                             Get public URL for stored file
+GET    /api/supabase/status                         Check Supabase connection
 ```
 
 ---
@@ -590,12 +687,15 @@ MAXED-OSS/
 │   │   ├── dashboard/              # All dashboard pages
 │   │   │   ├── page.tsx            # Home — stats, quick actions, activity feed
 │   │   │   ├── clients/            # Client list + detail views
-│   │   │   ├── documents/          # Paperless-ngx embed
-│   │   │   ├── invoicing/          # Invoice list + Invoice Ninja link
-│   │   │   ├── proposals/          # DocuSeal embed
-│   │   │   ├── reporting/          # Metabase embed
+│   │   │   ├── documents/          # Paperless-ngx (overview + embedded)
+│   │   │   ├── invoicing/          # Invoice Ninja (overview + embedded)
+│   │   │   ├── proposals/          # DocuSeal (overview + embedded)
+│   │   │   ├── reporting/          # Metabase (overview + embedded)
 │   │   │   ├── advisory/           # Scenario planning
-│   │   │   ├── workflows/          # n8n embed
+│   │   │   ├── workflows/          # n8n (overview + embedded)
+│   │   │   ├── time-tracking/      # Kimai (overview + embedded)
+│   │   │   ├── crm/                # Twenty CRM (embedded)
+│   │   │   ├── chat/               # Mattermost (embedded)
 │   │   │   └── settings/           # Firm settings, team, integrations
 │   │   └── login/                  # Auth page
 │   ├── components/                 # Sidebar, TopBar, DashboardLayout

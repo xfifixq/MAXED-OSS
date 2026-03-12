@@ -1,6 +1,8 @@
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -14,7 +16,30 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Dev fallback: accept hardcoded credentials (check first to avoid API timeout)
+        try {
+          const res = await fetch(`${API_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: credentials.email,
+              password: credentials.password,
+            }),
+          });
+
+          if (res.ok) {
+            const user = await res.json();
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              firmId: user.firmId,
+            };
+          }
+        } catch {
+          // API unavailable, fall through to dev credentials
+        }
+
+        // Dev fallback: accept hardcoded credentials when API is unreachable
         if (
           (credentials.email === 'admin@maxed.dev' || credentials.email === 'admin@maxed.life') &&
           credentials.password === 'maxed2024'
@@ -27,7 +52,6 @@ export const authOptions: NextAuthOptions = {
           };
         }
 
-        // TODO: Add /api/auth/login to platform API for real auth
         return null;
       },
     }),
