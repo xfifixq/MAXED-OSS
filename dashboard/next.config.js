@@ -14,13 +14,8 @@ const PROD_URLS = {
   NEXT_PUBLIC_TWENTY_URL: 'https://crm.maxed.life',
 };
 
-// Only apply production URLs if not already set via .env.local
-const env = {};
-for (const [key, value] of Object.entries(PROD_URLS)) {
-  if (!process.env[key]) {
-    env[key] = value;
-  }
-}
+// Always use production HTTPS URLs (overrides .env.local)
+const env = { ...PROD_URLS };
 
 const nextConfig = {
   reactStrictMode: true,
