@@ -260,6 +260,16 @@ services:
       invoiceninja-mysql:
         condition: service_healthy
 
+  # Invoice Ninja v5 is PHP-FPM only — needs nginx to serve HTTP
+  invoiceninja-nginx:
+    image: nginx:alpine
+    container_name: maxed-invoiceninja-nginx
+    restart: unless-stopped
+    network_mode: "service:invoiceninja"
+    volumes:
+      - invoiceninja_public:/var/www/app/public:ro
+      - ./invoiceninja/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
   # ============================================
   # 7. TWENTY CRM
   # ============================================
