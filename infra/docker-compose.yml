@@ -42,6 +42,7 @@ services:
     image: mysql:8.0
     container_name: maxed-bigcapital-mysql
     restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${BIGCAPITAL_MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${BIGCAPITAL_MYSQL_DATABASE}
@@ -219,6 +220,7 @@ services:
     image: mysql:8.0
     container_name: maxed-invoiceninja-mysql
     restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${INVOICENINJA_MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${INVOICENINJA_MYSQL_DATABASE}
@@ -307,6 +309,7 @@ services:
     image: mysql:8.0
     container_name: maxed-kimai-mysql
     restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${KIMAI_MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${KIMAI_MYSQL_DATABASE}
