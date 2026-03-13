@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = 'https://books.maxed.life';
+const SERVICE_URL = 'https://books.maxed.life/maxed-auth';
 
 export default function BookkeepingPage() {
   return (

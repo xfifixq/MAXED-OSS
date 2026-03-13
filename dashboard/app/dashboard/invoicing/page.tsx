@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = 'https://billing.maxed.life';
+const SERVICE_URL = 'https://billing.maxed.life/maxed-auth';
 
 export default function InvoicingPage() {
   return (

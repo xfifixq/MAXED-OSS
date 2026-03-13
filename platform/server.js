@@ -906,6 +906,139 @@ app.get("/api/firms/:firmId/service-auth/:service", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Auto-Login Bridge — serves HTML that auto-logs into each service
+// Nginx proxies https://<service>.maxed.life/maxed-auth → here
+// Since the page is same-origin with the service, cookies/localStorage work
+// ---------------------------------------------------------------------------
+const BRIDGE_EMAIL = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+const BRIDGE_PASSWORD = process.env.SERVICE_ADMIN_PASSWORD || "";
+const BRIDGE_MM_USER = process.env.MATTERMOST_ADMIN_USER || "maxed-admin";
+
+function bridgeHtml(title, script) {
+  return `<!DOCTYPE html><html><head><title>${title}</title>
+<style>body{margin:0;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui;background:#f9fafb;color:#6b7280;}
+.loader{width:24px;height:24px;border:3px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin .6s linear infinite;margin-right:12px;}
+@keyframes spin{to{transform:rotate(360deg)}}</style></head>
+<body><div class="loader"></div>Connecting to ${title}...</body>
+<script>${script}</script></html>`;
+}
+
+app.get("/bridge/:service", (req, res) => {
+  const { service } = req.params;
+  const e = BRIDGE_EMAIL;
+  const p = BRIDGE_PASSWORD;
+  let html;
+
+  switch (service) {
+    case "kimai":
+      // Symfony form login — fetch login page for CSRF token, then submit form
+      html = bridgeHtml("Time Tracking", `
+        fetch('/en/login').then(r=>r.text()).then(h=>{
+          const m=h.match(/name="_csrf_token"\\s+value="([^"]+)"/);
+          const f=document.createElement('form');f.method='POST';f.action='/en/login_check';
+          f.innerHTML='<input name="_username" value="${e}"><input name="_password" value="${p}"><input name="_csrf_token" value="'+(m?m[1]:'')+'">';
+          document.body.appendChild(f);f.submit();
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "mattermost":
+      // API login — sets MMAUTHTOKEN cookie
+      html = bridgeHtml("Team Chat", `
+        fetch('/api/v4/users/login',{method:'POST',headers:{'Content-Type':'application/json'},
+          credentials:'include',body:JSON.stringify({login_id:'${BRIDGE_MM_USER}',password:'${p}'})
+        }).then(()=>location.href='/').catch(()=>location.href='/');
+      `);
+      break;
+
+    case "metabase":
+      // API login — returns session ID, set as cookie
+      html = bridgeHtml("Reporting", `
+        fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},
+          credentials:'include',body:JSON.stringify({username:'${e}',password:'${p}'})
+        }).then(r=>r.json()).then(d=>{
+          if(d.id)document.cookie='metabase.SESSION='+d.id+';path=/;SameSite=Lax';
+          location.href='/';
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "twenty":
+      // API login — sets cookie
+      html = bridgeHtml("CRM", `
+        fetch('/api/auth/sign-in',{method:'POST',headers:{'Content-Type':'application/json'},
+          credentials:'include',body:JSON.stringify({email:'${e}',password:'${p}'})
+        }).then(r=>r.json()).then(d=>{
+          if(d.loginToken){
+            fetch('/api/auth/tokens/renew',{method:'POST',headers:{'Content-Type':'application/json'},
+              credentials:'include',body:JSON.stringify({loginToken:d.loginToken})
+            }).then(()=>location.href='/').catch(()=>location.href='/');
+          } else location.href='/';
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "bigcapital":
+      // API login — returns JWT, store in localStorage
+      html = bridgeHtml("Bookkeeping", `
+        fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({email:'${e}',password:'${p}'})
+        }).then(r=>r.json()).then(d=>{
+          if(d.token)localStorage.setItem('token',d.token);
+          if(d.tenant)localStorage.setItem('tenant_id',d.tenant.id);
+          location.href='/';
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "invoiceninja":
+      // API login — specific IN5 flow
+      html = bridgeHtml("Invoicing", `
+        fetch('/api/v1/login',{method:'POST',headers:{'Content-Type':'application/json',
+          'X-Requested-With':'XMLHttpRequest'},
+          body:JSON.stringify({email:'${e}',password:'${p}'})
+        }).then(r=>r.json()).then(d=>{
+          if(d.data&&d.data[0]&&d.data[0].token)
+            localStorage.setItem('X-NINJA-TOKEN',d.data[0].token.token);
+          location.href='/';
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "docuseal":
+      // Rails form login
+      html = bridgeHtml("Proposals", `
+        fetch('/sign_in',{method:'GET',credentials:'include'}).then(r=>r.text()).then(h=>{
+          const m=h.match(/name="authenticity_token"\\s+value="([^"]+)"/)||h.match(/csrf-token.*?content="([^"]+)"/);
+          const f=document.createElement('form');f.method='POST';f.action='/sign_in';
+          f.innerHTML='<input name="user[email]" value="${e}"><input name="user[password]" value="${p}"><input name="authenticity_token" value="'+(m?m[1]:'')+'">';
+          document.body.appendChild(f);f.submit();
+        }).catch(()=>location.href='/');
+      `);
+      break;
+
+    case "n8n":
+      // n8n owner login
+      html = bridgeHtml("Workflows", `
+        fetch('/rest/login',{method:'POST',headers:{'Content-Type':'application/json'},
+          credentials:'include',body:JSON.stringify({email:'${e}',password:'${p}'})
+        }).then(()=>location.href='/').catch(()=>location.href='/');
+      `);
+      break;
+
+    case "paperless":
+      // Already auto-logins via PAPERLESS_AUTO_LOGIN_USERNAME
+      html = bridgeHtml("Documents", `location.href='/';`);
+      break;
+
+    default:
+      return res.status(404).send("Unknown service");
+  }
+
+  res.type("html").send(html);
+});
+
+// ---------------------------------------------------------------------------
 // Service health check — check all integrated services
 // ---------------------------------------------------------------------------
 app.get("/api/services/status", async (_req, res) => {
