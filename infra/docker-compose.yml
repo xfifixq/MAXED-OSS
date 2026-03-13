@@ -334,6 +334,7 @@ services:
       ADMINMAIL: ${KIMAI_ADMIN_EMAIL}
       ADMINPASS: ${KIMAI_ADMIN_PASSWORD}
       DATABASE_URL: mysql://${KIMAI_MYSQL_USER}:${KIMAI_MYSQL_PASSWORD}@kimai-mysql:3306/${KIMAI_MYSQL_DATABASE}
+      TRUSTED_PROXIES: "0.0.0.0/0"
     depends_on:
       kimai-mysql:
         condition: service_healthy
