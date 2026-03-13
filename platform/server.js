@@ -593,11 +593,24 @@ async function getKimaiToken() {
     tokenCache.kimai = process.env.KIMAI_API_TOKEN;
     return tokenCache.kimai;
   }
-  // Kimai: try to create an API token by calling the API with session auth
   const email = process.env.KIMAI_API_USER || "admin@maxed.dev";
   const pass = process.env.KIMAI_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
+  // Try X-AUTH-USER + X-AUTH-TOKEN with password (some Kimai versions accept this)
   try {
-    // Kimai supports HTTP Basic auth for API access
+    const r = await fetch(`${SERVICES.kimai}/api/version`, {
+      headers: { "X-AUTH-USER": email, "X-AUTH-TOKEN": pass },
+    });
+    if (r.ok) {
+      tokenCache.kimai = pass;
+      console.log("Kimai auth working (X-AUTH-TOKEN with password)");
+      return tokenCache.kimai;
+    }
+    console.log("Kimai X-AUTH-TOKEN failed:", r.status);
+  } catch (err) {
+    console.log("Kimai X-AUTH-TOKEN error:", err.message);
+  }
+  // Try HTTP Basic auth
+  try {
     const basic = Buffer.from(`${email}:${pass}`).toString("base64");
     const r = await fetch(`${SERVICES.kimai}/api/version`, {
       headers: { Authorization: `Basic ${basic}` },
@@ -608,10 +621,11 @@ async function getKimaiToken() {
       console.log("Kimai auth configured (HTTP Basic)");
       return tokenCache.kimai;
     }
-    console.error("Kimai basic auth failed:", r.status);
+    console.log("Kimai basic auth failed:", r.status);
   } catch (err) {
-    console.error("Kimai auth error:", err.message);
+    console.log("Kimai basic auth error:", err.message);
   }
+  console.error("Kimai auth failed - set KIMAI_API_TOKEN env var");
   return null;
 }
 
@@ -623,23 +637,28 @@ async function getBigcapitalToken() {
   }
   const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
   const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
-  try {
-    const r = await fetch(`${SERVICES.bigcapital}/api/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password: pass }),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      tokenCache.bigcapital = data.token;
-      if (data.tenant) tokenCache.bigcapital_tenant = data.tenant.id;
-      console.log("Bigcapital token acquired");
-      return tokenCache.bigcapital;
+  // Try multiple Bigcapital login endpoints (varies by version)
+  const endpoints = ["/api/auth/login", "/auth/login", "/api/auth/sign-in", "/api/login"];
+  for (const ep of endpoints) {
+    try {
+      const r = await fetch(`${SERVICES.bigcapital}${ep}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: pass }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        tokenCache.bigcapital = data.token || data.access_token;
+        if (data.tenant) tokenCache.bigcapital_tenant = data.tenant.id;
+        console.log(`Bigcapital token acquired via ${ep}`);
+        return tokenCache.bigcapital;
+      }
+      console.log(`Bigcapital ${ep}: ${r.status}`);
+    } catch (err) {
+      console.log(`Bigcapital ${ep} error: ${err.message}`);
     }
-    console.error("Bigcapital login failed:", r.status);
-  } catch (err) {
-    console.error("Bigcapital login error:", err.message);
   }
+  console.error("Bigcapital login failed on all endpoints - set BIGCAPITAL_API_TOKEN env var");
   return null;
 }
 
@@ -677,21 +696,28 @@ async function getTwentyToken() {
       return tokenCache.twenty;
     }
     // Try GraphQL login for newer Twenty versions
-    const gqlR = await fetch(`${SERVICES.twenty}/api`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: `mutation { signUp(email: "${email}", password: "${pass}") { loginToken { token } } }`,
-      }),
-    });
-    if (gqlR.ok) {
-      const gqlData = await gqlR.json();
-      const loginToken = gqlData?.data?.signUp?.loginToken?.token;
-      if (loginToken) {
-        tokenCache.twenty = loginToken;
-        console.log("Twenty CRM token acquired via GraphQL");
-        return tokenCache.twenty;
-      }
+    const mutations = [
+      `mutation { signIn(email: "${email}", password: "${pass}") { loginToken { token expiresAt } tokens { accessToken { token } refreshToken { token } } } }`,
+      `mutation { challenge(email: "${email}", password: "${pass}") { loginToken { token } } }`,
+    ];
+    for (const query of mutations) {
+      try {
+        const gqlR = await fetch(`${SERVICES.twenty}/api`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        if (gqlR.ok) {
+          const gqlData = await gqlR.json();
+          const result = gqlData?.data?.signIn || gqlData?.data?.challenge;
+          const loginToken = result?.loginToken?.token || result?.tokens?.accessToken?.token;
+          if (loginToken) {
+            tokenCache.twenty = loginToken;
+            console.log("Twenty CRM token acquired via GraphQL");
+            return tokenCache.twenty;
+          }
+        }
+      } catch {}
     }
     console.error("Twenty login failed - set TWENTY_API_KEY env var");
   } catch (err) {
@@ -797,9 +823,11 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
 // n8n proxy — Workflow automation
 // ---------------------------------------------------------------------------
 const n8nAuth = async () => {
-  const token = await getN8nToken();
+  await getN8nToken();
+  // If an API key is set (via env or cache), use it
   if (process.env.N8N_API_KEY) return { "X-N8N-API-KEY": process.env.N8N_API_KEY };
-  // Basic auth
+  if (tokenCache.n8n && tokenCache.n8n !== "basic") return { "X-N8N-API-KEY": tokenCache.n8n };
+  // Basic auth fallback (protects UI, not API v1 — may not work)
   if (tokenCache.n8n_basic) return { Authorization: `Basic ${tokenCache.n8n_basic}` };
   return {};
 };
@@ -1594,6 +1622,41 @@ app.get("/api/services/status", async (_req, res) => {
     }
   }
   res.json(results);
+});
+
+// Diagnostic: test auth for all services and report what's working
+app.get("/api/services/diagnose", async (_req, res) => {
+  const diag = {};
+  const test = async (name, fn) => {
+    try {
+      const token = await fn();
+      diag[name] = { auth: !!token, token: token ? (typeof token === "string" ? token.substring(0, 8) + "..." : "ok") : null };
+    } catch (err) {
+      diag[name] = { auth: false, error: err.message };
+    }
+  };
+  await Promise.all([
+    test("paperless", getPaperlessToken),
+    test("invoiceninja", getInvoiceNinjaToken),
+    test("kimai", getKimaiToken),
+    test("n8n", getN8nToken),
+    test("docuseal", getDocuSealToken),
+    test("bigcapital", getBigcapitalToken),
+    test("twenty", getTwentyToken),
+    test("metabase", getMetabaseSession),
+    test("mattermost", getMattermostToken),
+  ]);
+  // Also check which env vars are set
+  diag._env = {
+    PAPERLESS_API_TOKEN: !!process.env.PAPERLESS_API_TOKEN,
+    INVOICE_NINJA_API_TOKEN: !!process.env.INVOICE_NINJA_API_TOKEN,
+    KIMAI_API_TOKEN: !!process.env.KIMAI_API_TOKEN,
+    N8N_API_KEY: !!process.env.N8N_API_KEY,
+    DOCUSEAL_API_TOKEN: !!process.env.DOCUSEAL_API_TOKEN,
+    BIGCAPITAL_API_TOKEN: !!process.env.BIGCAPITAL_API_TOKEN,
+    TWENTY_API_KEY: !!process.env.TWENTY_API_KEY,
+  };
+  res.json(diag);
 });
 
 // ---------------------------------------------------------------------------
