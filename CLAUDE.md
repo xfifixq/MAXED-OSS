@@ -11,7 +11,7 @@ Maxed OpenCPA — a self-hosted practice management platform for CPA firms. It b
 **Four Node.js apps + Docker infrastructure:**
 
 - **`platform/`** — Express REST API (port 4000). Single `server.js` file with Prisma ORM against PostgreSQL (`maxed_unified` database). This is the glue layer — it stores firm/client records and links them to external service IDs (e.g., `paperlessDocId`, `invoiceNinjaId`, `bigcapitalId`, `twentyCrmId`).
-- **`dashboard/`** — Next.js 14 admin UI (port 3005). Uses NextAuth for authentication, Tailwind for styling. Embeds external services via iframes (Paperless, n8n, Metabase, DocuSeal). Calls the platform API for all data.
+- **`dashboard/`** — Next.js 14 admin UI (port 3005). Uses NextAuth for authentication, Tailwind for styling. Custom UI for each service module using API proxies (no iframes). Calls the platform API for all data.
 - **`client-portal/`** — Next.js 14 client-facing portal (port 3006). Clients view invoices, upload documents, send messages, sign proposals.
 - **`opencpa/`** — Next.js 14 marketing site (port 3007). Tool directory and PDF cost-savings report generator (jsPDF).
 - **`infra/`** — Docker Compose stack with all 9 services, PostgreSQL 16, MySQL 8.0 x3, Redis 7, and nginx reverse proxy.

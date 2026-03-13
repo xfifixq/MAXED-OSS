@@ -30,7 +30,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (result?.error) {
-      setError('Invalid email or password. Try admin@maxed.dev or admin@maxed.life / maxed2024');
+      setError('Invalid email or password.');
     } else if (result?.ok) {
       router.push(callbackUrl);
     }
@@ -109,9 +109,8 @@ export default function LoginPage() {
 
           <div className="mt-6 pt-6 border-t border-gray-100 text-center space-y-2">
             <p className="text-sm text-gray-500">
-              New to Maxed?{' '}
-              <Link href="/register" className="text-brand-600 hover:text-brand-700 font-medium">
-                Create an account
+              <Link href="/forgot-password" className="text-brand-600 hover:text-brand-700 font-medium">
+                Forgot your password?
               </Link>
             </p>
           </div>
