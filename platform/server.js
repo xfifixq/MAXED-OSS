@@ -456,11 +456,214 @@ async function proxyFetch(serviceUrl, path, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-login token cache — fetches tokens on first use, caches them
+// ---------------------------------------------------------------------------
+const tokenCache = {};
+
+async function getPaperlessToken() {
+  if (tokenCache.paperless) return tokenCache.paperless;
+  // If a static token is configured, use it
+  if (process.env.PAPERLESS_API_TOKEN) {
+    tokenCache.paperless = process.env.PAPERLESS_API_TOKEN;
+    return tokenCache.paperless;
+  }
+  // Otherwise, auto-login with admin credentials
+  const user = process.env.PAPERLESS_ADMIN_USER || "admin";
+  const pass = process.env.PAPERLESS_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.paperless}/api/token/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user, password: pass }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      tokenCache.paperless = data.token;
+      console.log("Paperless token acquired");
+      return tokenCache.paperless;
+    }
+    console.error("Paperless login failed:", r.status);
+  } catch (err) {
+    console.error("Paperless login error:", err.message);
+  }
+  return null;
+}
+
+async function getDocuSealToken() {
+  if (tokenCache.docuseal) return tokenCache.docuseal;
+  if (process.env.DOCUSEAL_API_TOKEN) {
+    tokenCache.docuseal = process.env.DOCUSEAL_API_TOKEN;
+    return tokenCache.docuseal;
+  }
+  // DocuSeal: login via API to get auth token
+  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.docuseal}/api/auth/sign_in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      tokenCache.docuseal = data.token || data.access_token;
+      console.log("DocuSeal token acquired");
+      return tokenCache.docuseal;
+    }
+    console.error("DocuSeal login failed:", r.status);
+  } catch (err) {
+    console.error("DocuSeal login error:", err.message);
+  }
+  return null;
+}
+
+async function getInvoiceNinjaToken() {
+  if (tokenCache.invoiceninja) return tokenCache.invoiceninja;
+  if (process.env.INVOICE_NINJA_API_TOKEN) {
+    tokenCache.invoiceninja = process.env.INVOICE_NINJA_API_TOKEN;
+    return tokenCache.invoiceninja;
+  }
+  const email = process.env.INVOICENINJA_ADMIN_EMAIL || process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.invoiceninja}/api/v1/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      if (data.data && data.data[0] && data.data[0].token) {
+        tokenCache.invoiceninja = data.data[0].token.token;
+        console.log("Invoice Ninja token acquired");
+        return tokenCache.invoiceninja;
+      }
+    }
+    console.error("Invoice Ninja login failed:", r.status);
+  } catch (err) {
+    console.error("Invoice Ninja login error:", err.message);
+  }
+  return null;
+}
+
+async function getN8nToken() {
+  if (tokenCache.n8n) return tokenCache.n8n;
+  if (process.env.N8N_API_KEY) {
+    tokenCache.n8n = process.env.N8N_API_KEY;
+    return tokenCache.n8n;
+  }
+  // n8n: login via REST API to get cookie-based session
+  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const pass = process.env.N8N_BASIC_AUTH_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.n8n}/rest/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.ok) {
+      // Extract cookie for subsequent requests
+      const cookies = r.headers.get("set-cookie") || "";
+      tokenCache.n8n_cookie = cookies;
+      tokenCache.n8n = "cookie";
+      console.log("n8n session acquired");
+      return tokenCache.n8n;
+    }
+    console.error("n8n login failed:", r.status);
+  } catch (err) {
+    console.error("n8n login error:", err.message);
+  }
+  return null;
+}
+
+async function getKimaiToken() {
+  if (tokenCache.kimai) return tokenCache.kimai;
+  if (process.env.KIMAI_API_TOKEN) {
+    tokenCache.kimai = process.env.KIMAI_API_TOKEN;
+    return tokenCache.kimai;
+  }
+  // Kimai API supports password-based auth directly via X-AUTH-USER + X-AUTH-TOKEN
+  // The token IS the password for API access
+  tokenCache.kimai = process.env.KIMAI_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
+  console.log("Kimai auth configured (password-based)");
+  return tokenCache.kimai;
+}
+
+async function getBigcapitalToken() {
+  if (tokenCache.bigcapital) return tokenCache.bigcapital;
+  if (process.env.BIGCAPITAL_API_TOKEN) {
+    tokenCache.bigcapital = process.env.BIGCAPITAL_API_TOKEN;
+    return tokenCache.bigcapital;
+  }
+  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.bigcapital}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      tokenCache.bigcapital = data.token;
+      if (data.tenant) tokenCache.bigcapital_tenant = data.tenant.id;
+      console.log("Bigcapital token acquired");
+      return tokenCache.bigcapital;
+    }
+    console.error("Bigcapital login failed:", r.status);
+  } catch (err) {
+    console.error("Bigcapital login error:", err.message);
+  }
+  return null;
+}
+
+async function getTwentyToken() {
+  if (tokenCache.twenty) return tokenCache.twenty;
+  if (process.env.TWENTY_API_KEY) {
+    tokenCache.twenty = process.env.TWENTY_API_KEY;
+    return tokenCache.twenty;
+  }
+  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.twenty}/api/auth/sign-in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      if (data.loginToken) {
+        // Exchange loginToken for access token
+        const r2 = await fetch(`${SERVICES.twenty}/api/auth/tokens/renew`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ loginToken: data.loginToken }),
+        });
+        if (r2.ok) {
+          const d2 = await r2.json();
+          tokenCache.twenty = d2.tokens?.accessToken?.token || d2.accessToken || data.loginToken;
+          console.log("Twenty CRM token acquired");
+          return tokenCache.twenty;
+        }
+      }
+      tokenCache.twenty = data.token || data.loginToken;
+      return tokenCache.twenty;
+    }
+    console.error("Twenty login failed:", r.status);
+  } catch (err) {
+    console.error("Twenty login error:", err.message);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Paperless-ngx proxy — Document management
 // ---------------------------------------------------------------------------
-const paperlessAuth = () => ({
-  Authorization: `Token ${process.env.PAPERLESS_API_TOKEN || ""}`,
-});
+const paperlessAuth = async () => {
+  const token = await getPaperlessToken();
+  return token ? { Authorization: `Token ${token}` } : {};
+};
 
 app.get("/api/services/paperless/documents", async (req, res) => {
   try {
@@ -470,7 +673,7 @@ app.get("/api/services/paperless/documents", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.paperless,
       `/api/documents/?${qs}`,
-      { headers: paperlessAuth() }
+      { headers: await paperlessAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -481,7 +684,7 @@ app.get("/api/services/paperless/documents", async (req, res) => {
 app.get("/api/services/paperless/documents/:id/thumb", async (req, res) => {
   try {
     const url = `${SERVICES.paperless}/api/documents/${req.params.id}/thumb/`;
-    const upstream = await fetch(url, { headers: paperlessAuth() });
+    const upstream = await fetch(url, { headers: await paperlessAuth() });
     res.set("Content-Type", upstream.headers.get("content-type") || "image/png");
     const buffer = Buffer.from(await upstream.arrayBuffer());
     res.send(buffer);
@@ -493,7 +696,7 @@ app.get("/api/services/paperless/documents/:id/thumb", async (req, res) => {
 app.get("/api/services/paperless/tags", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.paperless, "/api/tags/", {
-      headers: paperlessAuth(),
+      headers: await paperlessAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -504,14 +707,15 @@ app.get("/api/services/paperless/tags", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // DocuSeal proxy — E-signatures and proposals
 // ---------------------------------------------------------------------------
-const docusealAuth = () => ({
-  "X-Auth-Token": process.env.DOCUSEAL_API_TOKEN || "",
-});
+const docusealAuth = async () => {
+  const token = await getDocuSealToken();
+  return token ? { "X-Auth-Token": token } : {};
+};
 
 app.get("/api/services/docuseal/templates", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.docuseal, "/api/templates", {
-      headers: docusealAuth(),
+      headers: await docusealAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -525,7 +729,7 @@ app.get("/api/services/docuseal/submissions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.docuseal,
       `/api/submissions?page=${page}`,
-      { headers: docusealAuth() }
+      { headers: await docusealAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -537,7 +741,7 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.docuseal, "/api/submissions", {
       method: "POST",
-      headers: docusealAuth(),
+      headers: await docusealAuth(),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -549,14 +753,18 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
 // ---------------------------------------------------------------------------
 // n8n proxy — Workflow automation
 // ---------------------------------------------------------------------------
-const n8nAuth = () => ({
-  "X-N8N-API-KEY": process.env.N8N_API_KEY || "",
-});
+const n8nAuth = async () => {
+  const token = await getN8nToken();
+  if (process.env.N8N_API_KEY) return { "X-N8N-API-KEY": process.env.N8N_API_KEY };
+  // Cookie-based auth
+  if (tokenCache.n8n_cookie) return { Cookie: tokenCache.n8n_cookie };
+  return {};
+};
 
 app.get("/api/services/n8n/workflows", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.n8n, "/api/v1/workflows", {
-      headers: n8nAuth(),
+      headers: await n8nAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -570,7 +778,7 @@ app.get("/api/services/n8n/executions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.n8n,
       `/api/v1/executions?limit=${limit}`,
-      { headers: n8nAuth() }
+      { headers: await n8nAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -585,7 +793,7 @@ app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
       `/api/v1/workflows/${req.params.id}`,
       {
         method: "PATCH",
-        headers: n8nAuth(),
+        headers: await n8nAuth(),
         body: JSON.stringify({ active: true }),
       }
     );
@@ -598,10 +806,13 @@ app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Kimai proxy — Time tracking
 // ---------------------------------------------------------------------------
-const kimaiAuth = () => ({
-  "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
-  "X-AUTH-TOKEN": process.env.KIMAI_API_TOKEN || "",
-});
+const kimaiAuth = async () => {
+  const token = await getKimaiToken();
+  return {
+    "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
+    "X-AUTH-TOKEN": token || "",
+  };
+};
 
 app.get("/api/services/kimai/timesheets", async (req, res) => {
   try {
@@ -609,7 +820,7 @@ app.get("/api/services/kimai/timesheets", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.kimai,
       `/api/timesheets?page=${page}&size=${size}&order=DESC&orderBy=begin`,
-      { headers: kimaiAuth() }
+      { headers: await kimaiAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -621,7 +832,7 @@ app.post("/api/services/kimai/timesheets", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/timesheets", {
       method: "POST",
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -633,7 +844,7 @@ app.post("/api/services/kimai/timesheets", async (req, res) => {
 app.get("/api/services/kimai/projects", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/projects", {
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -644,7 +855,7 @@ app.get("/api/services/kimai/projects", async (_req, res) => {
 app.get("/api/services/kimai/activities", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/activities", {
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -655,9 +866,10 @@ app.get("/api/services/kimai/activities", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // Invoice Ninja proxy — Invoicing
 // ---------------------------------------------------------------------------
-const invoiceNinjaAuth = () => ({
-  "X-API-TOKEN": process.env.INVOICE_NINJA_API_TOKEN || "",
-});
+const invoiceNinjaAuth = async () => {
+  const token = await getInvoiceNinjaToken();
+  return token ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" } : { "X-Requested-With": "XMLHttpRequest" };
+};
 
 app.get("/api/services/invoiceninja/invoices", async (req, res) => {
   try {
@@ -665,7 +877,7 @@ app.get("/api/services/invoiceninja/invoices", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.invoiceninja,
       `/api/v1/invoices?page=${page}&per_page=50&sort=created_at|desc`,
-      { headers: invoiceNinjaAuth() }
+      { headers: await invoiceNinjaAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -678,7 +890,7 @@ app.get("/api/services/invoiceninja/clients", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.invoiceninja,
       "/api/v1/clients?per_page=100",
-      { headers: invoiceNinjaAuth() }
+      { headers: await invoiceNinjaAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1042,14 +1254,18 @@ app.get("/bridge/:service", (req, res) => {
 // ---------------------------------------------------------------------------
 // Bigcapital proxy — Accounting & bookkeeping
 // ---------------------------------------------------------------------------
-const bigcapitalAuth = () => ({
-  Authorization: `Bearer ${process.env.BIGCAPITAL_API_TOKEN || ""}`,
-});
+const bigcapitalAuth = async () => {
+  const token = await getBigcapitalToken();
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (tokenCache.bigcapital_tenant) headers["x-tenant-id"] = String(tokenCache.bigcapital_tenant);
+  return headers;
+};
 
 app.get("/api/services/bigcapital/accounts", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.bigcapital, "/api/accounts", {
-      headers: bigcapitalAuth(),
+      headers: await bigcapitalAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1063,7 +1279,7 @@ app.get("/api/services/bigcapital/transactions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       `/api/transactions?page=${page}&page_size=50`,
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1076,7 +1292,7 @@ app.get("/api/services/bigcapital/balance-sheet", async (_req, res) => {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       "/api/financial-statements/balance-sheet",
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1089,7 +1305,7 @@ app.get("/api/services/bigcapital/profit-loss", async (_req, res) => {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       "/api/financial-statements/profit-loss-sheet",
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth() }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1100,14 +1316,15 @@ app.get("/api/services/bigcapital/profit-loss", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // Twenty CRM proxy — Customer relationship management
 // ---------------------------------------------------------------------------
-const twentyAuth = () => ({
-  Authorization: `Bearer ${process.env.TWENTY_API_KEY || ""}`,
-});
+const twentyAuth = async () => {
+  const token = await getTwentyToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 app.get("/api/services/twenty/companies", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
-      headers: twentyAuth(),
+      headers: await twentyAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1118,7 +1335,7 @@ app.get("/api/services/twenty/companies", async (_req, res) => {
 app.get("/api/services/twenty/people", async (_req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/people", {
-      headers: twentyAuth(),
+      headers: await twentyAuth(),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1130,7 +1347,7 @@ app.post("/api/services/twenty/companies", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
       method: "POST",
-      headers: twentyAuth(),
+      headers: await twentyAuth(),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -1143,7 +1360,7 @@ app.post("/api/services/twenty/people", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/people", {
       method: "POST",
-      headers: twentyAuth(),
+      headers: await twentyAuth(),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
