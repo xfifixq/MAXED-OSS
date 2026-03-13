@@ -439,6 +439,7 @@ const SERVICES = {
   mattermost: process.env.MATTERMOST_URL || "http://localhost:8065",
   metabase: process.env.METABASE_URL || "http://localhost:3002",
   twenty: process.env.TWENTY_URL || "http://localhost:3004",
+  bigcapital: process.env.BIGCAPITAL_URL || "http://localhost:3001",
 };
 
 // Helper to proxy requests to external services
@@ -1036,6 +1037,272 @@ app.get("/bridge/:service", (req, res) => {
   }
 
   res.type("html").send(html);
+});
+
+// ---------------------------------------------------------------------------
+// Bigcapital proxy — Accounting & bookkeeping
+// ---------------------------------------------------------------------------
+const bigcapitalAuth = () => ({
+  Authorization: `Bearer ${process.env.BIGCAPITAL_API_TOKEN || ""}`,
+});
+
+app.get("/api/services/bigcapital/accounts", async (_req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.bigcapital, "/api/accounts", {
+      headers: bigcapitalAuth(),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Bigcapital unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/bigcapital/transactions", async (req, res) => {
+  try {
+    const { page = 1 } = req.query;
+    const result = await proxyFetch(
+      SERVICES.bigcapital,
+      `/api/transactions?page=${page}&page_size=50`,
+      { headers: bigcapitalAuth() }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Bigcapital unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/bigcapital/balance-sheet", async (_req, res) => {
+  try {
+    const result = await proxyFetch(
+      SERVICES.bigcapital,
+      "/api/financial-statements/balance-sheet",
+      { headers: bigcapitalAuth() }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Bigcapital unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/bigcapital/profit-loss", async (_req, res) => {
+  try {
+    const result = await proxyFetch(
+      SERVICES.bigcapital,
+      "/api/financial-statements/profit-loss-sheet",
+      { headers: bigcapitalAuth() }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Bigcapital unavailable", detail: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Twenty CRM proxy — Customer relationship management
+// ---------------------------------------------------------------------------
+const twentyAuth = () => ({
+  Authorization: `Bearer ${process.env.TWENTY_API_KEY || ""}`,
+});
+
+app.get("/api/services/twenty/companies", async (_req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
+      headers: twentyAuth(),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Twenty CRM unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/twenty/people", async (_req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/people", {
+      headers: twentyAuth(),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Twenty CRM unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/twenty/companies", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
+      method: "POST",
+      headers: twentyAuth(),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Twenty CRM unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/twenty/people", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/people", {
+      method: "POST",
+      headers: twentyAuth(),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Twenty CRM unavailable", detail: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Metabase proxy — Reporting & analytics
+// ---------------------------------------------------------------------------
+let metabaseSession = null;
+async function getMetabaseSession() {
+  if (metabaseSession) return metabaseSession;
+  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  const password = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.metabase}/api/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: email, password }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      metabaseSession = data.id;
+      return metabaseSession;
+    }
+  } catch {}
+  return null;
+}
+
+app.get("/api/services/metabase/dashboards", async (_req, res) => {
+  try {
+    const session = await getMetabaseSession();
+    if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+    const result = await proxyFetch(SERVICES.metabase, "/api/dashboard", {
+      headers: { "X-Metabase-Session": session },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Metabase unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/metabase/questions", async (_req, res) => {
+  try {
+    const session = await getMetabaseSession();
+    if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+    const result = await proxyFetch(SERVICES.metabase, "/api/card", {
+      headers: { "X-Metabase-Session": session },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Metabase unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/metabase/dashboard/:id", async (req, res) => {
+  try {
+    const session = await getMetabaseSession();
+    if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+    const result = await proxyFetch(SERVICES.metabase, `/api/dashboard/${req.params.id}`, {
+      headers: { "X-Metabase-Session": session },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Metabase unavailable", detail: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Mattermost proxy — Team chat & communication
+// ---------------------------------------------------------------------------
+let mattermostToken = null;
+async function getMattermostToken() {
+  if (mattermostToken) return mattermostToken;
+  const user = process.env.MATTERMOST_ADMIN_USER || "maxed-admin";
+  const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    const r = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login_id: user, password: pass }),
+    });
+    if (r.ok) {
+      mattermostToken = r.headers.get("token");
+      return mattermostToken;
+    }
+  } catch {}
+  return null;
+}
+
+app.get("/api/services/mattermost/channels", async (_req, res) => {
+  try {
+    const token = await getMattermostToken();
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/channels", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/mattermost/channels/:id/posts", async (req, res) => {
+  try {
+    const token = await getMattermostToken();
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(
+      SERVICES.mattermost,
+      `/api/v4/channels/${req.params.id}/posts?per_page=50`,
+      { headers: { Authorization: "Bearer " + token } }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/mattermost/channels/:id/posts", async (req, res) => {
+  try {
+    const token = await getMattermostToken();
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/posts", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/mattermost/teams", async (_req, res) => {
+  try {
+    const token = await getMattermostToken();
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/teams", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/mattermost/users", async (_req, res) => {
+  try {
+    const token = await getMattermostToken();
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users?per_page=100", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
