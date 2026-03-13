@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_PAPERLESS_URL || 'http://localhost:8000';
+const SERVICE_URL = 'https://docs.maxed.life';
 
 export default function DocumentsPage() {
   return (

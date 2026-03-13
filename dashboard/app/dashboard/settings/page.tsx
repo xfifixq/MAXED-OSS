@@ -31,15 +31,15 @@ export default function SettingsPage() {
   ];
 
   const tools: ToolStatus[] = [
-    { name: 'Bookkeeping', url: process.env.NEXT_PUBLIC_BIGCAPITAL_URL || 'http://localhost:3001', envVar: 'NEXT_PUBLIC_BIGCAPITAL_URL', connected: true },
-    { name: 'Document Management', url: process.env.NEXT_PUBLIC_PAPERLESS_URL || 'http://localhost:8000', envVar: 'NEXT_PUBLIC_PAPERLESS_URL', connected: true },
-    { name: 'Invoicing', url: process.env.NEXT_PUBLIC_INVOICE_NINJA_URL || 'http://localhost:8080', envVar: 'NEXT_PUBLIC_INVOICE_NINJA_URL', connected: true },
-    { name: 'Proposals & E-Signatures', url: process.env.NEXT_PUBLIC_DOCUSEAL_URL || 'http://localhost:3003', envVar: 'NEXT_PUBLIC_DOCUSEAL_URL', connected: true },
-    { name: 'Reporting & Analytics', url: process.env.NEXT_PUBLIC_METABASE_URL || 'http://localhost:3002', envVar: 'NEXT_PUBLIC_METABASE_URL', connected: true },
-    { name: 'Workflow Automation', url: process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678', envVar: 'NEXT_PUBLIC_N8N_URL', connected: true },
-    { name: 'Team Chat', url: process.env.NEXT_PUBLIC_MATTERMOST_URL || 'http://localhost:8065', envVar: 'NEXT_PUBLIC_MATTERMOST_URL', connected: true },
-    { name: 'Time Tracking', url: process.env.NEXT_PUBLIC_KIMAI_URL || 'http://localhost:8001', envVar: 'NEXT_PUBLIC_KIMAI_URL', connected: true },
-    { name: 'CRM', url: process.env.NEXT_PUBLIC_TWENTY_URL || 'http://localhost:3004', envVar: 'NEXT_PUBLIC_TWENTY_URL', connected: true },
+    { name: 'Bookkeeping', url: 'https://books.maxed.life', envVar: 'NEXT_PUBLIC_BIGCAPITAL_URL', connected: true },
+    { name: 'Document Management', url: 'https://docs.maxed.life', envVar: 'NEXT_PUBLIC_PAPERLESS_URL', connected: true },
+    { name: 'Invoicing', url: 'https://billing.maxed.life', envVar: 'NEXT_PUBLIC_INVOICE_NINJA_URL', connected: true },
+    { name: 'Proposals & E-Signatures', url: 'https://sign.maxed.life', envVar: 'NEXT_PUBLIC_DOCUSEAL_URL', connected: true },
+    { name: 'Reporting & Analytics', url: 'https://reports.maxed.life', envVar: 'NEXT_PUBLIC_METABASE_URL', connected: true },
+    { name: 'Workflow Automation', url: 'https://flow.maxed.life', envVar: 'NEXT_PUBLIC_N8N_URL', connected: true },
+    { name: 'Team Chat', url: 'https://chat.maxed.life', envVar: 'NEXT_PUBLIC_MATTERMOST_URL', connected: true },
+    { name: 'Time Tracking', url: 'https://time.maxed.life', envVar: 'NEXT_PUBLIC_KIMAI_URL', connected: true },
+    { name: 'CRM', url: 'https://crm.maxed.life', envVar: 'NEXT_PUBLIC_TWENTY_URL', connected: true },
   ];
 
   const handleSave = async () => {

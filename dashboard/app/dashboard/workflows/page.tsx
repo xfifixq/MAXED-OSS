@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678';
+const SERVICE_URL = 'https://flow.maxed.life';
 
 export default function WorkflowsPage() {
   return <ServiceFrame src={SERVICE_URL} title="Workflow Automation" />;

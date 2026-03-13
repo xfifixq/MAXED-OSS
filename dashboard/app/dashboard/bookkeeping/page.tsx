@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_BIGCAPITAL_URL || 'http://localhost:3001';
+const SERVICE_URL = 'https://books.maxed.life';
 
 export default function BookkeepingPage() {
   return (

@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_INVOICE_NINJA_URL || 'http://localhost:8080';
+const SERVICE_URL = 'https://billing.maxed.life';
 
 export default function InvoicingPage() {
   return (

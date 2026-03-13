@@ -2,7 +2,7 @@
 
 import ServiceFrame from '@/components/ServiceFrame';
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_TWENTY_URL || 'http://localhost:3004';
+const SERVICE_URL = 'https://crm.maxed.life';
 
 export default function CRMPage() {
   return (
