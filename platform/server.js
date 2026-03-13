@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 4000;
 // ---------------------------------------------------------------------------
 // Production Security
 // ---------------------------------------------------------------------------
+app.set("trust proxy", 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: process.env.CORS_ORIGINS
@@ -439,7 +440,7 @@ const SERVICES = {
   mattermost: process.env.MATTERMOST_URL || "http://localhost:8065",
   metabase: process.env.METABASE_URL || "http://localhost:3002",
   twenty: process.env.TWENTY_URL || "http://localhost:3004",
-  bigcapital: process.env.BIGCAPITAL_URL || "http://localhost:3001",
+  bigcapital: process.env.BIGCAPITAL_URL || "http://localhost:3000",
 };
 
 // Helper to proxy requests to external services
@@ -495,22 +496,47 @@ async function getDocuSealToken() {
     tokenCache.docuseal = process.env.DOCUSEAL_API_TOKEN;
     return tokenCache.docuseal;
   }
-  // DocuSeal: login via API to get auth token
+  // DocuSeal: try to get API key via sign_in page (Rails session-based)
   const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
   const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
   try {
-    const r = await fetch(`${SERVICES.docuseal}/api/auth/sign_in`, {
+    // Try the JSON sign-in endpoint
+    const r = await fetch(`${SERVICES.docuseal}/api/sign_in`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password: pass }),
     });
     if (r.ok) {
       const data = await r.json();
-      tokenCache.docuseal = data.token || data.access_token;
-      console.log("DocuSeal token acquired");
-      return tokenCache.docuseal;
+      tokenCache.docuseal = data.token || data.api_key || data.access_token;
+      if (tokenCache.docuseal) {
+        console.log("DocuSeal token acquired via sign_in");
+        return tokenCache.docuseal;
+      }
     }
-    console.error("DocuSeal login failed:", r.status);
+    // Try alternative endpoint
+    const r2 = await fetch(`${SERVICES.docuseal}/auth/sign_in`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: { email, password: pass } }),
+    });
+    if (r2.ok) {
+      const cookies = r2.headers.get("set-cookie") || "";
+      if (cookies) {
+        tokenCache.docuseal_cookie = cookies;
+        // Now fetch API key from settings
+        const r3 = await fetch(`${SERVICES.docuseal}/api/tools/token`, {
+          headers: { Cookie: cookies },
+        });
+        if (r3.ok) {
+          const d3 = await r3.json();
+          tokenCache.docuseal = d3.token;
+          console.log("DocuSeal token acquired via settings");
+          return tokenCache.docuseal;
+        }
+      }
+    }
+    console.error("DocuSeal login failed - set DOCUSEAL_API_TOKEN env var");
   } catch (err) {
     console.error("DocuSeal login error:", err.message);
   }
@@ -552,28 +578,13 @@ async function getN8nToken() {
     tokenCache.n8n = process.env.N8N_API_KEY;
     return tokenCache.n8n;
   }
-  // n8n: login via REST API to get cookie-based session
-  const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
+  // n8n: try basic auth header (if N8N_BASIC_AUTH_ACTIVE is true)
+  const user = process.env.N8N_BASIC_AUTH_USER || "admin";
   const pass = process.env.N8N_BASIC_AUTH_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
-  try {
-    const r = await fetch(`${SERVICES.n8n}/rest/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password: pass }),
-    });
-    if (r.ok) {
-      // Extract cookie for subsequent requests
-      const cookies = r.headers.get("set-cookie") || "";
-      tokenCache.n8n_cookie = cookies;
-      tokenCache.n8n = "cookie";
-      console.log("n8n session acquired");
-      return tokenCache.n8n;
-    }
-    console.error("n8n login failed:", r.status);
-  } catch (err) {
-    console.error("n8n login error:", err.message);
-  }
-  return null;
+  tokenCache.n8n_basic = Buffer.from(`${user}:${pass}`).toString("base64");
+  tokenCache.n8n = "basic";
+  console.log("n8n auth configured (basic auth)");
+  return tokenCache.n8n;
 }
 
 async function getKimaiToken() {
@@ -582,11 +593,26 @@ async function getKimaiToken() {
     tokenCache.kimai = process.env.KIMAI_API_TOKEN;
     return tokenCache.kimai;
   }
-  // Kimai API supports password-based auth directly via X-AUTH-USER + X-AUTH-TOKEN
-  // The token IS the password for API access
-  tokenCache.kimai = process.env.KIMAI_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
-  console.log("Kimai auth configured (password-based)");
-  return tokenCache.kimai;
+  // Kimai: try to create an API token by calling the API with session auth
+  const email = process.env.KIMAI_API_USER || "admin@maxed.dev";
+  const pass = process.env.KIMAI_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "";
+  try {
+    // Kimai supports HTTP Basic auth for API access
+    const basic = Buffer.from(`${email}:${pass}`).toString("base64");
+    const r = await fetch(`${SERVICES.kimai}/api/version`, {
+      headers: { Authorization: `Basic ${basic}` },
+    });
+    if (r.ok) {
+      tokenCache.kimai_basic = basic;
+      tokenCache.kimai = "basic";
+      console.log("Kimai auth configured (HTTP Basic)");
+      return tokenCache.kimai;
+    }
+    console.error("Kimai basic auth failed:", r.status);
+  } catch (err) {
+    console.error("Kimai auth error:", err.message);
+  }
+  return null;
 }
 
 async function getBigcapitalToken() {
@@ -626,6 +652,7 @@ async function getTwentyToken() {
   const email = process.env.SERVICE_ADMIN_EMAIL || "admin@maxed.life";
   const pass = process.env.SERVICE_ADMIN_PASSWORD || "";
   try {
+    // Twenty uses /api/auth/sign-in for newer versions
     const r = await fetch(`${SERVICES.twenty}/api/auth/sign-in`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -634,7 +661,6 @@ async function getTwentyToken() {
     if (r.ok) {
       const data = await r.json();
       if (data.loginToken) {
-        // Exchange loginToken for access token
         const r2 = await fetch(`${SERVICES.twenty}/api/auth/tokens/renew`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -650,7 +676,24 @@ async function getTwentyToken() {
       tokenCache.twenty = data.token || data.loginToken;
       return tokenCache.twenty;
     }
-    console.error("Twenty login failed:", r.status);
+    // Try GraphQL login for newer Twenty versions
+    const gqlR = await fetch(`${SERVICES.twenty}/api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `mutation { signUp(email: "${email}", password: "${pass}") { loginToken { token } } }`,
+      }),
+    });
+    if (gqlR.ok) {
+      const gqlData = await gqlR.json();
+      const loginToken = gqlData?.data?.signUp?.loginToken?.token;
+      if (loginToken) {
+        tokenCache.twenty = loginToken;
+        console.log("Twenty CRM token acquired via GraphQL");
+        return tokenCache.twenty;
+      }
+    }
+    console.error("Twenty login failed - set TWENTY_API_KEY env var");
   } catch (err) {
     console.error("Twenty login error:", err.message);
   }
@@ -756,8 +799,8 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
 const n8nAuth = async () => {
   const token = await getN8nToken();
   if (process.env.N8N_API_KEY) return { "X-N8N-API-KEY": process.env.N8N_API_KEY };
-  // Cookie-based auth
-  if (tokenCache.n8n_cookie) return { Cookie: tokenCache.n8n_cookie };
+  // Basic auth
+  if (tokenCache.n8n_basic) return { Authorization: `Basic ${tokenCache.n8n_basic}` };
   return {};
 };
 
@@ -808,9 +851,21 @@ app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
 // ---------------------------------------------------------------------------
 const kimaiAuth = async () => {
   const token = await getKimaiToken();
+  // If we have a proper API token, use X-AUTH headers
+  if (token && token !== "basic") {
+    return {
+      "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
+      "X-AUTH-TOKEN": token,
+    };
+  }
+  // Otherwise use HTTP Basic auth
+  if (tokenCache.kimai_basic) {
+    return { Authorization: `Basic ${tokenCache.kimai_basic}` };
+  }
+  // Last resort: try with password as token
   return {
     "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
-    "X-AUTH-TOKEN": token || "",
+    "X-AUTH-TOKEN": process.env.KIMAI_ADMIN_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD || "",
   };
 };
 
