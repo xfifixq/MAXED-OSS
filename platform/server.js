@@ -1324,9 +1324,19 @@ app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
   }
 });
 
-// Return service URLs for admin iframe page
+// Return public-facing service URLs for admin iframe page
 app.get("/api/services/urls", (_req, res) => {
-  res.json(SERVICES);
+  res.json({
+    paperless: process.env.PAPERLESS_PUBLIC_URL || "http://docs.maxed.life",
+    docuseal: process.env.DOCUSEAL_PUBLIC_URL || "http://sign.maxed.life",
+    invoiceninja: process.env.INVOICE_NINJA_PUBLIC_URL || "http://billing.maxed.life",
+    n8n: process.env.N8N_PUBLIC_URL || "http://flow.maxed.life",
+    kimai: process.env.KIMAI_PUBLIC_URL || "http://time.maxed.life",
+    bigcapital: process.env.BIGCAPITAL_PUBLIC_URL || "http://books.maxed.life",
+    twenty: process.env.TWENTY_PUBLIC_URL || "http://crm.maxed.life",
+    metabase: process.env.METABASE_PUBLIC_URL || "http://reports.maxed.life",
+    mattermost: process.env.MATTERMOST_PUBLIC_URL || "http://chat.maxed.life",
+  });
 });
 
 // ---------------------------------------------------------------------------

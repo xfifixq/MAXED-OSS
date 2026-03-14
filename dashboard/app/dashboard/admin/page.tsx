@@ -7,15 +7,15 @@ import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 
 const SERVICE_TABS = [
-  { key: 'paperless', name: 'Paperless', defaultUrl: 'http://localhost:8000', fields: ['token'], labels: { token: 'API Token' }, hint: 'Go to Settings → API Tokens in Paperless to generate one.' },
-  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'http://localhost:3003', fields: ['token'], labels: { token: 'API Token' }, hint: 'Find your API key under Account Settings.' },
-  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'http://localhost:8080', fields: ['token'], labels: { token: 'API Token' }, hint: 'Settings → Account Management → API Tokens.' },
-  { key: 'n8n', name: 'n8n', defaultUrl: 'http://localhost:5678', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → API → Create API Key.' },
-  { key: 'kimai', name: 'Kimai', defaultUrl: 'http://localhost:8001', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' }, hint: 'User menu → API Access to create a token.' },
-  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'http://localhost:3000', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' }, hint: 'Check Bigcapital docs for API access.' },
-  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'http://localhost:3004', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → Developers → API Keys.' },
-  { key: 'metabase', name: 'Metabase', defaultUrl: 'http://localhost:3002', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Use the login email and password you created for this user.' },
-  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'http://localhost:8065', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' }, hint: 'Use the login credentials you created for this user.' },
+  { key: 'paperless', name: 'Paperless', defaultUrl: 'http://docs.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Go to Settings → API Tokens in Paperless to generate one.' },
+  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'http://sign.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Find your API key under Account Settings.' },
+  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'http://billing.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Settings → Account Management → API Tokens.' },
+  { key: 'n8n', name: 'n8n', defaultUrl: 'http://flow.maxed.life', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → API → Create API Key.' },
+  { key: 'kimai', name: 'Kimai', defaultUrl: 'http://time.maxed.life', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' }, hint: 'User menu → API Access to create a token.' },
+  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'http://books.maxed.life', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' }, hint: 'Check Bigcapital docs for API access.' },
+  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'http://crm.maxed.life', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → Developers → API Keys.' },
+  { key: 'metabase', name: 'Metabase', defaultUrl: 'http://reports.maxed.life', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Use the login email and password you created for this user.' },
+  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'http://chat.maxed.life', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' }, hint: 'Use the login credentials you created for this user.' },
 ];
 
 interface Credential {
