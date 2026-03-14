@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiUrl, firmApiUrl } from '@/lib/api';
+import { apiUrl, firmApiUrl, serviceHeaders } from '@/lib/api';
 
 interface Dashboard {
   id: number;
@@ -87,8 +87,8 @@ export default function ReportingPage() {
       // Fetch Metabase dashboards and questions
       try {
         const [dRes, qRes] = await Promise.all([
-          fetch(apiUrl('/api/services/metabase/dashboards')),
-          fetch(apiUrl('/api/services/metabase/questions')),
+          fetch(apiUrl('/api/services/metabase/dashboards'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/metabase/questions'), { headers: serviceHeaders() }),
         ]);
         if (dRes.ok) {
           const d = await dRes.json();

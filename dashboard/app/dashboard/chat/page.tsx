@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Channel {
   id: string;
@@ -93,8 +93,8 @@ export default function ChatPage() {
     async function fetchChannels() {
       try {
         const [cRes, uRes] = await Promise.all([
-          fetch(apiUrl('/api/services/mattermost/channels')),
-          fetch(apiUrl('/api/services/mattermost/users')),
+          fetch(apiUrl('/api/services/mattermost/channels'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/mattermost/users'), { headers: serviceHeaders() }),
         ]);
         if (cRes.ok) {
           const data = await cRes.json();
@@ -135,7 +135,7 @@ export default function ChatPage() {
     }
     setLoadingPosts(true);
     try {
-      const res = await fetch(apiUrl(`/api/services/mattermost/channels/${channelId}/posts`));
+      const res = await fetch(apiUrl(`/api/services/mattermost/channels/${channelId}/posts`), { headers: serviceHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.order && data.posts) {
@@ -186,7 +186,7 @@ export default function ChatPage() {
     try {
       await fetch(apiUrl(`/api/services/mattermost/channels/${activeChannel}/posts`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceHeaders() },
         body: JSON.stringify({ channel_id: activeChannel, message: message.trim() }),
       });
       setMessage('');

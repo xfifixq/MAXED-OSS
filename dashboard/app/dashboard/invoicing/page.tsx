@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Invoice {
   id: string;
@@ -68,8 +68,8 @@ export default function InvoicingPage() {
     async function fetchData() {
       try {
         const [invRes, clientRes] = await Promise.all([
-          fetch(apiUrl('/api/services/invoiceninja/invoices?page=1')),
-          fetch(apiUrl('/api/services/invoiceninja/clients')),
+          fetch(apiUrl('/api/services/invoiceninja/invoices?page=1'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/invoiceninja/clients'), { headers: serviceHeaders() }),
         ]);
 
         if (!invRes.ok || !clientRes.ok) throw new Error('API error');

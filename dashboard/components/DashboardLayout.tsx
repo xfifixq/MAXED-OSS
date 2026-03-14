@@ -1,9 +1,20 @@
 'use client';
 
-import { SessionProvider } from 'next-auth/react';
+import { useEffect } from 'react';
+import { SessionProvider, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
+import { setFirmId } from '@/lib/api';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+
+function FirmIdSync({ children }: { children: React.ReactNode }) {
+  const { data: session } = useSession();
+  useEffect(() => {
+    const firmId = (session?.user as any)?.firmId;
+    if (firmId) setFirmId(firmId);
+  }, [session]);
+  return <>{children}</>;
+}
 
 export default function DashboardLayout({
   children,
@@ -13,13 +24,15 @@ export default function DashboardLayout({
   return (
     <SessionProvider>
       <NotificationProvider>
-        <div className="flex min-h-screen bg-gray-50">
-          <Sidebar />
-          <div className="flex-1 flex flex-col min-w-0">
-            <TopBar />
-            <main className="flex-1 p-6">{children}</main>
+        <FirmIdSync>
+          <div className="flex min-h-screen bg-gray-50">
+            <Sidebar />
+            <div className="flex-1 flex flex-col min-w-0">
+              <TopBar />
+              <main className="flex-1 p-6">{children}</main>
+            </div>
           </div>
-        </div>
+        </FirmIdSync>
       </NotificationProvider>
     </SessionProvider>
   );

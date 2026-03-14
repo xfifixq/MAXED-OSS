@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface PaperlessTag {
   id: number;
@@ -66,7 +66,7 @@ export default function DocumentsPage() {
       if (query.trim()) {
         params.set('search', query.trim());
       }
-      const res = await fetch(apiUrl(`/api/services/paperless/documents?${params.toString()}`));
+      const res = await fetch(apiUrl(`/api/services/paperless/documents?${params.toString()}`), { headers: serviceHeaders() });
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       setDocuments(data.results || []);
@@ -83,7 +83,7 @@ export default function DocumentsPage() {
 
   const fetchTags = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl('/api/services/paperless/tags'));
+      const res = await fetch(apiUrl('/api/services/paperless/tags'), { headers: serviceHeaders() });
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       setTags(data.results || []);

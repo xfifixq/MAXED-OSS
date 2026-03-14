@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Contact {
   id: string;
@@ -61,8 +61,8 @@ export default function CRMPage() {
     async function fetchData() {
       try {
         const [cRes, coRes] = await Promise.all([
-          fetch(apiUrl('/api/services/twenty/people')),
-          fetch(apiUrl('/api/services/twenty/companies')),
+          fetch(apiUrl('/api/services/twenty/people'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/twenty/companies'), { headers: serviceHeaders() }),
         ]);
         if (cRes.ok) {
           const d = await cRes.json();
@@ -117,7 +117,7 @@ export default function CRMPage() {
     try {
       await fetch(apiUrl('/api/services/twenty/people'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceHeaders() },
         body: JSON.stringify(contactForm),
       });
     } catch { /* silent */ }
@@ -133,7 +133,7 @@ export default function CRMPage() {
     try {
       await fetch(apiUrl('/api/services/twenty/companies'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceHeaders() },
         body: JSON.stringify({ ...companyForm, employees: parseInt(companyForm.employees) || 0 }),
       });
     } catch { /* silent */ }

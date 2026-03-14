@@ -71,7 +71,7 @@ function requireAuth(req, res, next) {
 
 // Apply auth to all /api routes except health and auth endpoints
 app.use("/api", (req, res, next) => {
-  if (req.path === "/auth/login" || req.path === "/auth/verify" || req.path === "/register") {
+  if (req.path === "/auth/login" || req.path === "/auth/verify" || req.path === "/register" || req.path === "/auth/forgot-password" || req.path === "/auth/reset-password") {
     return next();
   }
   return requireAuth(req, res, next);
@@ -423,14 +423,14 @@ app.get("/api/clients/:clientId/proposals", async (req, res) => {
   try {
     const { clientId } = req.params;
 
-    // Try to get the client to find their email for matching submissions
+    // Try to get the client to find their email and firmId for matching submissions
     const client = await prisma.client.findUnique({
       where: { id: clientId },
-      select: { name: true, email: true },
+      select: { name: true, email: true, firmId: true },
     });
 
     // Try fetching submissions from DocuSeal
-    const headers = docusealAuth();
+    const headers = await docusealAuth(client?.firmId);
     if (headers["X-Auth-Token"]) {
       try {
         const dsUrl =
@@ -557,44 +557,156 @@ async function proxyFetch(serviceUrl, path, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Service auth — uses API tokens from environment variables
-// Configure these in your .env file after creating accounts in each service
+// Per-firm service credential lookup (DB-first, env-var fallback)
 // ---------------------------------------------------------------------------
-function getPaperlessToken() {
-  return process.env.PAPERLESS_API_TOKEN || null;
+const credentialCache = new Map();
+
+async function getServiceCredential(firmId, service) {
+  if (!firmId) return null;
+  const cacheKey = `${firmId}:${service}`;
+  const cached = credentialCache.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.cred;
+  try {
+    const cred = await prisma.serviceCredential.findUnique({
+      where: { firmId_service: { firmId, service } },
+    });
+    credentialCache.set(cacheKey, { cred, expires: Date.now() + 300000 });
+    return cred;
+  } catch {
+    return null;
+  }
 }
 
-function getDocuSealToken() {
-  return process.env.DOCUSEAL_API_TOKEN || null;
+// Extract firmId from X-Firm-Id header on all service proxy routes
+app.use("/api/services", (req, _res, next) => {
+  req.firmId = req.headers["x-firm-id"] || null;
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// Service auth — looks up per-firm credentials, falls back to env vars
+// ---------------------------------------------------------------------------
+async function paperlessAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "paperless");
+  if (cred?.token) return { Authorization: `Token ${cred.token}` };
+  const token = process.env.PAPERLESS_API_TOKEN || null;
+  return token ? { Authorization: `Token ${token}` } : {};
 }
 
-function getInvoiceNinjaToken() {
-  return process.env.INVOICE_NINJA_API_TOKEN || null;
+async function docusealAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "docuseal");
+  if (cred?.token) return { "X-Auth-Token": cred.token };
+  const token = process.env.DOCUSEAL_API_TOKEN || null;
+  return token ? { "X-Auth-Token": token } : {};
 }
 
-function getN8nToken() {
-  return process.env.N8N_API_KEY || null;
+async function n8nAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "n8n");
+  if (cred?.token) return { "X-N8N-API-KEY": cred.token };
+  const token = process.env.N8N_API_KEY || null;
+  return token ? { "X-N8N-API-KEY": token } : {};
 }
 
-function getKimaiToken() {
-  return process.env.KIMAI_API_TOKEN || null;
+async function kimaiAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "kimai");
+  if (cred?.token) {
+    return {
+      "X-AUTH-USER": cred.username || "admin@maxed.dev",
+      "X-AUTH-TOKEN": cred.token,
+    };
+  }
+  const token = process.env.KIMAI_API_TOKEN || null;
+  if (!token) return {};
+  return {
+    "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
+    "X-AUTH-TOKEN": token,
+  };
 }
 
-function getBigcapitalToken() {
-  return process.env.BIGCAPITAL_API_TOKEN || null;
+async function invoiceNinjaAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "invoiceninja");
+  if (cred?.token) return { "X-API-TOKEN": cred.token, "X-Requested-With": "XMLHttpRequest" };
+  const token = process.env.INVOICE_NINJA_API_TOKEN || null;
+  return token
+    ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" }
+    : { "X-Requested-With": "XMLHttpRequest" };
 }
 
-function getTwentyToken() {
-  return process.env.TWENTY_API_KEY || null;
+async function bigcapitalAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "bigcapital");
+  if (cred?.token) {
+    const h = { Authorization: `Bearer ${cred.token}` };
+    if (cred.metadata) h["x-tenant-id"] = cred.metadata;
+    return h;
+  }
+  const token = process.env.BIGCAPITAL_API_TOKEN || null;
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (process.env.BIGCAPITAL_TENANT_ID) headers["x-tenant-id"] = process.env.BIGCAPITAL_TENANT_ID;
+  return headers;
+}
+
+async function twentyAuth(firmId) {
+  const cred = await getServiceCredential(firmId, "twenty");
+  if (cred?.token) return { Authorization: `Bearer ${cred.token}` };
+  const token = process.env.TWENTY_API_KEY || null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// Metabase & Mattermost: per-firm session caching
+const metabaseSessions = new Map();
+async function getMetabaseSession(firmId) {
+  const cacheKey = firmId || "_global";
+  const cached = metabaseSessions.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.session;
+
+  const cred = await getServiceCredential(firmId, "metabase");
+  const email = cred?.username || process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL;
+  const password = cred?.password || process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  if (!email || !password) return null;
+  try {
+    const r = await fetch(`${SERVICES.metabase}/api/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: email, password }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      metabaseSessions.set(cacheKey, { session: data.id, expires: Date.now() + 12 * 3600000 });
+      return data.id;
+    }
+  } catch {}
+  return null;
+}
+
+const mattermostSessions = new Map();
+async function getMattermostToken(firmId) {
+  const cacheKey = firmId || "_global";
+  const cached = mattermostSessions.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.token;
+
+  const cred = await getServiceCredential(firmId, "mattermost");
+  const user = cred?.username || process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER;
+  const pass = cred?.password || process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  if (!user || !pass) return null;
+  try {
+    const r = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login_id: user, password: pass }),
+    });
+    if (r.ok) {
+      const tok = r.headers.get("token");
+      mattermostSessions.set(cacheKey, { token: tok, expires: Date.now() + 12 * 3600000 });
+      return tok;
+    }
+  } catch {}
+  return null;
 }
 
 // ---------------------------------------------------------------------------
 // Paperless-ngx proxy — Document management
 // ---------------------------------------------------------------------------
-const paperlessAuth = () => {
-  const token = getPaperlessToken();
-  return token ? { Authorization: `Token ${token}` } : {};
-};
 
 app.get("/api/services/paperless/documents", async (req, res) => {
   try {
@@ -604,7 +716,7 @@ app.get("/api/services/paperless/documents", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.paperless,
       `/api/documents/?${qs}`,
-      { headers: paperlessAuth() }
+      { headers: await paperlessAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -615,7 +727,7 @@ app.get("/api/services/paperless/documents", async (req, res) => {
 app.get("/api/services/paperless/documents/:id/thumb", async (req, res) => {
   try {
     const url = `${SERVICES.paperless}/api/documents/${req.params.id}/thumb/`;
-    const upstream = await fetch(url, { headers: paperlessAuth() });
+    const upstream = await fetch(url, { headers: await paperlessAuth(req.firmId) });
     res.set("Content-Type", upstream.headers.get("content-type") || "image/png");
     const buffer = Buffer.from(await upstream.arrayBuffer());
     res.send(buffer);
@@ -624,10 +736,10 @@ app.get("/api/services/paperless/documents/:id/thumb", async (req, res) => {
   }
 });
 
-app.get("/api/services/paperless/tags", async (_req, res) => {
+app.get("/api/services/paperless/tags", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.paperless, "/api/tags/", {
-      headers: paperlessAuth(),
+      headers: await paperlessAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -638,15 +750,10 @@ app.get("/api/services/paperless/tags", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // DocuSeal proxy — E-signatures and proposals
 // ---------------------------------------------------------------------------
-const docusealAuth = () => {
-  const token = getDocuSealToken();
-  return token ? { "X-Auth-Token": token } : {};
-};
-
-app.get("/api/services/docuseal/templates", async (_req, res) => {
+app.get("/api/services/docuseal/templates", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.docuseal, "/api/templates", {
-      headers: docusealAuth(),
+      headers: await docusealAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -660,7 +767,7 @@ app.get("/api/services/docuseal/submissions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.docuseal,
       `/api/submissions?page=${page}`,
-      { headers: docusealAuth() }
+      { headers: await docusealAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -672,7 +779,7 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.docuseal, "/api/submissions", {
       method: "POST",
-      headers: docusealAuth(),
+      headers: await docusealAuth(req.firmId),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -684,15 +791,10 @@ app.post("/api/services/docuseal/submissions", async (req, res) => {
 // ---------------------------------------------------------------------------
 // n8n proxy — Workflow automation
 // ---------------------------------------------------------------------------
-const n8nAuth = () => {
-  const token = getN8nToken();
-  return token ? { "X-N8N-API-KEY": token } : {};
-};
-
-app.get("/api/services/n8n/workflows", async (_req, res) => {
+app.get("/api/services/n8n/workflows", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.n8n, "/api/v1/workflows", {
-      headers: n8nAuth(),
+      headers: await n8nAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -706,7 +808,7 @@ app.get("/api/services/n8n/executions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.n8n,
       `/api/v1/executions?limit=${limit}`,
-      { headers: n8nAuth() }
+      { headers: await n8nAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -721,7 +823,7 @@ app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
       `/api/v1/workflows/${req.params.id}`,
       {
         method: "PATCH",
-        headers: n8nAuth(),
+        headers: await n8nAuth(req.firmId),
         body: JSON.stringify({ active: true }),
       }
     );
@@ -734,22 +836,13 @@ app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Kimai proxy — Time tracking
 // ---------------------------------------------------------------------------
-const kimaiAuth = () => {
-  const token = getKimaiToken();
-  if (!token) return {};
-  return {
-    "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
-    "X-AUTH-TOKEN": token,
-  };
-};
-
 app.get("/api/services/kimai/timesheets", async (req, res) => {
   try {
     const { page = 1, size = 50 } = req.query;
     const result = await proxyFetch(
       SERVICES.kimai,
       `/api/timesheets?page=${page}&size=${size}&order=DESC&orderBy=begin`,
-      { headers: kimaiAuth() }
+      { headers: await kimaiAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -761,7 +854,7 @@ app.post("/api/services/kimai/timesheets", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/timesheets", {
       method: "POST",
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(req.firmId),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -770,10 +863,10 @@ app.post("/api/services/kimai/timesheets", async (req, res) => {
   }
 });
 
-app.get("/api/services/kimai/projects", async (_req, res) => {
+app.get("/api/services/kimai/projects", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/projects", {
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -781,10 +874,10 @@ app.get("/api/services/kimai/projects", async (_req, res) => {
   }
 });
 
-app.get("/api/services/kimai/activities", async (_req, res) => {
+app.get("/api/services/kimai/activities", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/activities", {
-      headers: kimaiAuth(),
+      headers: await kimaiAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -795,18 +888,13 @@ app.get("/api/services/kimai/activities", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // Invoice Ninja proxy — Invoicing
 // ---------------------------------------------------------------------------
-const invoiceNinjaAuth = () => {
-  const token = getInvoiceNinjaToken();
-  return token ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" } : { "X-Requested-With": "XMLHttpRequest" };
-};
-
 app.get("/api/services/invoiceninja/invoices", async (req, res) => {
   try {
     const { page = 1 } = req.query;
     const result = await proxyFetch(
       SERVICES.invoiceninja,
       `/api/v1/invoices?page=${page}&per_page=50&sort=created_at|desc`,
-      { headers: invoiceNinjaAuth() }
+      { headers: await invoiceNinjaAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -819,7 +907,7 @@ app.get("/api/services/invoiceninja/clients", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.invoiceninja,
       "/api/v1/clients?per_page=100",
-      { headers: invoiceNinjaAuth() }
+      { headers: await invoiceNinjaAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -961,18 +1049,10 @@ app.post("/api/auth/reset-password", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Bigcapital proxy — Accounting & bookkeeping
 // ---------------------------------------------------------------------------
-const bigcapitalAuth = () => {
-  const token = getBigcapitalToken();
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (process.env.BIGCAPITAL_TENANT_ID) headers["x-tenant-id"] = process.env.BIGCAPITAL_TENANT_ID;
-  return headers;
-};
-
-app.get("/api/services/bigcapital/accounts", async (_req, res) => {
+app.get("/api/services/bigcapital/accounts", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.bigcapital, "/api/accounts", {
-      headers: bigcapitalAuth(),
+      headers: await bigcapitalAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -986,7 +1066,7 @@ app.get("/api/services/bigcapital/transactions", async (req, res) => {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       `/api/transactions?page=${page}&page_size=50`,
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -994,12 +1074,12 @@ app.get("/api/services/bigcapital/transactions", async (req, res) => {
   }
 });
 
-app.get("/api/services/bigcapital/balance-sheet", async (_req, res) => {
+app.get("/api/services/bigcapital/balance-sheet", async (req, res) => {
   try {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       "/api/financial-statements/balance-sheet",
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1007,12 +1087,12 @@ app.get("/api/services/bigcapital/balance-sheet", async (_req, res) => {
   }
 });
 
-app.get("/api/services/bigcapital/profit-loss", async (_req, res) => {
+app.get("/api/services/bigcapital/profit-loss", async (req, res) => {
   try {
     const result = await proxyFetch(
       SERVICES.bigcapital,
       "/api/financial-statements/profit-loss-sheet",
-      { headers: bigcapitalAuth() }
+      { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1023,15 +1103,10 @@ app.get("/api/services/bigcapital/profit-loss", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // Twenty CRM proxy — Customer relationship management
 // ---------------------------------------------------------------------------
-const twentyAuth = () => {
-  const token = getTwentyToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-app.get("/api/services/twenty/companies", async (_req, res) => {
+app.get("/api/services/twenty/companies", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
-      headers: twentyAuth(),
+      headers: await twentyAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1039,10 +1114,10 @@ app.get("/api/services/twenty/companies", async (_req, res) => {
   }
 });
 
-app.get("/api/services/twenty/people", async (_req, res) => {
+app.get("/api/services/twenty/people", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/people", {
-      headers: twentyAuth(),
+      headers: await twentyAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1054,7 +1129,7 @@ app.post("/api/services/twenty/companies", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
       method: "POST",
-      headers: twentyAuth(),
+      headers: await twentyAuth(req.firmId),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -1067,7 +1142,7 @@ app.post("/api/services/twenty/people", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.twenty, "/api/people", {
       method: "POST",
-      headers: twentyAuth(),
+      headers: await twentyAuth(req.firmId),
       body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
@@ -1079,33 +1154,9 @@ app.post("/api/services/twenty/people", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Metabase proxy — Reporting & analytics
 // ---------------------------------------------------------------------------
-// Metabase: login with configured credentials to get a session token
-let metabaseSession = null;
-let metabaseSessionExpires = 0;
-async function getMetabaseSession() {
-  if (metabaseSession && Date.now() < metabaseSessionExpires) return metabaseSession;
-  const email = process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL;
-  const password = process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
-  if (!email || !password) return null;
+app.get("/api/services/metabase/dashboards", async (req, res) => {
   try {
-    const r = await fetch(`${SERVICES.metabase}/api/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: email, password }),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      metabaseSession = data.id;
-      metabaseSessionExpires = Date.now() + 12 * 3600000; // 12 hour cache
-      return metabaseSession;
-    }
-  } catch {}
-  return null;
-}
-
-app.get("/api/services/metabase/dashboards", async (_req, res) => {
-  try {
-    const session = await getMetabaseSession();
+    const session = await getMetabaseSession(req.firmId);
     if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
     const result = await proxyFetch(SERVICES.metabase, "/api/dashboard", {
       headers: { "X-Metabase-Session": session },
@@ -1116,9 +1167,9 @@ app.get("/api/services/metabase/dashboards", async (_req, res) => {
   }
 });
 
-app.get("/api/services/metabase/questions", async (_req, res) => {
+app.get("/api/services/metabase/questions", async (req, res) => {
   try {
-    const session = await getMetabaseSession();
+    const session = await getMetabaseSession(req.firmId);
     if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
     const result = await proxyFetch(SERVICES.metabase, "/api/card", {
       headers: { "X-Metabase-Session": session },
@@ -1131,7 +1182,7 @@ app.get("/api/services/metabase/questions", async (_req, res) => {
 
 app.get("/api/services/metabase/dashboard/:id", async (req, res) => {
   try {
-    const session = await getMetabaseSession();
+    const session = await getMetabaseSession(req.firmId);
     if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
     const result = await proxyFetch(SERVICES.metabase, `/api/dashboard/${req.params.id}`, {
       headers: { "X-Metabase-Session": session },
@@ -1145,32 +1196,9 @@ app.get("/api/services/metabase/dashboard/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Mattermost proxy — Team chat & communication
 // ---------------------------------------------------------------------------
-// Mattermost: login with configured credentials to get a session token
-let mattermostToken = null;
-let mattermostTokenExpires = 0;
-async function getMattermostToken() {
-  if (mattermostToken && Date.now() < mattermostTokenExpires) return mattermostToken;
-  const user = process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER;
-  const pass = process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
-  if (!user || !pass) return null;
+app.get("/api/services/mattermost/channels", async (req, res) => {
   try {
-    const r = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ login_id: user, password: pass }),
-    });
-    if (r.ok) {
-      mattermostToken = r.headers.get("token");
-      mattermostTokenExpires = Date.now() + 12 * 3600000; // 12 hour cache
-      return mattermostToken;
-    }
-  } catch {}
-  return null;
-}
-
-app.get("/api/services/mattermost/channels", async (_req, res) => {
-  try {
-    const token = await getMattermostToken();
+    const token = await getMattermostToken(req.firmId);
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(SERVICES.mattermost, "/api/v4/channels", {
       headers: { Authorization: "Bearer " + token },
@@ -1183,7 +1211,7 @@ app.get("/api/services/mattermost/channels", async (_req, res) => {
 
 app.get("/api/services/mattermost/channels/:id/posts", async (req, res) => {
   try {
-    const token = await getMattermostToken();
+    const token = await getMattermostToken(req.firmId);
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(
       SERVICES.mattermost,
@@ -1198,7 +1226,7 @@ app.get("/api/services/mattermost/channels/:id/posts", async (req, res) => {
 
 app.post("/api/services/mattermost/channels/:id/posts", async (req, res) => {
   try {
-    const token = await getMattermostToken();
+    const token = await getMattermostToken(req.firmId);
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(SERVICES.mattermost, "/api/v4/posts", {
       method: "POST",
@@ -1211,9 +1239,9 @@ app.post("/api/services/mattermost/channels/:id/posts", async (req, res) => {
   }
 });
 
-app.get("/api/services/mattermost/teams", async (_req, res) => {
+app.get("/api/services/mattermost/teams", async (req, res) => {
   try {
-    const token = await getMattermostToken();
+    const token = await getMattermostToken(req.firmId);
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(SERVICES.mattermost, "/api/v4/teams", {
       headers: { Authorization: "Bearer " + token },
@@ -1224,9 +1252,9 @@ app.get("/api/services/mattermost/teams", async (_req, res) => {
   }
 });
 
-app.get("/api/services/mattermost/users", async (_req, res) => {
+app.get("/api/services/mattermost/users", async (req, res) => {
   try {
-    const token = await getMattermostToken();
+    const token = await getMattermostToken(req.firmId);
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users?per_page=100", {
       headers: { Authorization: "Bearer " + token },
@@ -1235,6 +1263,70 @@ app.get("/api/services/mattermost/users", async (_req, res) => {
   } catch (err) {
     res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Service Credentials CRUD — admin manages per-firm service credentials
+// ---------------------------------------------------------------------------
+app.get("/api/firms/:firmId/credentials", async (req, res) => {
+  try {
+    const creds = await prisma.serviceCredential.findMany({
+      where: { firmId: req.params.firmId },
+      select: { id: true, service: true, username: true, metadata: true, createdAt: true,
+        // Don't expose raw tokens/passwords — just indicate if set
+        token: true, password: true },
+    });
+    // Mask sensitive fields
+    const masked = creds.map((c) => ({
+      ...c,
+      token: c.token ? "***configured***" : null,
+      password: c.password ? "***configured***" : null,
+    }));
+    res.json(masked);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/firms/:firmId/credentials/:service", async (req, res) => {
+  try {
+    const { firmId, service } = req.params;
+    const { token, username, password, metadata } = req.body;
+    const cred = await prisma.serviceCredential.upsert({
+      where: { firmId_service: { firmId, service } },
+      create: { firmId, service, token: token || null, username: username || null, password: password || null, metadata: metadata || null },
+      update: { token: token || null, username: username || null, password: password || null, metadata: metadata || null },
+    });
+    // Clear cache for this firm+service
+    credentialCache.delete(`${firmId}:${service}`);
+    // Clear session caches for session-based services
+    if (service === "metabase") metabaseSessions.delete(firmId);
+    if (service === "mattermost") mattermostSessions.delete(firmId);
+    res.json({ ok: true, service: cred.service });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
+  try {
+    const { firmId, service } = req.params;
+    await prisma.serviceCredential.delete({
+      where: { firmId_service: { firmId, service } },
+    });
+    credentialCache.delete(`${firmId}:${service}`);
+    if (service === "metabase") metabaseSessions.delete(firmId);
+    if (service === "mattermost") mattermostSessions.delete(firmId);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === "P2025") return res.json({ ok: true }); // Already deleted
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Return service URLs for admin iframe page
+app.get("/api/services/urls", (_req, res) => {
+  res.json(SERVICES);
 });
 
 // ---------------------------------------------------------------------------
@@ -1256,20 +1348,25 @@ app.get("/api/services/status", async (_req, res) => {
   res.json(results);
 });
 
-// Diagnostic: check which service API tokens are configured
-app.get("/api/services/diagnose", async (_req, res) => {
-  const envCheck = (name, val) => ({ configured: !!val, token: val ? val.substring(0, 8) + "..." : null });
-  const diag = {
-    paperless: envCheck("PAPERLESS_API_TOKEN", process.env.PAPERLESS_API_TOKEN),
-    invoiceninja: envCheck("INVOICE_NINJA_API_TOKEN", process.env.INVOICE_NINJA_API_TOKEN),
-    kimai: envCheck("KIMAI_API_TOKEN", process.env.KIMAI_API_TOKEN),
-    n8n: envCheck("N8N_API_KEY", process.env.N8N_API_KEY),
-    docuseal: envCheck("DOCUSEAL_API_TOKEN", process.env.DOCUSEAL_API_TOKEN),
-    bigcapital: envCheck("BIGCAPITAL_API_TOKEN", process.env.BIGCAPITAL_API_TOKEN),
-    twenty: envCheck("TWENTY_API_KEY", process.env.TWENTY_API_KEY),
-    metabase: { configured: !!(process.env.METABASE_EMAIL && process.env.METABASE_PASSWORD), session: !!metabaseSession },
-    mattermost: { configured: !!(process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER), session: !!mattermostToken },
-  };
+// Diagnostic: check which service API tokens are configured (per-firm or env)
+app.get("/api/services/diagnose", async (req, res) => {
+  const firmId = req.headers["x-firm-id"] || null;
+  const services = ["paperless", "docuseal", "invoiceninja", "n8n", "kimai", "bigcapital", "twenty", "metabase", "mattermost"];
+  const diag = {};
+  for (const svc of services) {
+    const cred = firmId ? await getServiceCredential(firmId, svc) : null;
+    diag[svc] = { configured: !!cred?.token || !!cred?.username };
+  }
+  // Fallback: check env vars too
+  if (!diag.paperless.configured) diag.paperless.configured = !!process.env.PAPERLESS_API_TOKEN;
+  if (!diag.docuseal.configured) diag.docuseal.configured = !!process.env.DOCUSEAL_API_TOKEN;
+  if (!diag.invoiceninja.configured) diag.invoiceninja.configured = !!process.env.INVOICE_NINJA_API_TOKEN;
+  if (!diag.n8n.configured) diag.n8n.configured = !!process.env.N8N_API_KEY;
+  if (!diag.kimai.configured) diag.kimai.configured = !!process.env.KIMAI_API_TOKEN;
+  if (!diag.bigcapital.configured) diag.bigcapital.configured = !!process.env.BIGCAPITAL_API_TOKEN;
+  if (!diag.twenty.configured) diag.twenty.configured = !!process.env.TWENTY_API_KEY;
+  if (!diag.metabase.configured) diag.metabase.configured = !!(process.env.METABASE_EMAIL && process.env.METABASE_PASSWORD);
+  if (!diag.mattermost.configured) diag.mattermost.configured = !!(process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER);
   res.json(diag);
 });
 

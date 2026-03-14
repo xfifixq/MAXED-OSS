@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface TimesheetProject {
   id: number;
@@ -126,7 +126,7 @@ function LogTimeModal({
     try {
       const res = await fetch(apiUrl('/api/services/kimai/timesheets'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceHeaders() },
         body: JSON.stringify({
           project: Number(form.project),
           activity: Number(form.activity),
@@ -285,9 +285,9 @@ export default function TimeTrackingPage() {
     setLoading(true);
     try {
       const [tsRes, projRes, actRes] = await Promise.all([
-        fetch(apiUrl('/api/services/kimai/timesheets?page=1&size=50')),
-        fetch(apiUrl('/api/services/kimai/projects')),
-        fetch(apiUrl('/api/services/kimai/activities')),
+        fetch(apiUrl('/api/services/kimai/timesheets?page=1&size=50'), { headers: serviceHeaders() }),
+        fetch(apiUrl('/api/services/kimai/projects'), { headers: serviceHeaders() }),
+        fetch(apiUrl('/api/services/kimai/activities'), { headers: serviceHeaders() }),
       ]);
 
       const [tsData, projData, actData] = await Promise.all([

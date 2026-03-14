@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Workflow {
   id: string;
@@ -75,8 +75,8 @@ export default function WorkflowsPage() {
     async function fetchData() {
       try {
         const [wRes, eRes] = await Promise.all([
-          fetch(apiUrl('/api/services/n8n/workflows')),
-          fetch(apiUrl('/api/services/n8n/executions')),
+          fetch(apiUrl('/api/services/n8n/workflows'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/n8n/executions'), { headers: serviceHeaders() }),
         ]);
         if (wRes.ok) {
           const d = await wRes.json();
@@ -97,7 +97,7 @@ export default function WorkflowsPage() {
 
   const handleToggle = async (id: string) => {
     try {
-      await fetch(apiUrl(`/api/services/n8n/workflows/${id}/activate`), { method: 'POST' });
+      await fetch(apiUrl(`/api/services/n8n/workflows/${id}/activate`), { method: 'POST', headers: serviceHeaders() });
       setWorkflows((prev) => prev.map((w) => (w.id === id ? { ...w, active: !w.active } : w)));
     } catch { /* silent */ }
   };

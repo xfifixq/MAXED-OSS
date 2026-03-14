@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Template {
   id: number | string;
@@ -64,8 +64,8 @@ export default function ProposalsPage() {
     async function fetchData() {
       try {
         const [tRes, sRes] = await Promise.all([
-          fetch(apiUrl('/api/services/docuseal/templates')),
-          fetch(apiUrl('/api/services/docuseal/submissions')),
+          fetch(apiUrl('/api/services/docuseal/templates'), { headers: serviceHeaders() }),
+          fetch(apiUrl('/api/services/docuseal/submissions'), { headers: serviceHeaders() }),
         ]);
         if (tRes.ok) {
           const d = await tRes.json();
@@ -97,7 +97,7 @@ export default function ProposalsPage() {
     try {
       await fetch(apiUrl('/api/services/docuseal/submissions'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...serviceHeaders() },
         body: JSON.stringify({
           template_id: parseInt(sendForm.templateId),
           submitters: [{ email: sendForm.email }],

@@ -1,12 +1,27 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-const FIRM_ID = '1'; // Hardcoded for now; will come from session
+
+// Dynamic firmId — set from session on login, defaults to '1'
+let _firmId = '1';
+
+export function setFirmId(id: string) {
+  _firmId = id;
+}
+
+export function getFirmId(): string {
+  return _firmId;
+}
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
 export function firmApiUrl(path: string): string {
-  return `${API_URL}/api/firms/${FIRM_ID}${path}`;
+  return `${API_URL}/api/firms/${_firmId}${path}`;
+}
+
+// Headers to include on all service proxy calls — tells the API which firm's credentials to use
+export function serviceHeaders(): Record<string, string> {
+  return { 'X-Firm-Id': _firmId };
 }
 
 export async function apiFetch<T = any>(
@@ -20,6 +35,7 @@ export async function apiFetch<T = any>(
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...serviceHeaders(),
       ...options?.headers,
     },
     ...options,
@@ -32,4 +48,4 @@ export async function apiFetch<T = any>(
   return res.json();
 }
 
-export { FIRM_ID };
+export { _firmId as FIRM_ID };

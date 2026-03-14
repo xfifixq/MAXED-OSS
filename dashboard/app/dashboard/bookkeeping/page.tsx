@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, serviceHeaders } from '@/lib/api';
 
 interface Account {
   id: string | number;
@@ -76,7 +76,7 @@ export default function BookkeepingPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const res = await fetch(apiUrl('/api/services/bigcapital/accounts'));
+        const res = await fetch(apiUrl('/api/services/bigcapital/accounts'), { headers: serviceHeaders() });
         if (res.ok) {
           const data = await res.json();
           setAccounts(Array.isArray(data) ? data : data.accounts || data.results || PLACEHOLDER_ACCOUNTS);
@@ -88,7 +88,7 @@ export default function BookkeepingPage() {
       }
 
       try {
-        const res = await fetch(apiUrl('/api/services/bigcapital/transactions'));
+        const res = await fetch(apiUrl('/api/services/bigcapital/transactions'), { headers: serviceHeaders() });
         if (res.ok) {
           const data = await res.json();
           setTransactions(Array.isArray(data) ? data : data.results || PLACEHOLDER_TRANSACTIONS);
