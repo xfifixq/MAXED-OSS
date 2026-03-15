@@ -137,18 +137,38 @@ app.post("/api/clients/login", async (req, res) => {
       return res.status(400).json({ error: "Email and access code required" });
     }
 
-    const client = await prisma.client.findFirst({
-      where: { email },
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedCode = String(accessCode).trim().toUpperCase();
+    const portalCredential = await prisma.serviceCredential.findFirst({
+      where: {
+        service: "clientportal",
+        token: normalizedCode,
+      },
+      include: { firm: true },
+    });
+
+    if (!portalCredential?.firm) {
+      return res.status(401).json({ error: "Invalid email or access code" });
+    }
+
+    let client = await prisma.client.findFirst({
+      where: {
+        firmId: portalCredential.firmId,
+        email: normalizedEmail,
+      },
       include: { firm: true },
     });
 
     if (!client) {
-      return res.status(401).json({ error: "Client not found" });
-    }
-
-    const portalCredential = await ensurePortalAccessCredentialForFirm(client.firmId);
-    if (!portalCredential?.token || portalCredential.token !== String(accessCode).trim().toUpperCase()) {
-      return res.status(401).json({ error: "Invalid email or access code" });
+      const inferredName = normalizedEmail.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+      client = await prisma.client.create({
+        data: {
+          firmId: portalCredential.firmId,
+          email: normalizedEmail,
+          name: inferredName || normalizedEmail,
+        },
+        include: { firm: true },
+      });
     }
 
     res.json({
