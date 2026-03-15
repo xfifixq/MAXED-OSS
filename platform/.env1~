@@ -1,0 +1,3 @@
+DATABASE_URL=postgresql://maxed:592b059cf23e3c848d0ffa2492630353@157.245.116.168:5432/maxed_unified
+  DIRECT_URL=postgresql://maxed:592b059cf23e3c848d0ffa2492630353@157.245.116.168:5432/maxed_unified
+  PORT=4000
