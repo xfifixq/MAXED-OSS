@@ -132,9 +132,9 @@ app.post("/api/auth/login", async (req, res) => {
 // Client portal login
 app.post("/api/clients/login", async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Email required" });
+    const { email, accessCode } = req.body;
+    if (!email || !accessCode) {
+      return res.status(400).json({ error: "Email and access code required" });
     }
 
     const client = await prisma.client.findFirst({
@@ -144,6 +144,11 @@ app.post("/api/clients/login", async (req, res) => {
 
     if (!client) {
       return res.status(401).json({ error: "Client not found" });
+    }
+
+    const portalCredential = await ensurePortalAccessCredentialForFirm(client.firmId);
+    if (!portalCredential?.token || portalCredential.token !== String(accessCode).trim().toUpperCase()) {
+      return res.status(401).json({ error: "Invalid email or access code" });
     }
 
     res.json({
@@ -204,7 +209,9 @@ app.post("/api/register", async (req, res) => {
         },
       });
 
-      return { firm, member };
+      const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
+
+      return { firm, member, portalCredential };
     });
 
     res.status(201).json({
@@ -212,6 +219,8 @@ app.post("/api/register", async (req, res) => {
       firmName: result.firm.name,
       userId: result.member.id,
       email: result.member.email,
+      portalAccessCode: result.portalCredential.token,
+      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -223,8 +232,16 @@ app.post("/api/register", async (req, res) => {
 // ---------------------------------------------------------------------------
 app.post("/api/firms", async (req, res) => {
   try {
-    const firm = await prisma.firm.create({ data: req.body });
-    res.status(201).json(firm);
+    const result = await prisma.$transaction(async (tx) => {
+      const firm = await tx.firm.create({ data: req.body });
+      const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
+      return { firm, portalCredential };
+    });
+    res.status(201).json({
+      ...result.firm,
+      portalAccessCode: result.portalCredential.token,
+      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -246,7 +263,31 @@ app.get("/api/firms/:id", async (req, res) => {
       include: { clients: true, teamMembers: true },
     });
     if (!firm) return res.status(404).json({ error: "Firm not found" });
-    res.json(firm);
+    const portalCredential = await ensurePortalAccessCredentialForFirm(firm.id);
+    res.json({
+      ...firm,
+      portalAccessCode: portalCredential?.token || null,
+      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:id/portal-access", async (req, res) => {
+  try {
+    const firm = await prisma.firm.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, name: true },
+    });
+    if (!firm) return res.status(404).json({ error: "Firm not found" });
+    const portalCredential = await ensurePortalAccessCredentialForFirm(firm.id);
+    res.json({
+      firmId: firm.id,
+      firmName: firm.name,
+      portalAccessCode: portalCredential?.token || null,
+      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -644,6 +685,10 @@ async function proxyFetchWithFallbacks(serviceUrl, paths, options = {}) {
 // ---------------------------------------------------------------------------
 const credentialCache = new Map();
 
+function generatePortalAccessCode() {
+  return Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
+}
+
 function normalizeCredentialField(value) {
   if (typeof value !== "string") return value ?? undefined;
   const trimmed = value.trim();
@@ -673,6 +718,44 @@ async function getServiceCredential(firmId, service) {
   } catch {
     return null;
   }
+}
+
+async function ensurePortalAccessCredential(tx, firmId) {
+  const existing = await tx.serviceCredential.findUnique({
+    where: { firmId_service: { firmId, service: "clientportal" } },
+  });
+  if (existing?.token) return existing;
+  const credential = await tx.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "clientportal" } },
+    create: {
+      firmId,
+      service: "clientportal",
+      token: generatePortalAccessCode(),
+    },
+    update: {
+      token: existing?.token || generatePortalAccessCode(),
+    },
+  });
+  credentialCache.delete(`${firmId}:clientportal`);
+  return credential;
+}
+
+async function ensurePortalAccessCredentialForFirm(firmId) {
+  const existing = await getServiceCredential(firmId, "clientportal");
+  if (existing?.token) return existing;
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "clientportal" } },
+    create: {
+      firmId,
+      service: "clientportal",
+      token: generatePortalAccessCode(),
+    },
+    update: {
+      token: existing?.token || generatePortalAccessCode(),
+    },
+  });
+  credentialCache.delete(`${firmId}:clientportal`);
+  return credential;
 }
 
 // Extract firmId from X-Firm-Id header on all service proxy routes
