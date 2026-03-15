@@ -43,8 +43,20 @@ const STORAGE_KEY = 'maxed_notifications';
 const STATS_KEY = 'maxed_last_stats';
 const SERVICE_SNAPSHOT_KEY = 'maxed_service_snapshot';
 const STORAGE_VERSION_KEY = 'maxed_notifications_version';
-const STORAGE_VERSION = '2026-03-15-1';
+const STORAGE_VERSION = '2026-03-15-2';
 const POLL_INTERVAL = 30_000; // 30 seconds
+
+const SERVICE_LABELS: Record<string, string> = {
+  paperless: 'Documents',
+  docuseal: 'Signatures',
+  invoiceninja: 'Billing',
+  n8n: 'Automations',
+  kimai: 'Time Tracking',
+  bigcapital: 'Ledger',
+  twenty: 'CRM',
+  metabase: 'Analytics',
+  mattermost: 'Team Chat',
+};
 
 function loadFromStorage(): Notification[] {
   if (typeof window === 'undefined') return [];
@@ -176,38 +188,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             );
           }
 
-          if (data.pendingInvoices > last.pendingInvoices) {
-            const diff = data.pendingInvoices - last.pendingInvoices;
-            newNotifs.push(
-              createNotification(
-                'invoice',
-                'Pending Invoice',
-                `${diff} new pending invoice${diff > 1 ? 's' : ''} require attention.`
-              )
-            );
-          }
-
-          if (data.pendingInvoices < last.pendingInvoices) {
-            const diff = last.pendingInvoices - data.pendingInvoices;
-            newNotifs.push(
-              createNotification(
-                'invoice',
-                'Invoice Paid',
-                `${diff} invoice${diff > 1 ? 's have' : ' has'} been paid.`
-              )
-            );
-          }
-
-          if (data.upcomingDeadlines > last.upcomingDeadlines) {
-            newNotifs.push(
-              createNotification(
-                'system',
-                'Upcoming Deadline',
-                'A new deadline has been added to your calendar.'
-              )
-            );
-          }
-
           if (newNotifs.length > 0) {
             setNotifications((prev) => [...newNotifs, ...prev]);
           }
@@ -228,18 +208,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           for (const [service, state] of Object.entries(currentSnapshot)) {
             const previous = lastSnapshot[service];
             if (!previous || previous === state) continue;
+            const label = SERVICE_LABELS[service] || service;
 
             if (state === 'connected') {
               serviceAlerts.push(
-                createNotification('system', `${service} reconnected`, `${service} is responding again.`)
+                createNotification('system', `${label} connected`, `${label} is responding again.`)
               );
             } else if (state === 'unavailable') {
               serviceAlerts.push(
-                createNotification('system', `${service} unavailable`, `${service} stopped responding.`)
+                createNotification('system', `${label} unavailable`, `${label} stopped responding.`)
               );
             } else if (state === 'missing') {
               serviceAlerts.push(
-                createNotification('system', `${service} not configured`, `${service} credentials are missing for this firm.`)
+                createNotification('system', `${label} not configured`, `${label} credentials are missing for this firm.`)
               );
             }
           }

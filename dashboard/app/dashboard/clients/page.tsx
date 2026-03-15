@@ -130,6 +130,7 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     async function fetchClients() {
@@ -138,16 +139,13 @@ export default function ClientsPage() {
         if (res.ok) {
           const data = await res.json();
           setClients(Array.isArray(data) ? data : data.clients || []);
+        } else {
+          setClients([]);
+          setError(`Unable to load clients (${res.status}).`);
         }
       } catch {
-        // Placeholder data
-        setClients([
-          { id: '1', name: 'Acme Corporation', businessType: 'C-Corp', annualRevenue: 2500000, status: 'active', email: 'cfo@acme.com' },
-          { id: '2', name: 'TechStart Inc', businessType: 'S-Corp', annualRevenue: 850000, status: 'active', email: 'admin@techstart.io' },
-          { id: '3', name: 'Baker & Associates LLC', businessType: 'LLC', annualRevenue: 1200000, status: 'active', email: 'jbaker@bakerllc.com' },
-          { id: '4', name: 'Summit Partners', businessType: 'Partnership', annualRevenue: 3100000, status: 'onboarding', email: 'info@summitpartners.com' },
-          { id: '5', name: 'GreenLeaf Organic', businessType: 'LLC', annualRevenue: 450000, status: 'active', email: 'owner@greenleaf.co' },
-        ]);
+        setClients([]);
+        setError('Unable to load clients.');
       } finally {
         setLoading(false);
       }
@@ -207,6 +205,12 @@ export default function ClientsPage() {
           />
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Table */}
       <div className="card overflow-hidden">

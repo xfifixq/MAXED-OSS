@@ -109,6 +109,15 @@ export default function TopBar() {
             </div>
           </div>
 
+          <a
+            href={process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL || 'https://portal.maxed.life'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:inline-flex items-center rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Client Portal
+          </a>
+
           {/* Notifications */}
           <div className="relative" ref={notifRef}>
             <button
