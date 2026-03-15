@@ -35,7 +35,6 @@ const PAGE_SIZE = 25;
 
 export default function DocumentsPage() {
   const { isReady } = useFirmReady();
-  const usingPlaceholder = false;
   const [documents, setDocuments] = useState<PaperlessDocument[]>([]);
   const [tags, setTags] = useState<PaperlessTag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,7 +126,7 @@ export default function DocumentsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Documents</h1>
           <p className="text-gray-500 text-sm mt-1">Manage your firm&apos;s documents</p>
         </div>
-        {usingPlaceholder && (
+        {false && (
           <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-1.5 font-medium">
             Showing sample data — Paperless-ngx unavailable
           </span>
