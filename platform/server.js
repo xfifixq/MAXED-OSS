@@ -546,6 +546,76 @@ const SERVICES = {
   bigcapital: process.env.BIGCAPITAL_URL || "http://localhost:3000",
 };
 
+const PUBLIC_SERVICES = {
+  paperless: process.env.PAPERLESS_PUBLIC_URL || "https://docs.maxed.life",
+  docuseal: process.env.DOCUSEAL_PUBLIC_URL || "https://sign.maxed.life",
+  invoiceninja: process.env.INVOICE_NINJA_PUBLIC_URL || "https://billing.maxed.life",
+  n8n: process.env.N8N_PUBLIC_URL || "https://flow.maxed.life",
+  kimai: process.env.KIMAI_PUBLIC_URL || "https://time.maxed.life",
+  bigcapital: process.env.BIGCAPITAL_PUBLIC_URL || "https://books.maxed.life",
+  twenty: process.env.TWENTY_PUBLIC_URL || "https://crm.maxed.life",
+  metabase: process.env.METABASE_PUBLIC_URL || "https://reports.maxed.life",
+  mattermost: process.env.MATTERMOST_PUBLIC_URL || "https://chat.maxed.life",
+};
+
+function getPublicServiceUrl(service) {
+  return PUBLIC_SERVICES[service] || null;
+}
+
+function normalizeBridgeTarget(target) {
+  if (typeof target !== "string" || !target.trim()) return "/";
+  if (/^https?:\/\//i.test(target)) return "/";
+  return target.startsWith("/") ? target : `/${target}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function bridgePage({ title, message, redirectUrl, autoRedirect = true }) {
+  const safeTitle = escapeHtml(title);
+  const safeMessage = escapeHtml(message);
+  const safeRedirectUrl = escapeHtml(redirectUrl);
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>
+      body { margin: 0; font-family: Inter, Arial, sans-serif; background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%); color: #0f172a; }
+      .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .card { width: 100%; max-width: 520px; background: rgba(255,255,255,0.92); border: 1px solid rgba(148,163,184,0.2); border-radius: 28px; padding: 32px; box-shadow: 0 20px 50px rgba(15,23,42,0.08); }
+      .eyebrow { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: #64748b; margin-bottom: 12px; }
+      h1 { margin: 0 0 12px; font-size: 26px; line-height: 1.1; }
+      p { margin: 0 0 22px; color: #475569; line-height: 1.55; }
+      a { display: inline-flex; align-items: center; justify-content: center; background: #0f172a; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 14px; font-weight: 600; }
+      .spinner { width: 30px; height: 30px; border-radius: 999px; border: 3px solid #cbd5e1; border-top-color: #0f172a; animation: spin 1s linear infinite; margin-bottom: 18px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    ${autoRedirect ? `<meta http-equiv="refresh" content="1;url=${safeRedirectUrl}" />` : ""}
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="spinner"></div>
+        <div class="eyebrow">Maxed Workspace</div>
+        <h1>${safeTitle}</h1>
+        <p>${safeMessage}</p>
+        <a href="${safeRedirectUrl}">Open Workspace</a>
+      </div>
+    </div>
+    ${autoRedirect ? `<script>window.setTimeout(function(){ window.location.replace(${JSON.stringify(redirectUrl)}); }, 900);</script>` : ""}
+  </body>
+</html>`;
+}
+
 // Helper to proxy requests to external services
 async function proxyFetch(serviceUrl, path, options = {}) {
   const url = `${serviceUrl}${path}`;
@@ -734,6 +804,61 @@ async function getMattermostToken(firmId) {
   } catch {}
   return null;
 }
+
+app.get("/bridge/:service", async (req, res) => {
+  try {
+    const service = req.params.service;
+    const serviceUrl = getPublicServiceUrl(service);
+    if (!serviceUrl) {
+      return res.status(404).send(bridgePage({
+        title: "Workspace Unavailable",
+        message: "This workspace is not configured in Maxed yet.",
+        redirectUrl: "https://app.maxed.life/dashboard",
+        autoRedirect: false,
+      }));
+    }
+
+    const firmId = typeof req.query.firmId === "string" ? req.query.firmId : null;
+    const target = normalizeBridgeTarget(req.query.target);
+    const targetUrl = `${serviceUrl.replace(/\/$/, "")}${target}`;
+    const credential = firmId ? await getServiceCredential(firmId, service) : null;
+    const hasSavedAccess =
+      !!credential?.token || (!!credential?.username && !!credential?.password);
+
+    if (!firmId) {
+      return res.status(400).send(bridgePage({
+        title: "Firm Session Missing",
+        message: "Maxed could not determine which firm workspace to open. Return to the dashboard and try again.",
+        redirectUrl: targetUrl,
+        autoRedirect: false,
+      }));
+    }
+
+    if (!hasSavedAccess) {
+      return res.status(401).send(bridgePage({
+        title: "Workspace Credentials Required",
+        message: "This workspace does not have saved credentials yet. Add the firm login and any API token in Maxed admin before opening it.",
+        redirectUrl: targetUrl,
+        autoRedirect: false,
+      }));
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(bridgePage({
+      title: "Opening Workspace",
+      message: "Maxed is handing off to the live workspace for this firm.",
+      redirectUrl: targetUrl,
+      autoRedirect: true,
+    }));
+  } catch (err) {
+    return res.status(500).send(bridgePage({
+      title: "Workspace Error",
+      message: err.message || "Maxed could not open this workspace.",
+      redirectUrl: "https://app.maxed.life/dashboard",
+      autoRedirect: false,
+    }));
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Paperless-ngx proxy — Document management
@@ -1375,17 +1500,7 @@ app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
 
 // Return public-facing service URLs for admin iframe page
 app.get("/api/services/urls", (_req, res) => {
-  res.json({
-    paperless: process.env.PAPERLESS_PUBLIC_URL || "https://docs.maxed.life",
-    docuseal: process.env.DOCUSEAL_PUBLIC_URL || "https://sign.maxed.life",
-    invoiceninja: process.env.INVOICE_NINJA_PUBLIC_URL || "https://billing.maxed.life",
-    n8n: process.env.N8N_PUBLIC_URL || "https://flow.maxed.life",
-    kimai: process.env.KIMAI_PUBLIC_URL || "https://time.maxed.life",
-    bigcapital: process.env.BIGCAPITAL_PUBLIC_URL || "https://books.maxed.life",
-    twenty: process.env.TWENTY_PUBLIC_URL || "https://crm.maxed.life",
-    metabase: process.env.METABASE_PUBLIC_URL || "https://reports.maxed.life",
-    mattermost: process.env.MATTERMOST_PUBLIC_URL || "https://chat.maxed.life",
-  });
+  res.json(PUBLIC_SERVICES);
 });
 
 // ---------------------------------------------------------------------------
@@ -1425,7 +1540,7 @@ app.get("/api/services/diagnose", async (req, res) => {
   const diag = { firmId };
   for (const svc of services) {
     const cred = firmId ? await getServiceCredential(firmId, svc) : null;
-    const hasFirmCred = !!cred?.token || !!cred?.username;
+    const hasFirmCred = !!cred?.token || (!!cred?.username && !!cred?.password) || !!cred?.username;
     const hasEnvVar = !!process.env[envMap[svc]];
     diag[svc] = {
       configured: hasFirmCred || hasEnvVar,

@@ -21,13 +21,13 @@ interface Credential {
 }
 
 const SERVICE_CONFIGS = [
-  { key: 'paperless', name: 'Document Management (Paperless)', fields: ['token'], labels: { token: 'API Token' } },
-  { key: 'docuseal', name: 'Proposals & E-Signatures (DocuSeal)', fields: ['token'], labels: { token: 'API Token' } },
-  { key: 'invoiceninja', name: 'Invoicing (Invoice Ninja)', fields: ['token'], labels: { token: 'API Token' } },
+  { key: 'paperless', name: 'Document Management', fields: ['username', 'password', 'token'], labels: { username: 'Email or Username', password: 'Password', token: 'API Token' } },
+  { key: 'docuseal', name: 'Proposals & E-Signatures', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' } },
+  { key: 'invoiceninja', name: 'Invoicing', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' } },
   { key: 'n8n', name: 'Workflows (n8n)', fields: ['token'], labels: { token: 'API Key' } },
   { key: 'kimai', name: 'Time Tracking (Kimai)', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' } },
-  { key: 'bigcapital', name: 'Bookkeeping (Bigcapital)', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' } },
-  { key: 'twenty', name: 'CRM (Twenty)', fields: ['token'], labels: { token: 'API Key' } },
+  { key: 'bigcapital', name: 'Bookkeeping', fields: ['username', 'password', 'token', 'metadata'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Tenant ID' } },
+  { key: 'twenty', name: 'CRM', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Key' } },
   { key: 'metabase', name: 'Reporting (Metabase)', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' } },
   { key: 'mattermost', name: 'Team Chat (Mattermost)', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' } },
 ];
@@ -206,7 +206,7 @@ export default function SettingsPage() {
             ) : (
               SERVICE_CONFIGS.map((svc) => {
                 const cred = credentials[svc.key];
-                const isConfigured = cred && (cred.token || cred.username);
+                const isConfigured = cred && (cred.token || cred.username || cred.password);
                 const isEditing = editingService === svc.key;
 
                 return (
