@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import ServiceFrame from './ServiceFrame';
 import { useServiceStatus } from '@/lib/useServiceStatus';
-import { WorkspaceConfig } from '@/lib/workspace-config';
+import { WORKSPACE_CONFIGS } from '@/lib/workspace-config';
 import { useFirmReady } from '@/lib/useFirmReady';
 
 function buildWorkspaceUrl(baseUrl: string, firmId: string, targetPath?: string) {
@@ -11,7 +11,8 @@ function buildWorkspaceUrl(baseUrl: string, firmId: string, targetPath?: string)
   return `${baseUrl.replace(/\/$/, '')}/maxed-auth?firmId=${encodeURIComponent(firmId)}&target=${encodeURIComponent(target)}`;
 }
 
-export default function ServiceWorkspace({ config }: { config: WorkspaceConfig }) {
+export default function ServiceWorkspace({ service }: { service: keyof typeof WORKSPACE_CONFIGS }) {
+  const config = WORKSPACE_CONFIGS[service];
   const { serviceUrls, statuses } = useServiceStatus();
   const { firmId, isReady } = useFirmReady();
   const baseUrl = serviceUrls[config.service] || '';

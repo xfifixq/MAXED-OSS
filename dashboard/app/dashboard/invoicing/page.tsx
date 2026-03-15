@@ -1,6 +1,5 @@
 import ServiceWorkspace from '@/components/ServiceWorkspace';
-import { WORKSPACE_CONFIGS } from '@/lib/workspace-config';
 
 export default function InvoicingPage() {
-  return <ServiceWorkspace config={WORKSPACE_CONFIGS.invoiceninja} />;
+  return <ServiceWorkspace service="invoiceninja" />;
 }
