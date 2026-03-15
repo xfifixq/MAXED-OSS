@@ -64,9 +64,7 @@ export default function ServiceWorkspace({ service }: { service: keyof typeof WO
           Maxed is still resolving the firm session for this workspace.
         </div>
       ) : !baseUrl ? (
-        <div className="m-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
-          This workspace is not configured yet. Add the service URL and credentials in admin settings.
-        </div>
+        <div className="flex-1" />
       ) : (
         <div className="flex-1 overflow-hidden">
           <ServiceFrame
