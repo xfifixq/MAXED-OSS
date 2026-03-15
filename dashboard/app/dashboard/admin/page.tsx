@@ -7,15 +7,15 @@ import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 
 const SERVICE_TABS = [
-  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Token' }, hint: 'Log in as admin, then go to Settings → API Tokens to generate a token for this firm.' },
-  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Token' }, hint: 'Log in as admin, then find your API key under Account Settings.' },
-  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life', registerPath: '/#/register', fields: ['token'], labels: { token: 'API Token' }, hint: 'Create an account for this firm, then go to Settings → Account Management → API Tokens.' },
-  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', registerPath: '/setup', fields: ['token'], labels: { token: 'API Key' }, hint: 'Complete setup if needed, then go to Settings → API → Create API Key.' },
-  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', registerPath: '/register', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' }, hint: 'Create an account for this firm, then go to User menu → API Access to create a token.' },
-  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life', registerPath: '/auth/register', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' }, hint: 'Create an organization for this firm. Find the API token and Tenant ID in settings.' },
-  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', registerPath: '/sign-up', fields: ['token'], labels: { token: 'API Key' }, hint: 'Create a workspace, then go to Settings → Developers → API Keys.' },
-  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life', registerPath: '', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Log in as admin, go to Admin → People → Add user. Save the email and password you create.' },
-  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life', registerPath: '/signup_email', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' }, hint: 'Create an account for this firm (enable open signup in System Console if needed). Save the username and password.' },
+  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email or Username', password: 'Password', token: 'API Token' }, hint: 'Log in as the service admin, create the firm user manually, then generate and save that user API token.' },
+  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Log in as the service admin, create the firm user if needed, then save the login and API token.' },
+  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Use the admin login inside Invoice Ninja and create the firm account manually. Public signup is not reliable in this deployment.' },
+  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Key' }, hint: 'Log in as admin and create or copy the API key for this firm workspace.' },
+  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Log in as the Kimai admin and create the firm user manually. Open signup is not enabled here.' },
+  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life', registerPath: '/auth/register', fields: ['username', 'password', 'token', 'metadata'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Tenant ID' }, hint: 'Create the organization for this firm, then save the firm login, tenant ID, and API token.' },
+  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', registerPath: '/sign-up', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Key' }, hint: 'Create the workspace user, then save the login and API key.' },
+  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life', registerPath: '', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Log in as admin, then add the firm user under Admin > People. Metabase does not use self-signup here.' },
+  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life', registerPath: '', fields: ['username', 'password'], labels: { username: 'Username or Email', password: 'Password' }, hint: 'Use the Mattermost system admin account and invite or create the firm user manually. Open signup is disabled in this workspace.' },
 ];
 
 interface Credential {
@@ -57,23 +57,21 @@ function AdminContent() {
         data.forEach((c: Credential) => { credMap[c.service] = c; });
         setCredentials(credMap);
       }
-    } catch { /* silent */ }
+    } catch {}
   }, []);
 
   useEffect(() => {
     async function init() {
-      // Fetch service URLs
       try {
         const res = await fetch(apiUrl('/api/services/urls'));
         if (res.ok) setServiceUrls(await res.json());
-      } catch { /* use defaults */ }
+      } catch {}
 
-      // Fetch firm details
       if (firmIdParam) {
         try {
           const res = await fetch(apiUrl(`/api/firms/${firmIdParam}`));
           if (res.ok) setFirm(await res.json());
-        } catch { /* silent */ }
+        } catch {}
         await fetchCredentials(firmIdParam);
       }
       setLoading(false);
@@ -81,7 +79,6 @@ function AdminContent() {
     init();
   }, [firmIdParam, fetchCredentials]);
 
-  // Update form when switching tabs
   useEffect(() => {
     const cred = credentials[activeTab];
     const svc = SERVICE_TABS.find((s) => s.key === activeTab);
@@ -148,11 +145,10 @@ function AdminContent() {
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const hasRegisterPage = !!activeSvc.registerPath;
   const iframeUrl = showRegister && hasRegisterPage ? `${baseUrl}${activeSvc.registerPath}` : baseUrl;
-  const isConfigured = credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username);
+  const isConfigured = Boolean(credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password));
 
   return (
     <div className="space-y-4" style={{ height: 'calc(100vh - 8rem)' }}>
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/dashboard" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -169,14 +165,16 @@ function AdminContent() {
         </div>
       </div>
 
-      {/* Service tabs */}
       <div className="flex gap-1 overflow-x-auto pb-1">
         {SERVICE_TABS.map((svc) => {
-          const configured = credentials[svc.key] && (credentials[svc.key].token || credentials[svc.key].username);
+          const configured = Boolean(credentials[svc.key] && (credentials[svc.key].token || credentials[svc.key].username || credentials[svc.key].password));
           return (
             <button
               key={svc.key}
-              onClick={() => setActiveTab(svc.key)}
+              onClick={() => {
+                setActiveTab(svc.key);
+                setShowRegister(true);
+              }}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                 activeTab === svc.key
                   ? 'bg-brand-600 text-white'
@@ -192,9 +190,7 @@ function AdminContent() {
         })}
       </div>
 
-      {/* Two-column layout: iframe + credential form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ height: 'calc(100vh - 18rem)' }}>
-        {/* Iframe (2/3 width) */}
         <div className="lg:col-span-2 flex flex-col">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
@@ -231,7 +227,6 @@ function AdminContent() {
           />
         </div>
 
-        {/* Credential form (1/3 width) */}
         <div className="card p-5 h-fit">
           <div className="flex items-center gap-2 mb-4">
             <div className={`w-2.5 h-2.5 rounded-full ${isConfigured ? 'bg-green-500' : 'bg-gray-300'}`} />
