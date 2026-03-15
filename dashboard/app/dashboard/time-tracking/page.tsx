@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface TimesheetProject {
   id: number;
@@ -275,6 +276,7 @@ const PLACEHOLDER_ACTIVITIES: TimesheetActivity[] = [
 // ---------- Main Page ----------
 
 export default function TimeTrackingPage() {
+  const { isReady } = useFirmReady();
   const [entries, setEntries] = useState<TimesheetEntry[]>([]);
   const [projects, setProjects] = useState<TimesheetProject[]>([]);
   const [activities, setActivities] = useState<TimesheetActivity[]>([]);
@@ -309,8 +311,9 @@ export default function TimeTrackingPage() {
   }, []);
 
   useEffect(() => {
+    if (!isReady) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, isReady]);
 
   // Computed stats
   const weekEntries = entries.filter((e) => isThisWeek(e.begin));

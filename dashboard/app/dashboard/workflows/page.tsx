@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Workflow {
   id: string;
@@ -66,12 +67,14 @@ function ExecutionBadge({ status }: { status: string }) {
 }
 
 export default function WorkflowsPage() {
+  const { isReady } = useFirmReady();
   const [tab, setTab] = useState<Tab>('Workflows');
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       try {
         const [wRes, eRes] = await Promise.all([
@@ -93,7 +96,7 @@ export default function WorkflowsPage() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const handleToggle = async (id: string) => {
     try {

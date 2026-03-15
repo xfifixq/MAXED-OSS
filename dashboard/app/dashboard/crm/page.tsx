@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Contact {
   id: string;
@@ -46,6 +47,7 @@ function formatDate(d: string) {
 }
 
 export default function CRMPage() {
+  const { isReady } = useFirmReady();
   const [tab, setTab] = useState<Tab>('Contacts');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -58,6 +60,7 @@ export default function CRMPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       try {
         const [cRes, coRes] = await Promise.all([
@@ -101,7 +104,7 @@ export default function CRMPage() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const filteredContacts = contacts.filter(c =>
     `${c.firstName} ${c.lastName} ${c.email} ${c.company}`.toLowerCase().includes(search.toLowerCase())

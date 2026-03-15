@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Invoice {
   id: string;
@@ -58,6 +59,7 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function InvoicingPage() {
+  const { isReady } = useFirmReady();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<InvoiceClient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,6 +67,7 @@ export default function InvoicingPage() {
   const [statusFilter, setStatusFilter] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       try {
         const [invRes, clientRes] = await Promise.all([
@@ -87,7 +90,7 @@ export default function InvoicingPage() {
       }
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const clientMap = useMemo(() => {
     const map: Record<string, string> = {};

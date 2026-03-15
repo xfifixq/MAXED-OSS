@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Account {
   id: string | number;
@@ -67,6 +68,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 };
 
 export default function BookkeepingPage() {
+  const { isReady } = useFirmReady();
   const [tab, setTab] = useState<Tab>('Accounts');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -74,6 +76,7 @@ export default function BookkeepingPage() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       try {
         const res = await fetch(apiUrl('/api/services/bigcapital/accounts'), { headers: serviceHeaders() });
@@ -102,7 +105,7 @@ export default function BookkeepingPage() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const groupedAccounts = accounts.reduce<Record<string, Account[]>>((groups, acc) => {
     const type = (acc.account_type || 'other').toLowerCase();

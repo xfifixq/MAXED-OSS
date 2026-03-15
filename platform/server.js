@@ -580,6 +580,9 @@ async function getServiceCredential(firmId, service) {
 // Extract firmId from X-Firm-Id header on all service proxy routes
 app.use("/api/services", (req, _res, next) => {
   req.firmId = req.headers["x-firm-id"] || null;
+  if (!req.firmId && req.path !== "/urls" && req.path !== "/status" && req.path !== "/diagnose") {
+    console.warn(`[service-proxy] Request to ${req.path} without X-Firm-Id header`);
+  }
   next();
 });
 
@@ -1362,21 +1365,27 @@ app.get("/api/services/status", async (_req, res) => {
 app.get("/api/services/diagnose", async (req, res) => {
   const firmId = req.headers["x-firm-id"] || null;
   const services = ["paperless", "docuseal", "invoiceninja", "n8n", "kimai", "bigcapital", "twenty", "metabase", "mattermost"];
-  const diag = {};
+  const envMap = {
+    paperless: "PAPERLESS_API_TOKEN",
+    docuseal: "DOCUSEAL_API_TOKEN",
+    invoiceninja: "INVOICE_NINJA_API_TOKEN",
+    n8n: "N8N_API_KEY",
+    kimai: "KIMAI_API_TOKEN",
+    bigcapital: "BIGCAPITAL_API_TOKEN",
+    twenty: "TWENTY_API_KEY",
+    metabase: "METABASE_EMAIL",
+    mattermost: "MATTERMOST_USER",
+  };
+  const diag = { firmId };
   for (const svc of services) {
     const cred = firmId ? await getServiceCredential(firmId, svc) : null;
-    diag[svc] = { configured: !!cred?.token || !!cred?.username };
+    const hasFirmCred = !!cred?.token || !!cred?.username;
+    const hasEnvVar = !!process.env[envMap[svc]];
+    diag[svc] = {
+      configured: hasFirmCred || hasEnvVar,
+      source: hasFirmCred ? "firm" : hasEnvVar ? "env" : "none",
+    };
   }
-  // Fallback: check env vars too
-  if (!diag.paperless.configured) diag.paperless.configured = !!process.env.PAPERLESS_API_TOKEN;
-  if (!diag.docuseal.configured) diag.docuseal.configured = !!process.env.DOCUSEAL_API_TOKEN;
-  if (!diag.invoiceninja.configured) diag.invoiceninja.configured = !!process.env.INVOICE_NINJA_API_TOKEN;
-  if (!diag.n8n.configured) diag.n8n.configured = !!process.env.N8N_API_KEY;
-  if (!diag.kimai.configured) diag.kimai.configured = !!process.env.KIMAI_API_TOKEN;
-  if (!diag.bigcapital.configured) diag.bigcapital.configured = !!process.env.BIGCAPITAL_API_TOKEN;
-  if (!diag.twenty.configured) diag.twenty.configured = !!process.env.TWENTY_API_KEY;
-  if (!diag.metabase.configured) diag.metabase.configured = !!(process.env.METABASE_EMAIL && process.env.METABASE_PASSWORD);
-  if (!diag.mattermost.configured) diag.mattermost.configured = !!(process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER);
   res.json(diag);
 });
 

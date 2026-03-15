@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface PaperlessTag {
   id: number;
@@ -48,6 +49,7 @@ function tagBadgeClass(colour: number): string {
 const PAGE_SIZE = 25;
 
 export default function DocumentsPage() {
+  const { isReady } = useFirmReady();
   const [documents, setDocuments] = useState<PaperlessDocument[]>([]);
   const [tags, setTags] = useState<PaperlessTag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,12 +95,14 @@ export default function DocumentsPage() {
   }, []);
 
   useEffect(() => {
+    if (!isReady) return;
     fetchTags();
-  }, [fetchTags]);
+  }, [fetchTags, isReady]);
 
   useEffect(() => {
+    if (!isReady) return;
     fetchDocuments(page, search);
-  }, [page, search, fetchDocuments]);
+  }, [page, search, fetchDocuments, isReady]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

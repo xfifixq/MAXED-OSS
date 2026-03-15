@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Template {
   id: number | string;
@@ -52,6 +53,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function ProposalsPage() {
+  const { isReady } = useFirmReady();
   const [tab, setTab] = useState<Tab>('Submissions');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -61,6 +63,7 @@ export default function ProposalsPage() {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       try {
         const [tRes, sRes] = await Promise.all([
@@ -82,7 +85,7 @@ export default function ProposalsPage() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const stats = {
     total: submissions.length,

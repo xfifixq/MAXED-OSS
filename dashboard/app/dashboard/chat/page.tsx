@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { apiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Channel {
   id: string;
@@ -78,6 +79,7 @@ function userColor(userId: string) {
 }
 
 export default function ChatPage() {
+  const { isReady } = useFirmReady();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState<string>('');
   const [posts, setPosts] = useState<Post[]>([]);
@@ -90,6 +92,7 @@ export default function ChatPage() {
   const [usePlaceholder, setUsePlaceholder] = useState(false);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchChannels() {
       try {
         const [cRes, uRes] = await Promise.all([
@@ -126,7 +129,7 @@ export default function ChatPage() {
       setLoading(false);
     }
     fetchChannels();
-  }, []);
+  }, [isReady]);
 
   const fetchPosts = useCallback(async (channelId: string) => {
     if (usePlaceholder) {

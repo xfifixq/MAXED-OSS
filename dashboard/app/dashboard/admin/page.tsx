@@ -7,15 +7,15 @@ import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 
 const SERVICE_TABS = [
-  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Go to Settings → API Tokens in Paperless to generate one.' },
-  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Find your API key under Account Settings.' },
-  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life', fields: ['token'], labels: { token: 'API Token' }, hint: 'Settings → Account Management → API Tokens.' },
-  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → API → Create API Key.' },
-  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' }, hint: 'User menu → API Access to create a token.' },
-  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' }, hint: 'Check Bigcapital docs for API access.' },
-  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', fields: ['token'], labels: { token: 'API Key' }, hint: 'Settings → Developers → API Keys.' },
-  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Use the login email and password you created for this user.' },
-  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' }, hint: 'Use the login credentials you created for this user.' },
+  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Token' }, hint: 'Log in as admin, then go to Settings → API Tokens to generate a token for this firm.' },
+  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Token' }, hint: 'Log in as admin, then find your API key under Account Settings.' },
+  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life', registerPath: '/#/register', fields: ['token'], labels: { token: 'API Token' }, hint: 'Create an account for this firm, then go to Settings → Account Management → API Tokens.' },
+  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', registerPath: '/setup', fields: ['token'], labels: { token: 'API Key' }, hint: 'Complete setup if needed, then go to Settings → API → Create API Key.' },
+  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', registerPath: '/register', fields: ['username', 'token'], labels: { username: 'Email', token: 'API Token' }, hint: 'Create an account for this firm, then go to User menu → API Access to create a token.' },
+  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life', registerPath: '/auth/register', fields: ['token', 'metadata'], labels: { token: 'API Token', metadata: 'Tenant ID' }, hint: 'Create an organization for this firm. Find the API token and Tenant ID in settings.' },
+  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', registerPath: '/sign-up', fields: ['token'], labels: { token: 'API Key' }, hint: 'Create a workspace, then go to Settings → Developers → API Keys.' },
+  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life', registerPath: '', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Log in as admin, go to Admin → People → Add user. Save the email and password you create.' },
+  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life', registerPath: '/signup_email', fields: ['username', 'password'], labels: { username: 'Username', password: 'Password' }, hint: 'Create an account for this firm (enable open signup in System Console if needed). Save the username and password.' },
 ];
 
 interface Credential {
@@ -46,6 +46,7 @@ function AdminContent() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showRegister, setShowRegister] = useState(true);
 
   const fetchCredentials = useCallback(async (fId: string) => {
     try {
@@ -144,7 +145,9 @@ function AdminContent() {
   }
 
   const activeSvc = SERVICE_TABS.find((s) => s.key === activeTab)!;
-  const iframeUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
+  const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
+  const hasRegisterPage = !!activeSvc.registerPath;
+  const iframeUrl = showRegister && hasRegisterPage ? `${baseUrl}${activeSvc.registerPath}` : baseUrl;
   const isConfigured = credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username);
 
   return (
@@ -194,15 +197,33 @@ function AdminContent() {
         {/* Iframe (2/3 width) */}
         <div className="lg:col-span-2 flex flex-col">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-gray-400">
-              {activeSvc.name} at <code className="bg-gray-100 px-1 rounded">{iframeUrl}</code>
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">
+                {activeSvc.name} at <code className="bg-gray-100 px-1 rounded">{iframeUrl}</code>
+              </span>
+              {hasRegisterPage && (
+                <div className="flex items-center rounded-md border border-gray-200 overflow-hidden text-xs">
+                  <button
+                    onClick={() => setShowRegister(true)}
+                    className={`px-2.5 py-1 font-medium transition-colors ${showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    Sign Up
+                  </button>
+                  <button
+                    onClick={() => setShowRegister(false)}
+                    className={`px-2.5 py-1 font-medium transition-colors ${!showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    Log In
+                  </button>
+                </div>
+              )}
+            </div>
             <a href={iframeUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:text-brand-700 font-medium">
               Open in new tab
             </a>
           </div>
           <iframe
-            key={activeTab}
+            key={`${activeTab}-${showRegister}`}
             src={iframeUrl}
             className="w-full flex-1 rounded-xl border border-gray-200 bg-white"
             style={{ minHeight: '400px' }}

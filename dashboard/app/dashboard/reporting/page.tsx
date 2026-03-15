@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { apiUrl, firmApiUrl, serviceHeaders } from '@/lib/api';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 interface Dashboard {
   id: number;
@@ -71,12 +72,14 @@ function ChartIcon({ type }: { type: string }) {
 }
 
 export default function ReportingPage() {
+  const { isReady } = useFirmReady();
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [stats, setStats] = useState<FirmStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isReady) return;
     async function fetchData() {
       // Fetch firm stats
       try {
@@ -105,7 +108,7 @@ export default function ReportingPage() {
       setLoading(false);
     }
     fetchData();
-  }, []);
+  }, [isReady]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
