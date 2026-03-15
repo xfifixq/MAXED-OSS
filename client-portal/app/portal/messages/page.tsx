@@ -3,8 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-const FIRM_NAME = 'MAXED Financial';
-
 interface Message {
   id: string;
   content: string;
@@ -16,11 +14,14 @@ interface Message {
 export default function MessagesPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [firmName, setFirmName] = useState('Maxed');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const storedFirmName = localStorage.getItem('firmName');
+    if (storedFirmName) setFirmName(storedFirmName);
     fetchMessages();
 
     // Auto-refresh every 30 seconds
@@ -113,7 +114,7 @@ export default function MessagesPage() {
       {/* Header */}
       <div>
         <h1 className="page-title">Messages</h1>
-        <p className="mt-1 text-gray-500">Chat with your {FIRM_NAME} team.</p>
+        <p className="mt-1 text-gray-500">Chat with your {firmName} team.</p>
       </div>
 
       {/* Messages Container */}

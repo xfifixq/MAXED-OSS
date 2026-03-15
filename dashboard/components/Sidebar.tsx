@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { useServiceStatus } from '@/lib/useServiceStatus';
 
 const navItems = [
   {
@@ -165,6 +166,7 @@ export default function Sidebar() {
   const isAdmin = session?.user?.email === 'admin@maxed.dev' || session?.user?.email === 'admin@maxed.life';
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { statuses, summary } = useServiceStatus();
 
   const allNavItems = isAdmin ? adminNavItems : navItems;
 
@@ -201,6 +203,53 @@ export default function Sidebar() {
             {!collapsed && <span>{item.name}</span>}
           </Link>
         ))}
+
+        {!isAdmin && !collapsed && (
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8f95b2]">
+                Connections
+              </p>
+              <span className="text-[11px] text-[#8f95b2]">
+                {summary.connected} live
+              </span>
+            </div>
+            <div className="space-y-2">
+              {[
+                ['paperless', 'Docs'],
+                ['invoiceninja', 'Billing'],
+                ['bigcapital', 'Ledger'],
+                ['docuseal', 'Sign'],
+                ['metabase', 'Analytics'],
+                ['n8n', 'Flows'],
+                ['mattermost', 'Chat'],
+              ].map(([key, label]) => {
+                const entry = statuses[key];
+                const dotClass =
+                  entry?.health === 'connected'
+                    ? 'bg-green-400'
+                    : entry?.health === 'degraded'
+                      ? 'bg-amber-400'
+                      : 'bg-red-400';
+                const text =
+                  entry?.health === 'connected'
+                    ? 'Connected'
+                    : entry?.health === 'degraded'
+                      ? 'Configured'
+                      : 'Missing';
+                return (
+                  <div key={key} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 text-white/90">
+                      <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
+                      <span>{label}</span>
+                    </div>
+                    <span className="text-[#8f95b2]">{text}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* Collapse toggle (desktop) */}

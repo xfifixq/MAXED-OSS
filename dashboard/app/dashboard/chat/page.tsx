@@ -28,31 +28,6 @@ interface User {
   email?: string;
 }
 
-const PLACEHOLDER_CHANNELS: Channel[] = [
-  { id: '1', display_name: 'General', name: 'general', type: 'O', total_msg_count: 142 },
-  { id: '2', display_name: 'Tax Season 2026', name: 'tax-season-2026', type: 'O', total_msg_count: 89 },
-  { id: '3', display_name: 'Client Updates', name: 'client-updates', type: 'O', total_msg_count: 56 },
-  { id: '4', display_name: 'Announcements', name: 'announcements', type: 'O', total_msg_count: 23 },
-  { id: '5', display_name: 'Random', name: 'random', type: 'O', total_msg_count: 201 },
-];
-
-const PLACEHOLDER_POSTS: Record<string, Post[]> = {
-  '1': [
-    { id: 'p1', message: 'Good morning team! Reminder: Q1 tax filings are due April 15th.', create_at: Date.now() - 3600000 * 3, user_id: 'u1', username: 'admin' },
-    { id: 'p2', message: 'Thanks for the reminder. I have 12 returns left to review.', create_at: Date.now() - 3600000 * 2.5, user_id: 'u2', username: 'sarah.j' },
-    { id: 'p3', message: 'Acme Corp sent over their updated W-2s. I uploaded them to Documents.', create_at: Date.now() - 3600000 * 2, user_id: 'u3', username: 'mike.c' },
-    { id: 'p4', message: 'Perfect, I\'ll review those today. Also, the new payroll integration is working great.', create_at: Date.now() - 3600000, user_id: 'u1', username: 'admin' },
-    { id: 'p5', message: 'Has anyone heard back from Summit Partners about their extension?', create_at: Date.now() - 1800000, user_id: 'u4', username: 'lisa.p' },
-  ],
-  '2': [
-    { id: 'p6', message: 'Tax season checklist updated in the shared drive.', create_at: Date.now() - 86400000, user_id: 'u1', username: 'admin' },
-    { id: 'p7', message: 'All individual returns for A-M clients are filed.', create_at: Date.now() - 43200000, user_id: 'u2', username: 'sarah.j' },
-  ],
-  '3': [
-    { id: 'p8', message: 'New client onboarded: GreenTech Solutions. S-Corp, $2.1M revenue.', create_at: Date.now() - 172800000, user_id: 'u3', username: 'mike.c' },
-  ],
-};
-
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
@@ -88,43 +63,36 @@ export default function ChatPage() {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [usePlaceholder, setUsePlaceholder] = useState(false);
 
   useEffect(() => {
     if (!isReady) return;
     async function fetchChannels() {
+      setError('');
       try {
         const [cRes, uRes] = await Promise.all([
           fetch(apiUrl('/api/services/mattermost/channels'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/mattermost/users'), { headers: serviceHeaders() }),
         ]);
-        if (cRes.ok) {
-          const data = await cRes.json();
-          const list = Array.isArray(data) ? data : [];
-          if (list.length > 0) {
-            setChannels(list);
-            setActiveChannel(list[0].id);
-          } else {
-            setUsePlaceholder(true);
-            setChannels(PLACEHOLDER_CHANNELS);
-            setActiveChannel(PLACEHOLDER_CHANNELS[0].id);
-          }
-        } else {
-          setUsePlaceholder(true);
-          setChannels(PLACEHOLDER_CHANNELS);
-          setActiveChannel(PLACEHOLDER_CHANNELS[0].id);
+        if (!cRes.ok || !uRes.ok) {
+          const cErr = cRes.ok ? null : await cRes.json().catch(() => null);
+          const uErr = uRes.ok ? null : await uRes.json().catch(() => null);
+          throw new Error(cErr?.error || uErr?.error || `Mattermost request failed (${cRes.status}/${uRes.status})`);
         }
-        if (uRes.ok) {
-          const data = await uRes.json();
-          const map: Record<string, User> = {};
-          (Array.isArray(data) ? data : []).forEach((u: User) => { map[u.id] = u; });
-          setUsers(map);
-        }
-      } catch {
-        setUsePlaceholder(true);
-        setChannels(PLACEHOLDER_CHANNELS);
-        setActiveChannel(PLACEHOLDER_CHANNELS[0].id);
+        const channelData = await cRes.json();
+        const userData = await uRes.json();
+        const list = Array.isArray(channelData) ? channelData : [];
+        setChannels(list);
+        setActiveChannel(list[0]?.id || '');
+        const map: Record<string, User> = {};
+        (Array.isArray(userData) ? userData : []).forEach((u: User) => { map[u.id] = u; });
+        setUsers(map);
+      } catch (err) {
+        setChannels([]);
+        setActiveChannel('');
+        setUsers({});
+        setError(err instanceof Error ? err.message : 'Unable to load team chat.');
       }
       setLoading(false);
     }
@@ -132,10 +100,6 @@ export default function ChatPage() {
   }, [isReady]);
 
   const fetchPosts = useCallback(async (channelId: string) => {
-    if (usePlaceholder) {
-      setPosts(PLACEHOLDER_POSTS[channelId] || []);
-      return;
-    }
     setLoadingPosts(true);
     try {
       const res = await fetch(apiUrl(`/api/services/mattermost/channels/${channelId}/posts`), { headers: serviceHeaders() });
@@ -148,12 +112,16 @@ export default function ChatPage() {
         } else {
           setPosts([]);
         }
+      } else {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Mattermost posts request failed (${res.status})`);
       }
-    } catch {
-      setPosts(PLACEHOLDER_POSTS[channelId] || []);
+    } catch (err) {
+      setPosts([]);
+      setError(err instanceof Error ? err.message : 'Unable to load channel messages.');
     }
     setLoadingPosts(false);
-  }, [usePlaceholder]);
+  }, []);
 
   useEffect(() => {
     if (activeChannel) fetchPosts(activeChannel);
@@ -174,18 +142,6 @@ export default function ChatPage() {
     e.preventDefault();
     if (!message.trim() || !activeChannel) return;
     setSending(true);
-    if (usePlaceholder) {
-      setPosts((prev) => [...prev, {
-        id: `p-${Date.now()}`,
-        message: message.trim(),
-        create_at: Date.now(),
-        user_id: 'u1',
-        username: 'admin',
-      }]);
-      setMessage('');
-      setSending(false);
-      return;
-    }
     try {
       await fetch(apiUrl(`/api/services/mattermost/channels/${activeChannel}/posts`), {
         method: 'POST',
@@ -194,7 +150,9 @@ export default function ChatPage() {
       });
       setMessage('');
       fetchPosts(activeChannel);
-    } catch { /* silent */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to send chat message.');
+    }
     setSending(false);
   };
 
@@ -206,6 +164,12 @@ export default function ChatPage() {
         <h1 className="text-2xl font-bold text-gray-900">Team Chat</h1>
         <p className="text-gray-500 text-sm mt-1">Communicate with your team in real time</p>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="card overflow-hidden flex" style={{ height: 'calc(100vh - 12rem)' }}>
         {/* Channel List */}

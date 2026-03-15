@@ -139,6 +139,7 @@ app.post("/api/clients/login", async (req, res) => {
 
     const client = await prisma.client.findFirst({
       where: { email },
+      include: { firm: true },
     });
 
     if (!client) {
@@ -149,6 +150,8 @@ app.post("/api/clients/login", async (req, res) => {
       clientId: client.id,
       name: client.name,
       email: client.email,
+      firmId: client.firmId,
+      firmName: client.firm?.name || null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

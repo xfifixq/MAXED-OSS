@@ -32,16 +32,15 @@ export default function LoginPage() {
       }
 
       const data = await res.json();
-      localStorage.setItem('clientId', data.clientId || data.id || 'demo-client-1');
+      localStorage.setItem('clientId', data.clientId || data.id);
       localStorage.setItem('clientName', data.name || data.clientName || 'Client');
       localStorage.setItem('clientEmail', email);
+      if (data.firmName) {
+        localStorage.setItem('firmName', data.firmName);
+      }
       router.push('/portal');
     } catch (err: any) {
-      // For demo purposes, allow login with any credentials
-      localStorage.setItem('clientId', 'demo-client-1');
-      localStorage.setItem('clientName', 'Alex Johnson');
-      localStorage.setItem('clientEmail', email || 'demo@example.com');
-      router.push('/portal');
+      setError(err?.message || 'Unable to sign in to the client portal.');
     } finally {
       setLoading(false);
     }

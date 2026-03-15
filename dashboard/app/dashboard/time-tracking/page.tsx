@@ -251,28 +251,6 @@ function LogTimeModal({
 
 // ---------- Placeholder Data ----------
 
-const PLACEHOLDER_ENTRIES: TimesheetEntry[] = [
-  { id: 1, begin: new Date().toISOString(), end: new Date().toISOString(), duration: 7200, project: { id: 1, name: 'Tax Preparation' }, activity: { id: 1, name: 'Filing' }, description: '2024 Q4 corporate tax return', rate: 175 },
-  { id: 2, begin: new Date(Date.now() - 86400000).toISOString(), end: new Date(Date.now() - 86400000 + 5400000).toISOString(), duration: 5400, project: { id: 2, name: 'Audit Services' }, activity: { id: 2, name: 'Review' }, description: 'Financial statement review', rate: 200 },
-  { id: 3, begin: new Date(Date.now() - 172800000).toISOString(), end: new Date(Date.now() - 172800000 + 3600000).toISOString(), duration: 3600, project: { id: 3, name: 'Consulting' }, activity: { id: 3, name: 'Meeting' }, description: 'Client advisory session', rate: 225 },
-  { id: 4, begin: new Date(Date.now() - 259200000).toISOString(), end: new Date(Date.now() - 259200000 + 10800000).toISOString(), duration: 10800, project: { id: 1, name: 'Tax Preparation' }, activity: { id: 4, name: 'Research' }, description: 'State tax code research', rate: 175 },
-  { id: 5, begin: new Date(Date.now() - 345600000).toISOString(), end: new Date(Date.now() - 345600000 + 9000000).toISOString(), duration: 9000, project: { id: 2, name: 'Audit Services' }, activity: { id: 5, name: 'Fieldwork' }, description: 'On-site inventory count', rate: 200 },
-];
-
-const PLACEHOLDER_PROJECTS: TimesheetProject[] = [
-  { id: 1, name: 'Tax Preparation', customer: { id: 1, name: 'Acme Corp' } },
-  { id: 2, name: 'Audit Services', customer: { id: 2, name: 'TechStart Inc' } },
-  { id: 3, name: 'Consulting', customer: { id: 3, name: 'Baker & Associates' } },
-];
-
-const PLACEHOLDER_ACTIVITIES: TimesheetActivity[] = [
-  { id: 1, name: 'Filing' },
-  { id: 2, name: 'Review' },
-  { id: 3, name: 'Meeting' },
-  { id: 4, name: 'Research' },
-  { id: 5, name: 'Fieldwork' },
-];
-
 // ---------- Main Page ----------
 
 export default function TimeTrackingPage() {
@@ -281,30 +259,39 @@ export default function TimeTrackingPage() {
   const [projects, setProjects] = useState<TimesheetProject[]>([]);
   const [activities, setActivities] = useState<TimesheetActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showLogModal, setShowLogModal] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const [tsRes, projRes, actRes] = await Promise.all([
         fetch(apiUrl('/api/services/kimai/timesheets?page=1&size=50'), { headers: serviceHeaders() }),
         fetch(apiUrl('/api/services/kimai/projects'), { headers: serviceHeaders() }),
         fetch(apiUrl('/api/services/kimai/activities'), { headers: serviceHeaders() }),
       ]);
+      if (!tsRes.ok || !projRes.ok || !actRes.ok) {
+        const tsErr = tsRes.ok ? null : await tsRes.json().catch(() => null);
+        const projErr = projRes.ok ? null : await projRes.json().catch(() => null);
+        const actErr = actRes.ok ? null : await actRes.json().catch(() => null);
+        throw new Error(tsErr?.error || projErr?.error || actErr?.error || 'Kimai request failed.');
+      }
 
       const [tsData, projData, actData] = await Promise.all([
-        tsRes.ok ? tsRes.json() : null,
-        projRes.ok ? projRes.json() : null,
-        actRes.ok ? actRes.json() : null,
+        tsRes.json(),
+        projRes.json(),
+        actRes.json(),
       ]);
 
-      setEntries(Array.isArray(tsData) ? tsData : PLACEHOLDER_ENTRIES);
-      setProjects(Array.isArray(projData) ? projData : PLACEHOLDER_PROJECTS);
-      setActivities(Array.isArray(actData) ? actData : PLACEHOLDER_ACTIVITIES);
-    } catch {
-      setEntries(PLACEHOLDER_ENTRIES);
-      setProjects(PLACEHOLDER_PROJECTS);
-      setActivities(PLACEHOLDER_ACTIVITIES);
+      setEntries(Array.isArray(tsData) ? tsData : []);
+      setProjects(Array.isArray(projData) ? projData : []);
+      setActivities(Array.isArray(actData) ? actData : []);
+    } catch (err) {
+      setEntries([]);
+      setProjects([]);
+      setActivities([]);
+      setError(err instanceof Error ? err.message : 'Unable to load time tracking data.');
     } finally {
       setLoading(false);
     }
@@ -340,6 +327,12 @@ export default function TimeTrackingPage() {
           Log Time
         </button>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

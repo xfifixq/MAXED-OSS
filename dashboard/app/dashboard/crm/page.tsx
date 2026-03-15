@@ -26,22 +26,6 @@ interface Company {
 const TABS = ['Contacts', 'Companies'] as const;
 type Tab = typeof TABS[number];
 
-const PLACEHOLDER_CONTACTS: Contact[] = [
-  { id: '1', firstName: 'John', lastName: 'Smith', email: 'john@acmecorp.com', phone: '(555) 100-2001', company: 'Acme Corporation', createdAt: '2026-01-15T10:00:00Z' },
-  { id: '2', firstName: 'Sarah', lastName: 'Williams', email: 'sarah@techstart.io', phone: '(555) 100-2002', company: 'TechStart Inc', createdAt: '2026-02-01T09:00:00Z' },
-  { id: '3', firstName: 'James', lastName: 'Baker', email: 'jbaker@bakerllc.com', phone: '(555) 100-2003', company: 'Baker & Associates', createdAt: '2026-02-10T14:00:00Z' },
-  { id: '4', firstName: 'Emily', lastName: 'Chen', email: 'emily@summitpartners.com', phone: '(555) 100-2004', company: 'Summit Partners', createdAt: '2026-02-20T11:00:00Z' },
-  { id: '5', firstName: 'Michael', lastName: 'Roberts', email: 'michael@greenleaf.co', phone: '(555) 100-2005', company: 'GreenLeaf Organic', createdAt: '2026-03-01T08:00:00Z' },
-  { id: '6', firstName: 'Lisa', lastName: 'Park', email: 'lisa@novahealth.com', company: 'Nova Health', createdAt: '2026-03-05T16:00:00Z' },
-];
-
-const PLACEHOLDER_COMPANIES: Company[] = [
-  { id: '1', name: 'Acme Corporation', domainName: 'acmecorp.com', employees: 250, address: 'New York, NY', createdAt: '2026-01-10T09:00:00Z' },
-  { id: '2', name: 'TechStart Inc', domainName: 'techstart.io', employees: 45, address: 'San Francisco, CA', createdAt: '2026-01-20T10:00:00Z' },
-  { id: '3', name: 'Baker & Associates', domainName: 'bakerllc.com', employees: 12, address: 'Chicago, IL', createdAt: '2026-02-05T11:00:00Z' },
-  { id: '4', name: 'Summit Partners', domainName: 'summitpartners.com', employees: 80, address: 'Boston, MA', createdAt: '2026-02-15T14:00:00Z' },
-];
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -52,6 +36,7 @@ export default function CRMPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [showAddContact, setShowAddContact] = useState(false);
   const [showAddCompany, setShowAddCompany] = useState(false);
@@ -62,44 +47,42 @@ export default function CRMPage() {
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       try {
         const [cRes, coRes] = await Promise.all([
           fetch(apiUrl('/api/services/twenty/people'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/twenty/companies'), { headers: serviceHeaders() }),
         ]);
-        if (cRes.ok) {
-          const d = await cRes.json();
-          const list = d.data?.people || d.data || (Array.isArray(d) ? d : []);
-          if (list.length > 0) {
-            setContacts(list.map((p: Record<string, unknown>) => ({
-              id: p.id as string,
-              firstName: (p.name as Record<string, string>)?.firstName || (p as Record<string, string>).firstName || '',
-              lastName: (p.name as Record<string, string>)?.lastName || (p as Record<string, string>).lastName || '',
-              email: ((p.emails as Record<string, string>)?.primaryEmail || (p as Record<string, string>).email || '') as string,
-              phone: ((p.phones as Record<string, string>)?.primaryPhoneNumber || (p as Record<string, string>).phone || '') as string,
-              company: ((p.company as Record<string, string>)?.name || '') as string,
-              createdAt: (p.createdAt as string) || new Date().toISOString(),
-            })));
-          } else setContacts(PLACEHOLDER_CONTACTS);
-        } else setContacts(PLACEHOLDER_CONTACTS);
-
-        if (coRes.ok) {
-          const d = await coRes.json();
-          const list = d.data?.companies || d.data || (Array.isArray(d) ? d : []);
-          if (list.length > 0) {
-            setCompanies(list.map((c: Record<string, unknown>) => ({
-              id: c.id as string,
-              name: (c.name as string) || '',
-              domainName: (c.domainName as string) || '',
-              employees: (c.employees as number) || 0,
-              address: ((c.address as Record<string, string>)?.addressCity || (c as Record<string, string>).address || '') as string,
-              createdAt: (c.createdAt as string) || new Date().toISOString(),
-            })));
-          } else setCompanies(PLACEHOLDER_COMPANIES);
-        } else setCompanies(PLACEHOLDER_COMPANIES);
-      } catch {
-        setContacts(PLACEHOLDER_CONTACTS);
-        setCompanies(PLACEHOLDER_COMPANIES);
+        if (!cRes.ok || !coRes.ok) {
+          const cErr = cRes.ok ? null : await cRes.json().catch(() => null);
+          const coErr = coRes.ok ? null : await coRes.json().catch(() => null);
+          throw new Error(cErr?.error || coErr?.error || `Twenty CRM request failed (${cRes.status}/${coRes.status})`);
+        }
+        const contactsResponse = await cRes.json();
+        const companiesResponse = await coRes.json();
+        const contactList = contactsResponse.data?.people || contactsResponse.data || (Array.isArray(contactsResponse) ? contactsResponse : []);
+        const companyList = companiesResponse.data?.companies || companiesResponse.data || (Array.isArray(companiesResponse) ? companiesResponse : []);
+        setContacts(contactList.map((p: Record<string, unknown>) => ({
+          id: p.id as string,
+          firstName: (p.name as Record<string, string>)?.firstName || (p as Record<string, string>).firstName || '',
+          lastName: (p.name as Record<string, string>)?.lastName || (p as Record<string, string>).lastName || '',
+          email: ((p.emails as Record<string, string>)?.primaryEmail || (p as Record<string, string>).email || '') as string,
+          phone: ((p.phones as Record<string, string>)?.primaryPhoneNumber || (p as Record<string, string>).phone || '') as string,
+          company: ((p.company as Record<string, string>)?.name || '') as string,
+          createdAt: (p.createdAt as string) || new Date().toISOString(),
+        })));
+        setCompanies(companyList.map((c: Record<string, unknown>) => ({
+          id: c.id as string,
+          name: (c.name as string) || '',
+          domainName: (c.domainName as string) || '',
+          employees: (c.employees as number) || 0,
+          address: ((c.address as Record<string, string>)?.addressCity || (c as Record<string, string>).address || '') as string,
+          createdAt: (c.createdAt as string) || new Date().toISOString(),
+        })));
+      } catch (err) {
+        setContacts([]);
+        setCompanies([]);
+        setError(err instanceof Error ? err.message : 'Unable to load CRM data.');
       }
       setLoading(false);
     }
@@ -163,6 +146,12 @@ export default function CRMPage() {
           {tab === 'Contacts' ? 'Add Contact' : 'Add Company'}
         </button>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

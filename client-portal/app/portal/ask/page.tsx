@@ -3,8 +3,6 @@
 import { useState, useEffect } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-const FIRM_NAME = 'MAXED Financial';
-
 interface Question {
   id: string;
   question: string;
@@ -17,11 +15,14 @@ interface Question {
 export default function AskPage() {
   const [question, setQuestion] = useState('');
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [firmName, setFirmName] = useState('Maxed');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
+    const storedFirmName = localStorage.getItem('firmName');
+    if (storedFirmName) setFirmName(storedFirmName);
     fetchQuestions();
   }, []);
 
@@ -105,7 +106,7 @@ export default function AskPage() {
       <div>
         <h1 className="page-title">Ask a Question</h1>
         <p className="mt-1 text-gray-500">
-          Have a financial question? Send it to your {FIRM_NAME} team.
+          Have a financial question? Send it to your {firmName} team.
         </p>
       </div>
 
@@ -145,7 +146,7 @@ export default function AskPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <p className="text-green-700 font-medium">
-                Your question has been sent to {FIRM_NAME}
+                Your question has been sent to {firmName}
               </p>
             </div>
             <p className="text-green-600 text-sm mt-1 ml-8">
@@ -176,7 +177,7 @@ export default function AskPage() {
 
                 {q.response && (
                   <div className="mt-3 p-4 bg-brand-50 border border-brand-100 rounded-lg">
-                    <p className="text-sm font-medium text-brand-700 mb-1">Response from {FIRM_NAME}:</p>
+                    <p className="text-sm font-medium text-brand-700 mb-1">Response from {firmName}:</p>
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">{q.response}</p>
                   </div>
                 )}

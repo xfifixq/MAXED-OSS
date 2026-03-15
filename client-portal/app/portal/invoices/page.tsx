@@ -29,7 +29,17 @@ export default function InvoicesPage() {
         const res = await fetch(`${API_URL}/api/clients/${clientId}/invoices`);
         if (res.ok) {
           const data = await res.json();
-          setInvoices(Array.isArray(data) ? data : data.invoices || []);
+          const records = Array.isArray(data) ? data : data.invoices || [];
+          setInvoices(records.map((invoice: any) => ({
+            id: String(invoice.id),
+            number: invoice.number || invoice.invoiceNinjaId || String(invoice.id),
+            amount: Number(invoice.amount || 0),
+            status: invoice.status || 'outstanding',
+            dueDate: invoice.dueDate || invoice.due_date || invoice.createdAt || new Date().toISOString(),
+            issuedDate: invoice.createdAt || invoice.date || undefined,
+            description: invoice.description || undefined,
+            paymentUrl: invoice.paymentUrl || undefined,
+          })));
         }
       } catch {
         // API unavailable

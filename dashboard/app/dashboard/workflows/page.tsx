@@ -26,25 +26,6 @@ interface Execution {
 const TABS = ['Workflows', 'Executions'] as const;
 type Tab = typeof TABS[number];
 
-const PLACEHOLDER_WORKFLOWS: Workflow[] = [
-  { id: '1', name: 'Client Onboarding', active: true, createdAt: '2026-01-10T09:00:00Z', updatedAt: '2026-03-10T15:00:00Z', nodes: [{}, {}, {}, {}] },
-  { id: '2', name: 'Invoice Reminder (7 days overdue)', active: true, createdAt: '2026-01-15T10:00:00Z', updatedAt: '2026-03-12T08:00:00Z', nodes: [{}, {}, {}] },
-  { id: '3', name: 'Document Processing Pipeline', active: true, createdAt: '2026-02-01T11:00:00Z', updatedAt: '2026-03-11T09:00:00Z', nodes: [{}, {}, {}, {}, {}] },
-  { id: '4', name: 'Tax Deadline Alert', active: false, createdAt: '2026-02-15T14:00:00Z', updatedAt: '2026-03-01T10:00:00Z', nodes: [{}, {}] },
-  { id: '5', name: 'Monthly Financial Report', active: true, createdAt: '2026-03-01T08:00:00Z', updatedAt: '2026-03-12T06:00:00Z', nodes: [{}, {}, {}] },
-];
-
-const PLACEHOLDER_EXECUTIONS: Execution[] = [
-  { id: '1', workflowName: 'Client Onboarding', finished: true, startedAt: '2026-03-12T14:30:00Z', stoppedAt: '2026-03-12T14:30:45Z', status: 'success' },
-  { id: '2', workflowName: 'Invoice Reminder', finished: true, startedAt: '2026-03-12T08:00:00Z', stoppedAt: '2026-03-12T08:00:12Z', status: 'success' },
-  { id: '3', workflowName: 'Document Processing', finished: true, startedAt: '2026-03-11T16:00:00Z', stoppedAt: '2026-03-11T16:02:30Z', status: 'error' },
-  { id: '4', workflowName: 'Monthly Financial Report', finished: true, startedAt: '2026-03-01T06:00:00Z', stoppedAt: '2026-03-01T06:05:00Z', status: 'success' },
-  { id: '5', workflowName: 'Client Onboarding', finished: true, startedAt: '2026-03-10T11:00:00Z', stoppedAt: '2026-03-10T11:01:00Z', status: 'success' },
-  { id: '6', workflowName: 'Invoice Reminder', finished: true, startedAt: '2026-03-10T08:00:00Z', stoppedAt: '2026-03-10T08:00:08Z', status: 'success' },
-  { id: '7', workflowName: 'Document Processing', finished: false, startedAt: '2026-03-12T16:00:00Z', status: 'running' },
-  { id: '8', workflowName: 'Tax Deadline Alert', finished: true, startedAt: '2026-03-09T09:00:00Z', stoppedAt: '2026-03-09T09:00:05Z', status: 'success' },
-];
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -72,26 +53,30 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       try {
         const [wRes, eRes] = await Promise.all([
           fetch(apiUrl('/api/services/n8n/workflows'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/n8n/executions'), { headers: serviceHeaders() }),
         ]);
-        if (wRes.ok) {
-          const d = await wRes.json();
-          setWorkflows(d.data || (Array.isArray(d) ? d : PLACEHOLDER_WORKFLOWS));
-        } else setWorkflows(PLACEHOLDER_WORKFLOWS);
-        if (eRes.ok) {
-          const d = await eRes.json();
-          setExecutions(d.data || (Array.isArray(d) ? d : PLACEHOLDER_EXECUTIONS));
-        } else setExecutions(PLACEHOLDER_EXECUTIONS);
-      } catch {
-        setWorkflows(PLACEHOLDER_WORKFLOWS);
-        setExecutions(PLACEHOLDER_EXECUTIONS);
+        if (!wRes.ok || !eRes.ok) {
+          const wErr = wRes.ok ? null : await wRes.json().catch(() => null);
+          const eErr = eRes.ok ? null : await eRes.json().catch(() => null);
+          throw new Error(wErr?.error || eErr?.error || `n8n request failed (${wRes.status}/${eRes.status})`);
+        }
+        const workflowsData = await wRes.json();
+        const executionsData = await eRes.json();
+        setWorkflows(workflowsData.data || (Array.isArray(workflowsData) ? workflowsData : []));
+        setExecutions(executionsData.data || (Array.isArray(executionsData) ? executionsData : []));
+      } catch (err) {
+        setWorkflows([]);
+        setExecutions([]);
+        setError(err instanceof Error ? err.message : 'Unable to load workflow data.');
       }
       setLoading(false);
     }
@@ -122,6 +107,12 @@ export default function WorkflowsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Workflow Automation</h1>
         <p className="text-gray-500 text-sm mt-1">Automate your firm&apos;s repetitive tasks</p>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">

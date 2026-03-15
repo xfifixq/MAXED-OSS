@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-const FIRM_NAME = 'MAXED Financial';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface DashboardData {
@@ -14,6 +13,7 @@ interface DashboardData {
 
 export default function PortalHomePage() {
   const [clientName, setClientName] = useState('');
+  const [firmName, setFirmName] = useState('Maxed');
   const [data, setData] = useState<DashboardData>({
     outstandingInvoices: 0,
     pendingDocuments: 0,
@@ -24,6 +24,8 @@ export default function PortalHomePage() {
   useEffect(() => {
     const name = localStorage.getItem('clientName') || 'Client';
     setClientName(name);
+    const storedFirmName = localStorage.getItem('firmName');
+    if (storedFirmName) setFirmName(storedFirmName);
 
     const clientId = localStorage.getItem('clientId');
     if (!clientId) return;
@@ -57,7 +59,7 @@ export default function PortalHomePage() {
           Hi {clientName}, here&apos;s your financial overview
         </h1>
         <p className="mt-2 text-gray-500 text-lg">
-          Welcome to your {FIRM_NAME} client portal.
+          Welcome to your {firmName} client portal.
         </p>
       </div>
 

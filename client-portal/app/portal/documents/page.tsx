@@ -11,7 +11,7 @@ interface Document {
   uploadedAt: string;
   type: string;
   size?: string;
-  downloadUrl?: string;
+  downloadUrl?: string | null;
 }
 
 export default function DocumentsPage() {
@@ -33,7 +33,30 @@ export default function DocumentsPage() {
       const res = await fetch(`${API_URL}/api/clients/${clientId}/documents`);
       if (res.ok) {
         const data = await res.json();
-        setDocuments(Array.isArray(data) ? data : data.documents || []);
+        const records = Array.isArray(data) ? data : data.documents || [];
+        const mapped = await Promise.all(
+          records.map(async (doc: any) => {
+            let downloadUrl = doc.downloadUrl || null;
+            if (!downloadUrl && doc.paperlessDocId) {
+              try {
+                const urlRes = await fetch(`${API_URL}/api/storage/url?path=${encodeURIComponent(doc.paperlessDocId)}`);
+                if (urlRes.ok) {
+                  const urlData = await urlRes.json();
+                  downloadUrl = urlData.url || null;
+                }
+              } catch {}
+            }
+            return {
+              id: String(doc.id),
+              name: doc.title || doc.name || 'Untitled document',
+              status: doc.status || 'pending',
+              uploadedAt: doc.createdAt || doc.uploadedAt || new Date().toISOString(),
+              type: doc.type || 'Document',
+              downloadUrl,
+            } satisfies Document;
+          })
+        );
+        setDocuments(mapped);
       }
     } catch {
       // API unavailable - show empty state
@@ -53,22 +76,47 @@ export default function DocumentsPage() {
     setUploadSuccess('');
 
     try {
-      const formData = new FormData();
       for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
+        const file = files[i];
+        const arrayBuffer = await file.arrayBuffer();
+        const base64Data = btoa(
+          new Uint8Array(arrayBuffer).reduce((acc, byte) => acc + String.fromCharCode(byte), '')
+        );
+        const storagePath = `client-portal/${clientId}/${Date.now()}-${file.name}`;
+
+        let storedPath: string | null = null;
+        try {
+          const uploadRes = await fetch(`${API_URL}/api/storage/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bucket: 'documents',
+              path: storagePath,
+              base64Data,
+              contentType: file.type || 'application/octet-stream',
+            }),
+          });
+          if (uploadRes.ok) {
+            storedPath = storagePath;
+          }
+        } catch {}
+
+        await fetch(`${API_URL}/api/clients/${clientId}/documents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: file.name,
+            type: file.type || 'Document',
+            status: 'uploaded',
+            paperlessDocId: storedPath,
+          }),
+        });
       }
 
-      const res = await fetch(`${API_URL}/api/clients/${clientId}/documents`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (res.ok) {
-        setUploadSuccess(`Successfully uploaded ${files.length} file(s)`);
-        fetchDocuments();
-      }
+      setUploadSuccess(`Successfully uploaded ${files.length} file(s)`);
+      fetchDocuments();
     } catch {
-      setUploadSuccess('Upload submitted - your team will process it shortly.');
+      setUploadSuccess('Upload failed. Check storage configuration and try again.');
     } finally {
       setUploading(false);
       if (fileInputRef.current) {

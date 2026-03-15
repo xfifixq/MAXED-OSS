@@ -5,9 +5,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
-import { firmApiUrl } from './api';
+import { apiUrl, firmApiUrl, serviceHeaders } from './api';
 
 export interface Notification {
   id: string;
@@ -40,6 +41,9 @@ export function useNotifications() {
 
 const STORAGE_KEY = 'maxed_notifications';
 const STATS_KEY = 'maxed_last_stats';
+const SERVICE_SNAPSHOT_KEY = 'maxed_service_snapshot';
+const STORAGE_VERSION_KEY = 'maxed_notifications_version';
+const STORAGE_VERSION = '2026-03-15-1';
 const POLL_INTERVAL = 30_000; // 30 seconds
 
 function loadFromStorage(): Notification[] {
@@ -74,6 +78,21 @@ function saveLastStats(stats: Record<string, number>) {
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
 }
 
+function loadServiceSnapshot(): Record<string, string> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(SERVICE_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveServiceSnapshot(snapshot: Record<string, string>) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SERVICE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -95,10 +114,21 @@ function createNotification(
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const bootstrappedRef = useRef(false);
 
   // Load on mount
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentVersion = localStorage.getItem(STORAGE_VERSION_KEY);
+      if (currentVersion !== STORAGE_VERSION) {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(STATS_KEY);
+        localStorage.removeItem(SERVICE_SNAPSHOT_KEY);
+        localStorage.setItem(STORAGE_VERSION_KEY, STORAGE_VERSION);
+      }
+    }
     setNotifications(loadFromStorage());
+    bootstrappedRef.current = true;
   }, []);
 
   // Persist whenever notifications change
@@ -114,14 +144,25 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     async function poll() {
       try {
-        const res = await fetch(firmApiUrl('/stats'), {
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
+        const [statsRes, diagnoseRes, statusRes] = await Promise.all([
+          fetch(firmApiUrl('/stats'), {
+            signal: AbortSignal.timeout(8000),
+          }),
+          fetch(apiUrl('/api/services/diagnose'), {
+            headers: serviceHeaders(),
+            signal: AbortSignal.timeout(8000),
+          }),
+          fetch(apiUrl('/api/services/status'), {
+            signal: AbortSignal.timeout(8000),
+          }),
+        ]);
+        if (!statsRes.ok) return;
+        const data = await statsRes.json();
+        const diagnose = diagnoseRes.ok ? await diagnoseRes.json() : {};
+        const status = statusRes.ok ? await statusRes.json() : {};
 
         const last = loadLastStats();
-        if (last && mounted) {
+        if (last && mounted && bootstrappedRef.current) {
           const newNotifs: Notification[] = [];
 
           if (data.totalClients > last.totalClients) {
@@ -172,12 +213,49 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           }
         }
 
+        const lastSnapshot = loadServiceSnapshot();
+        const currentSnapshot = Object.entries(diagnose)
+          .filter(([key]) => key !== 'firmId')
+          .reduce<Record<string, string>>((acc, [key, value]) => {
+            const configured = (value as { configured?: boolean })?.configured;
+            const health = status?.[key]?.status || 'unknown';
+            acc[key] = configured ? health : 'missing';
+            return acc;
+          }, {});
+
+        if (lastSnapshot && mounted && bootstrappedRef.current) {
+          const serviceAlerts: Notification[] = [];
+          for (const [service, state] of Object.entries(currentSnapshot)) {
+            const previous = lastSnapshot[service];
+            if (!previous || previous === state) continue;
+
+            if (state === 'connected') {
+              serviceAlerts.push(
+                createNotification('system', `${service} reconnected`, `${service} is responding again.`)
+              );
+            } else if (state === 'unavailable') {
+              serviceAlerts.push(
+                createNotification('system', `${service} unavailable`, `${service} stopped responding.`)
+              );
+            } else if (state === 'missing') {
+              serviceAlerts.push(
+                createNotification('system', `${service} not configured`, `${service} credentials are missing for this firm.`)
+              );
+            }
+          }
+
+          if (serviceAlerts.length > 0) {
+            setNotifications((prev) => [...serviceAlerts, ...prev]);
+          }
+        }
+
         saveLastStats({
           totalClients: data.totalClients ?? 0,
           pendingInvoices: data.pendingInvoices ?? 0,
           activeWorkflows: data.activeWorkflows ?? 0,
           upcomingDeadlines: data.upcomingDeadlines ?? 0,
         });
+        saveServiceSnapshot(currentSnapshot);
       } catch {
         // API unreachable - no-op
       }

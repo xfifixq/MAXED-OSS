@@ -5,8 +5,6 @@ import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-const FIRM_NAME = 'MAXED Financial';
-
 const navItems = [
   { href: '/portal', label: 'Home', icon: HomeIcon },
   { href: '/portal/documents', label: 'Documents', icon: DocumentIcon },
@@ -20,11 +18,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
   const pathname = usePathname();
   const [clientName, setClientName] = useState('');
+  const [firmName, setFirmName] = useState('Maxed');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const name = localStorage.getItem('clientName');
     if (name) setClientName(name);
+    const storedFirmName = localStorage.getItem('firmName');
+    if (storedFirmName) setFirmName(storedFirmName);
   }, []);
 
   const handleLogout = () => {
@@ -46,7 +47,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <Image src="/maxed_acc_logo.png" alt="Maxed" width={36} height={36} className="object-contain p-0.5" />
               </div>
               <span className="text-lg font-semibold text-gray-900 hidden sm:block">
-                {FIRM_NAME}
+                {firmName}
               </span>
             </Link>
 
