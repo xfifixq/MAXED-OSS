@@ -24,21 +24,6 @@ interface Submission {
 const TABS = ['Submissions', 'Templates'] as const;
 type Tab = typeof TABS[number];
 
-const PLACEHOLDER_TEMPLATES: Template[] = [
-  { id: 1, name: 'Engagement Letter', created_at: '2026-01-15T10:00:00Z', fields: [{}, {}, {}] },
-  { id: 2, name: 'Tax Preparation Agreement', created_at: '2026-02-01T09:00:00Z', fields: [{}, {}, {}, {}] },
-  { id: 3, name: 'Advisory Services Proposal', created_at: '2026-02-20T14:00:00Z', fields: [{}, {}] },
-  { id: 4, name: 'NDA - Confidentiality Agreement', created_at: '2026-03-01T11:00:00Z', fields: [{}, {}, {}] },
-];
-
-const PLACEHOLDER_SUBMISSIONS: Submission[] = [
-  { id: 1, template_name: 'Engagement Letter', status: 'completed', created_at: '2026-03-10T09:00:00Z', completed_at: '2026-03-10T14:30:00Z', submitters: [{ email: 'cfo@acme.com', status: 'completed' }] },
-  { id: 2, template_name: 'Tax Preparation Agreement', status: 'pending', created_at: '2026-03-11T10:00:00Z', submitters: [{ email: 'admin@techstart.io', status: 'pending' }] },
-  { id: 3, template_name: 'Advisory Services Proposal', status: 'opened', created_at: '2026-03-11T15:00:00Z', submitters: [{ email: 'jbaker@bakerllc.com', status: 'opened' }] },
-  { id: 4, template_name: 'Engagement Letter', status: 'completed', created_at: '2026-03-08T08:00:00Z', completed_at: '2026-03-09T11:00:00Z', submitters: [{ email: 'info@summitpartners.com', status: 'completed' }] },
-  { id: 5, template_name: 'NDA - Confidentiality Agreement', status: 'expired', created_at: '2026-02-15T09:00:00Z', submitters: [{ email: 'owner@greenleaf.co', status: 'expired' }] },
-];
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -58,6 +43,7 @@ export default function ProposalsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showSendModal, setShowSendModal] = useState(false);
   const [sendForm, setSendForm] = useState({ templateId: '', email: '' });
   const [sending, setSending] = useState(false);
@@ -65,22 +51,26 @@ export default function ProposalsPage() {
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       try {
         const [tRes, sRes] = await Promise.all([
           fetch(apiUrl('/api/services/docuseal/templates'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/docuseal/submissions'), { headers: serviceHeaders() }),
         ]);
-        if (tRes.ok) {
-          const d = await tRes.json();
-          setTemplates(Array.isArray(d) ? d : d.data || PLACEHOLDER_TEMPLATES);
-        } else setTemplates(PLACEHOLDER_TEMPLATES);
-        if (sRes.ok) {
-          const d = await sRes.json();
-          setSubmissions(Array.isArray(d) ? d : d.data || PLACEHOLDER_SUBMISSIONS);
-        } else setSubmissions(PLACEHOLDER_SUBMISSIONS);
-      } catch {
-        setTemplates(PLACEHOLDER_TEMPLATES);
-        setSubmissions(PLACEHOLDER_SUBMISSIONS);
+        if (!tRes.ok || !sRes.ok) {
+          const tErr = tRes.ok ? null : await tRes.json().catch(() => null);
+          const sErr = sRes.ok ? null : await sRes.json().catch(() => null);
+          throw new Error(
+            tErr?.error || sErr?.error || `DocuSeal request failed (${tRes.status}/${sRes.status})`
+          );
+        }
+        const [templatesData, submissionsData] = await Promise.all([tRes.json(), sRes.json()]);
+        setTemplates(Array.isArray(templatesData) ? templatesData : templatesData.data || []);
+        setSubmissions(Array.isArray(submissionsData) ? submissionsData : submissionsData.data || []);
+      } catch (err) {
+        setTemplates([]);
+        setSubmissions([]);
+        setError(err instanceof Error ? err.message : 'Unable to load DocuSeal data.');
       }
       setLoading(false);
     }
@@ -143,6 +133,12 @@ export default function ProposalsPage() {
           ))}
         </nav>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {tab === 'Submissions' && (
         <div className="space-y-6">

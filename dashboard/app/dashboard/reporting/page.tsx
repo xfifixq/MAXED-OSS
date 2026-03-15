@@ -28,22 +28,6 @@ interface FirmStats {
   totalRevenue: number;
 }
 
-const PLACEHOLDER_DASHBOARDS: Dashboard[] = [
-  { id: 1, name: 'Revenue Overview', description: 'Monthly and quarterly revenue trends', created_at: '2026-01-15' },
-  { id: 2, name: 'Client Analytics', description: 'Client growth and retention metrics', created_at: '2026-02-01' },
-  { id: 3, name: 'Tax Season Tracker', description: 'Filing progress and deadlines', created_at: '2026-02-15' },
-  { id: 4, name: 'Team Performance', description: 'Billable hours and utilization rates', created_at: '2026-03-01' },
-];
-
-const PLACEHOLDER_QUESTIONS: Question[] = [
-  { id: 1, name: 'Monthly Revenue by Client', display: 'bar', description: 'Revenue breakdown per client per month' },
-  { id: 2, name: 'Invoice Aging Report', display: 'table', description: 'Outstanding invoices grouped by age' },
-  { id: 3, name: 'Client Count Over Time', display: 'line', description: 'Growth in client base' },
-  { id: 4, name: 'Top 10 Clients by Revenue', display: 'pie', description: 'Revenue concentration analysis' },
-  { id: 5, name: 'Billable Hours by Team Member', display: 'bar', description: 'Time tracking summary per person' },
-  { id: 6, name: 'Document Upload Trends', display: 'line', description: 'Document volume over time' },
-];
-
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
@@ -77,10 +61,12 @@ export default function ReportingPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [stats, setStats] = useState<FirmStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       // Fetch firm stats
       try {
         const sRes = await fetch(firmApiUrl('/stats'));
@@ -93,17 +79,20 @@ export default function ReportingPage() {
           fetch(apiUrl('/api/services/metabase/dashboards'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/metabase/questions'), { headers: serviceHeaders() }),
         ]);
-        if (dRes.ok) {
-          const d = await dRes.json();
-          setDashboards(Array.isArray(d) ? d : d.data || PLACEHOLDER_DASHBOARDS);
-        } else setDashboards(PLACEHOLDER_DASHBOARDS);
-        if (qRes.ok) {
-          const d = await qRes.json();
-          setQuestions(Array.isArray(d) ? d : d.data || PLACEHOLDER_QUESTIONS);
-        } else setQuestions(PLACEHOLDER_QUESTIONS);
-      } catch {
-        setDashboards(PLACEHOLDER_DASHBOARDS);
-        setQuestions(PLACEHOLDER_QUESTIONS);
+        if (!dRes.ok || !qRes.ok) {
+          const dErr = dRes.ok ? null : await dRes.json().catch(() => null);
+          const qErr = qRes.ok ? null : await qRes.json().catch(() => null);
+          throw new Error(
+            dErr?.error || qErr?.error || `Metabase request failed (${dRes.status}/${qRes.status})`
+          );
+        }
+        const [dashboardsData, questionsData] = await Promise.all([dRes.json(), qRes.json()]);
+        setDashboards(Array.isArray(dashboardsData) ? dashboardsData : dashboardsData.data || []);
+        setQuestions(Array.isArray(questionsData) ? questionsData : questionsData.data || []);
+      } catch (err) {
+        setDashboards([]);
+        setQuestions([]);
+        setError(err instanceof Error ? err.message : 'Unable to load Metabase data.');
       }
       setLoading(false);
     }
@@ -117,23 +106,29 @@ export default function ReportingPage() {
         <p className="text-gray-500 text-sm mt-1">Firm performance metrics and business intelligence</p>
       </div>
 
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {/* Key Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="stat-card">
           <p className="text-sm font-medium text-gray-500">Total Clients</p>
-          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalClients ?? 24}</p>}
+          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-gray-900 mt-1">{stats?.totalClients ?? 0}</p>}
         </div>
         <div className="stat-card">
           <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-          {loading ? <div className="skeleton h-8 w-28 mt-1" /> : <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(stats?.totalRevenue ?? 330000)}</p>}
+          {loading ? <div className="skeleton h-8 w-28 mt-1" /> : <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(stats?.totalRevenue ?? 0)}</p>}
         </div>
         <div className="stat-card">
           <p className="text-sm font-medium text-gray-500">Pending Invoices</p>
-          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-yellow-600 mt-1">{stats?.pendingInvoices ?? 12}</p>}
+          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-yellow-600 mt-1">{stats?.pendingInvoices ?? 0}</p>}
         </div>
         <div className="stat-card">
           <p className="text-sm font-medium text-gray-500">Documents</p>
-          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-brand-600 mt-1">{stats?.docCount ?? 156}</p>}
+          {loading ? <div className="skeleton h-8 w-12 mt-1" /> : <p className="text-2xl font-bold text-brand-600 mt-1">{stats?.docCount ?? 0}</p>}
         </div>
       </div>
 

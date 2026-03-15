@@ -20,21 +20,6 @@ interface PaperlessDocument {
   tags: number[];
 }
 
-const PLACEHOLDER_DOCS: PaperlessDocument[] = [
-  { id: 1, title: '2025 Q4 Tax Return - Acme Corp', created: '2026-01-15T10:30:00Z', added: '2026-01-15T10:32:00Z', correspondent: 1, document_type: 1, tags: [1, 3] },
-  { id: 2, title: 'W-2 Forms - TechStart Inc', created: '2026-02-01T08:00:00Z', added: '2026-02-01T08:05:00Z', correspondent: 2, document_type: 2, tags: [2] },
-  { id: 3, title: 'Bank Statement - Baker & Associates', created: '2026-02-10T14:20:00Z', added: '2026-02-10T14:22:00Z', correspondent: 3, document_type: 3, tags: [1] },
-  { id: 4, title: '1099-NEC - Summit Partners', created: '2026-02-28T09:15:00Z', added: '2026-02-28T09:18:00Z', correspondent: 4, document_type: 2, tags: [2, 3] },
-  { id: 5, title: 'Engagement Letter - GreenLeaf Organic', created: '2026-03-05T11:45:00Z', added: '2026-03-05T11:48:00Z', correspondent: 5, document_type: 4, tags: [4] },
-];
-
-const PLACEHOLDER_TAGS: PaperlessTag[] = [
-  { id: 1, name: 'Tax', colour: 1 },
-  { id: 2, name: 'Payroll', colour: 2 },
-  { id: 3, name: 'Corporate', colour: 3 },
-  { id: 4, name: 'Engagement', colour: 4 },
-];
-
 const TAG_BADGE_CLASSES: Record<number, string> = {
   1: 'badge-green',
   2: 'badge-blue',
@@ -50,6 +35,7 @@ const PAGE_SIZE = 25;
 
 export default function DocumentsPage() {
   const { isReady } = useFirmReady();
+  const usingPlaceholder = false;
   const [documents, setDocuments] = useState<PaperlessDocument[]>([]);
   const [tags, setTags] = useState<PaperlessTag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,12 +43,13 @@ export default function DocumentsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [usingPlaceholder, setUsingPlaceholder] = useState(false);
+  const [error, setError] = useState('');
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const fetchDocuments = useCallback(async (currentPage: number, query: string) => {
     setLoading(true);
+    setError('');
     try {
       const params = new URLSearchParams({ page: String(currentPage) });
       if (query.trim()) {
@@ -73,11 +60,10 @@ export default function DocumentsPage() {
       const data = await res.json();
       setDocuments(data.results || []);
       setTotalCount(data.count || 0);
-      setUsingPlaceholder(false);
-    } catch {
-      setDocuments(PLACEHOLDER_DOCS);
-      setTotalCount(PLACEHOLDER_DOCS.length);
-      setUsingPlaceholder(true);
+    } catch (err) {
+      setDocuments([]);
+      setTotalCount(0);
+      setError(err instanceof Error ? err.message : 'Unable to load Paperless documents.');
     } finally {
       setLoading(false);
     }
@@ -89,8 +75,9 @@ export default function DocumentsPage() {
       if (!res.ok) throw new Error(`API error: ${res.status}`);
       const data = await res.json();
       setTags(data.results || []);
-    } catch {
-      setTags(PLACEHOLDER_TAGS);
+    } catch (err) {
+      setTags([]);
+      setError((current) => current || (err instanceof Error ? err.message : 'Unable to load Paperless tags.'));
     }
   }, []);
 
@@ -146,6 +133,12 @@ export default function DocumentsPage() {
           </span>
         )}
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Search */}
       <div className="card p-4">

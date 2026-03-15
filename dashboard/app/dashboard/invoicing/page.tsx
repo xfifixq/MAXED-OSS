@@ -31,24 +31,6 @@ const STATUS_MAP: Record<number, { label: string; badge: string }> = {
   6: { label: 'Overdue', badge: 'badge-red' },
 };
 
-const PLACEHOLDER_CLIENTS: InvoiceClient[] = [
-  { id: 'c1', name: 'Acme Corporation', display_name: 'Acme Corporation', balance: 4500 },
-  { id: 'c2', name: 'TechStart Inc', display_name: 'TechStart Inc', balance: 1200 },
-  { id: 'c3', name: 'Baker & Associates LLC', display_name: 'Baker & Associates LLC', balance: 0 },
-  { id: 'c4', name: 'Summit Partners', display_name: 'Summit Partners', balance: 3200 },
-  { id: 'c5', name: 'GreenLeaf Organic', display_name: 'GreenLeaf Organic', balance: 750 },
-];
-
-const PLACEHOLDER_INVOICES: Invoice[] = [
-  { id: '1', number: 'INV-0001', client_id: 'c1', amount: 4500, balance: 4500, status_id: 2, date: '2026-03-01', due_date: '2026-03-31' },
-  { id: '2', number: 'INV-0002', client_id: 'c2', amount: 1200, balance: 0, status_id: 4, date: '2026-02-15', due_date: '2026-03-15' },
-  { id: '3', number: 'INV-0003', client_id: 'c3', amount: 3800, balance: 0, status_id: 4, date: '2026-03-05', due_date: '2026-04-05' },
-  { id: '4', number: 'INV-0004', client_id: 'c4', amount: 6200, balance: 3200, status_id: 3, date: '2026-02-20', due_date: '2026-03-20' },
-  { id: '5', number: 'INV-0005', client_id: 'c5', amount: 750, balance: 750, status_id: 6, date: '2026-01-10', due_date: '2026-02-10' },
-  { id: '6', number: 'INV-0006', client_id: 'c1', amount: 2100, balance: 2100, status_id: 1, date: '2026-03-12', due_date: '2026-04-12' },
-  { id: '7', number: 'INV-0007', client_id: 'c3', amount: 5500, balance: 0, status_id: 5, date: '2026-01-20', due_date: '2026-02-20' },
-];
-
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(amount);
 
@@ -63,28 +45,37 @@ export default function InvoicingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<InvoiceClient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       try {
         const [invRes, clientRes] = await Promise.all([
           fetch(apiUrl('/api/services/invoiceninja/invoices?page=1'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/invoiceninja/clients'), { headers: serviceHeaders() }),
         ]);
 
-        if (!invRes.ok || !clientRes.ok) throw new Error('API error');
+        if (!invRes.ok || !clientRes.ok) {
+          const invErr = invRes.ok ? null : await invRes.json().catch(() => null);
+          const clientErr = clientRes.ok ? null : await clientRes.json().catch(() => null);
+          throw new Error(
+            invErr?.error || clientErr?.error || `Invoice Ninja request failed (${invRes.status}/${clientRes.status})`
+          );
+        }
 
         const invData = await invRes.json();
         const clientData = await clientRes.json();
 
         setInvoices(Array.isArray(invData.data) ? invData.data : []);
         setClients(Array.isArray(clientData.data) ? clientData.data : []);
-      } catch {
-        setInvoices(PLACEHOLDER_INVOICES);
-        setClients(PLACEHOLDER_CLIENTS);
+      } catch (err) {
+        setInvoices([]);
+        setClients([]);
+        setError(err instanceof Error ? err.message : 'Unable to load Invoice Ninja data.');
       } finally {
         setLoading(false);
       }
@@ -239,6 +230,12 @@ export default function InvoicingPage() {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Search and Filter Bar */}
       <div className="card p-4">

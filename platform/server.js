@@ -556,10 +556,35 @@ async function proxyFetch(serviceUrl, path, options = {}) {
   return { status: res.status, data: await res.json().catch(() => null) };
 }
 
+async function proxyFetchWithFallbacks(serviceUrl, paths, options = {}) {
+  let lastResult = null;
+  for (const path of paths) {
+    const result = await proxyFetch(serviceUrl, path, options);
+    lastResult = result;
+    if (result.status !== 404) return result;
+  }
+  return lastResult || { status: 404, data: { error: "Not found" } };
+}
+
 // ---------------------------------------------------------------------------
 // Per-firm service credential lookup (DB-first, env-var fallback)
 // ---------------------------------------------------------------------------
 const credentialCache = new Map();
+
+function normalizeCredentialField(value) {
+  if (typeof value !== "string") return value ?? undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function mergeCredentialUpdate(existing, incoming) {
+  return {
+    token: incoming.token !== undefined ? incoming.token : existing?.token ?? null,
+    username: incoming.username !== undefined ? incoming.username : existing?.username ?? null,
+    password: incoming.password !== undefined ? incoming.password : existing?.password ?? null,
+    metadata: incoming.metadata !== undefined ? incoming.metadata : existing?.metadata ?? null,
+  };
+}
 
 async function getServiceCredential(firmId, service) {
   if (!firmId) return null;
@@ -598,9 +623,9 @@ async function paperlessAuth(firmId) {
 
 async function docusealAuth(firmId) {
   const cred = await getServiceCredential(firmId, "docuseal");
-  if (cred?.token) return { "X-Auth-Token": cred.token };
+  if (cred?.token) return { "X-Auth-Token": cred.token, Authorization: `Bearer ${cred.token}` };
   const token = process.env.DOCUSEAL_API_TOKEN || null;
-  return token ? { "X-Auth-Token": token } : {};
+  return token ? { "X-Auth-Token": token, Authorization: `Bearer ${token}` } : {};
 }
 
 async function n8nAuth(firmId) {
@@ -1054,7 +1079,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/services/bigcapital/accounts", async (req, res) => {
   try {
-    const result = await proxyFetch(SERVICES.bigcapital, "/api/accounts", {
+    const result = await proxyFetchWithFallbacks(SERVICES.bigcapital, ["/api/accounts", "/api/v1/accounts"], {
       headers: await bigcapitalAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
@@ -1066,9 +1091,12 @@ app.get("/api/services/bigcapital/accounts", async (req, res) => {
 app.get("/api/services/bigcapital/transactions", async (req, res) => {
   try {
     const { page = 1 } = req.query;
-    const result = await proxyFetch(
+    const result = await proxyFetchWithFallbacks(
       SERVICES.bigcapital,
-      `/api/transactions?page=${page}&page_size=50`,
+      [
+        `/api/transactions?page=${page}&page_size=50`,
+        `/api/v1/transactions?page=${page}&page_size=50`,
+      ],
       { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
@@ -1079,9 +1107,12 @@ app.get("/api/services/bigcapital/transactions", async (req, res) => {
 
 app.get("/api/services/bigcapital/balance-sheet", async (req, res) => {
   try {
-    const result = await proxyFetch(
+    const result = await proxyFetchWithFallbacks(
       SERVICES.bigcapital,
-      "/api/financial-statements/balance-sheet",
+      [
+        "/api/financial-statements/balance-sheet",
+        "/api/v1/financial-statements/balance-sheet",
+      ],
       { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
@@ -1092,9 +1123,12 @@ app.get("/api/services/bigcapital/balance-sheet", async (req, res) => {
 
 app.get("/api/services/bigcapital/profit-loss", async (req, res) => {
   try {
-    const result = await proxyFetch(
+    const result = await proxyFetchWithFallbacks(
       SERVICES.bigcapital,
-      "/api/financial-statements/profit-loss-sheet",
+      [
+        "/api/financial-statements/profit-loss-sheet",
+        "/api/v1/financial-statements/profit-loss-sheet",
+      ],
       { headers: await bigcapitalAuth(req.firmId) }
     );
     res.status(result.status).json(result.data);
@@ -1294,11 +1328,20 @@ app.get("/api/firms/:firmId/credentials", async (req, res) => {
 app.put("/api/firms/:firmId/credentials/:service", async (req, res) => {
   try {
     const { firmId, service } = req.params;
-    const { token, username, password, metadata } = req.body;
+    const incoming = {
+      token: normalizeCredentialField(req.body?.token),
+      username: normalizeCredentialField(req.body?.username),
+      password: normalizeCredentialField(req.body?.password),
+      metadata: normalizeCredentialField(req.body?.metadata),
+    };
+    const existing = await prisma.serviceCredential.findUnique({
+      where: { firmId_service: { firmId, service } },
+    });
+    const data = mergeCredentialUpdate(existing, incoming);
     const cred = await prisma.serviceCredential.upsert({
       where: { firmId_service: { firmId, service } },
-      create: { firmId, service, token: token || null, username: username || null, password: password || null, metadata: metadata || null },
-      update: { token: token || null, username: username || null, password: password || null, metadata: metadata || null },
+      create: { firmId, service, ...data },
+      update: data,
     });
     // Clear cache for this firm+service
     credentialCache.delete(`${firmId}:${service}`);

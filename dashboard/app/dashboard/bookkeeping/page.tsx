@@ -26,32 +26,6 @@ interface Transaction {
 const TABS = ['Accounts', 'Transactions', 'Reports'] as const;
 type Tab = typeof TABS[number];
 
-const PLACEHOLDER_ACCOUNTS: Account[] = [
-  { id: '1', name: 'Cash', code: '1000', account_type: 'asset', balance: 45200, description: 'Operating cash' },
-  { id: '2', name: 'Accounts Receivable', code: '1100', account_type: 'asset', balance: 128500, description: 'Client receivables' },
-  { id: '3', name: 'Office Equipment', code: '1500', account_type: 'asset', balance: 12000, description: 'Furniture & computers' },
-  { id: '4', name: 'Accounts Payable', code: '2000', account_type: 'liability', balance: 18900, description: 'Vendor payables' },
-  { id: '5', name: 'Unearned Revenue', code: '2100', account_type: 'liability', balance: 8500, description: 'Prepaid client fees' },
-  { id: '6', name: "Owner's Equity", code: '3000', account_type: 'equity', balance: 100000, description: 'Capital contribution' },
-  { id: '7', name: 'Retained Earnings', code: '3100', account_type: 'equity', balance: 42300, description: 'Accumulated profit' },
-  { id: '8', name: 'Service Revenue', code: '4000', account_type: 'revenue', balance: 285000, description: 'Client services' },
-  { id: '9', name: 'Consulting Revenue', code: '4100', account_type: 'revenue', balance: 45000, description: 'Advisory fees' },
-  { id: '10', name: 'Salary Expense', code: '5000', account_type: 'expense', balance: 156000, description: 'Employee salaries' },
-  { id: '11', name: 'Rent Expense', code: '5100', account_type: 'expense', balance: 36000, description: 'Office lease' },
-  { id: '12', name: 'Software Expense', code: '5200', account_type: 'expense', balance: 8700, description: 'SaaS subscriptions' },
-];
-
-const PLACEHOLDER_TRANSACTIONS: Transaction[] = [
-  { id: '1', date: '2026-03-12', reference: 'JE-0042', description: 'Client payment - Acme Corp', debit: 15000, credit: 0, account: 'Cash' },
-  { id: '2', date: '2026-03-12', reference: 'JE-0042', description: 'Client payment - Acme Corp', debit: 0, credit: 15000, account: 'Accounts Receivable' },
-  { id: '3', date: '2026-03-11', reference: 'JE-0041', description: 'Monthly rent payment', debit: 3000, credit: 0, account: 'Rent Expense' },
-  { id: '4', date: '2026-03-11', reference: 'JE-0041', description: 'Monthly rent payment', debit: 0, credit: 3000, account: 'Cash' },
-  { id: '5', date: '2026-03-10', reference: 'INV-1055', description: 'Tax prep services - TechStart', debit: 8500, credit: 0, account: 'Accounts Receivable' },
-  { id: '6', date: '2026-03-10', reference: 'INV-1055', description: 'Tax prep services - TechStart', debit: 0, credit: 8500, account: 'Service Revenue' },
-  { id: '7', date: '2026-03-08', reference: 'JE-0040', description: 'Software subscription renewal', debit: 299, credit: 0, account: 'Software Expense' },
-  { id: '8', date: '2026-03-08', reference: 'JE-0040', description: 'Software subscription renewal', debit: 0, credit: 299, account: 'Cash' },
-];
-
 const formatCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
@@ -73,33 +47,37 @@ export default function BookkeepingPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!isReady) return;
     async function fetchData() {
+      setError('');
       try {
         const res = await fetch(apiUrl('/api/services/bigcapital/accounts'), { headers: serviceHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          setAccounts(Array.isArray(data) ? data : data.accounts || data.results || PLACEHOLDER_ACCOUNTS);
-        } else {
-          setAccounts(PLACEHOLDER_ACCOUNTS);
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || `Bigcapital accounts request failed (${res.status})`);
         }
-      } catch {
-        setAccounts(PLACEHOLDER_ACCOUNTS);
+        const data = await res.json();
+        setAccounts(Array.isArray(data) ? data : data.accounts || data.results || []);
+      } catch (err) {
+        setAccounts([]);
+        setError(err instanceof Error ? err.message : 'Unable to load Bigcapital accounts.');
       }
 
       try {
         const res = await fetch(apiUrl('/api/services/bigcapital/transactions'), { headers: serviceHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          setTransactions(Array.isArray(data) ? data : data.results || PLACEHOLDER_TRANSACTIONS);
-        } else {
-          setTransactions(PLACEHOLDER_TRANSACTIONS);
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || `Bigcapital transactions request failed (${res.status})`);
         }
-      } catch {
-        setTransactions(PLACEHOLDER_TRANSACTIONS);
+        const data = await res.json();
+        setTransactions(Array.isArray(data) ? data : data.results || []);
+      } catch (err) {
+        setTransactions([]);
+        setError((current) => current || (err instanceof Error ? err.message : 'Unable to load Bigcapital transactions.'));
       }
 
       setLoading(false);
@@ -151,6 +129,12 @@ export default function BookkeepingPage() {
           ))}
         </nav>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Accounts Tab */}
       {tab === 'Accounts' && (
