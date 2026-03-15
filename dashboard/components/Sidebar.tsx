@@ -163,7 +163,7 @@ const adminNavItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const isAdmin = session?.user?.email === 'admin@maxed.dev' || session?.user?.email === 'admin@maxed.life';
+  const isAdmin = Boolean((session?.user as any)?.isPlatformAdmin);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { statuses, summary } = useServiceStatus();

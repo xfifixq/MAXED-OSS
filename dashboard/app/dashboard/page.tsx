@@ -272,7 +272,7 @@ function AdminDashboard() {
 // ---------------------------------------------------------------------------
 export default function DashboardHome() {
   const { data: session } = useSession();
-  const isAdmin = session?.user?.email === 'admin@maxed.dev' || session?.user?.email === 'admin@maxed.life';
+  const isAdmin = Boolean((session?.user as any)?.isPlatformAdmin);
 
   if (isAdmin) return <AdminDashboard />;
   return <CpaDashboard />;

@@ -32,7 +32,10 @@ export const authOptions: NextAuthOptions = {
               id: user.id,
               email: user.email,
               name: user.name,
+              role: user.role,
               firmId: user.firmId,
+              firmName: user.firmName,
+              isPlatformAdmin: user.email === 'admin@maxed.dev' || user.email === 'admin@maxed.life',
             };
           }
         } catch {
@@ -48,7 +51,10 @@ export const authOptions: NextAuthOptions = {
             id: '1',
             email: credentials.email,
             name: 'Admin User',
+            role: 'admin',
             firmId: '1',
+            firmName: 'Maxed',
+            isPlatformAdmin: true,
           };
         }
 
@@ -64,6 +70,9 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.firmId = (user as any).firmId;
+        token.role = (user as any).role;
+        token.firmName = (user as any).firmName;
+        token.isPlatformAdmin = (user as any).isPlatformAdmin;
       }
       return token;
     },
@@ -71,6 +80,9 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).firmId = token.firmId;
         (session.user as any).id = token.sub;
+        (session.user as any).role = token.role;
+        (session.user as any).firmName = token.firmName;
+        (session.user as any).isPlatformAdmin = token.isPlatformAdmin;
       }
       return session;
     },

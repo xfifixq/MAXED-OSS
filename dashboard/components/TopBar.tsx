@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { useNotifications } from '@/lib/notifications';
 
 function timeAgo(iso: string): string {
@@ -45,12 +45,22 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function TopBar() {
+  const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
   const { notifications, unreadCount, markAsRead, markAllRead } = useNotifications();
+  const userName = session?.user?.name || 'User';
+  const userEmail = session?.user?.email || '';
+  const firmName = (session?.user as any)?.firmName || 'Maxed';
+  const initials = userName
+    .split(' ')
+    .map((part) => part[0] || '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -72,7 +82,7 @@ export default function TopBar() {
         {/* Firm name */}
         <div className="flex items-center gap-3 pl-10 lg:pl-0">
           <Image src="/maxed_acc_logo.png" alt="Maxed" width={80} height={32} className="h-8 w-auto" />
-          <h2 className="text-lg font-semibold text-gray-900">Maxed CPA</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{firmName}</h2>
         </div>
 
         {/* Right side */}
@@ -175,9 +185,9 @@ export default function TopBar() {
               className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center">
-                <span className="text-white text-sm font-medium">A</span>
+                <span className="text-white text-sm font-medium">{initials || 'U'}</span>
               </div>
-              <span className="hidden sm:block text-sm font-medium text-gray-700">Admin</span>
+              <span className="hidden sm:block text-sm font-medium text-gray-700">{userName}</span>
               <svg className="w-4 h-4 text-gray-400 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
@@ -186,8 +196,8 @@ export default function TopBar() {
             {showUserMenu && (
               <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-2 z-50">
                 <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-sm font-medium text-gray-900">Admin User</p>
-                  <p className="text-xs text-gray-500">admin@maxed.dev</p>
+                  <p className="text-sm font-medium text-gray-900">{userName}</p>
+                  <p className="text-xs text-gray-500">{userEmail}</p>
                 </div>
                 <a
                   href="/dashboard/settings"

@@ -34,7 +34,7 @@ const SERVICE_CONFIGS = [
 
 export default function SettingsPage() {
   const { data: session } = useSession();
-  const isAdmin = session?.user?.email === 'admin@maxed.dev' || session?.user?.email === 'admin@maxed.life';
+  const isAdmin = Boolean((session?.user as any)?.isPlatformAdmin);
 
   // Firms list (admin only)
   const [firms, setFirms] = useState<Firm[]>([]);
