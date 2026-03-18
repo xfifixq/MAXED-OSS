@@ -38,25 +38,14 @@ export default function ServiceWorkspace({ service }: { service: keyof typeof WO
 
   return (
     <div className="flex h-full min-h-[calc(100vh-61px)] flex-col bg-white">
-      <div className="flex flex-col gap-3 border-b border-gray-200 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="border-b border-gray-200 px-6 py-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className={`h-2.5 w-2.5 rounded-full ${statusDot}`} />
             <span className="text-xs font-medium uppercase tracking-[0.18em] text-gray-400">{statusText}</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">{config.title}</h1>
-          <p className="text-sm text-gray-500 mt-1">{config.description}</p>
         </div>
-        {baseUrl && (
-          <a
-            href={frameUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary"
-          >
-            {config.launchLabel}
-          </a>
-        )}
       </div>
 
       {!isReady || !firmId ? (

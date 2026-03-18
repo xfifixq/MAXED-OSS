@@ -6,16 +6,32 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 
-const SERVICE_TABS = [
-  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email or Username', password: 'Password', token: 'API Token' }, hint: 'Log in as the service admin, create the firm user manually, then generate and save that user API token.' },
-  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Log in as the service admin, create the firm user if needed, then save the login and API token.' },
-  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life/#/login', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Use the admin login inside Invoice Ninja and create the firm account manually. Public signup is not reliable in this deployment.' },
-  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', registerPath: '', fields: ['token'], labels: { token: 'API Key' }, hint: 'Log in as admin and create or copy the API key for this firm workspace.' },
-  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', registerPath: '', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token' }, hint: 'Log in as the Kimai admin and create the firm user manually. Open signup is not enabled here.' },
-  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life/auth/login', registerPath: '', fields: ['username', 'password', 'token', 'metadata'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Tenant ID' }, hint: 'Log in as the Bigcapital admin, create the firm organization manually, then save the firm login, tenant ID, and API token.' },
-  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', registerPath: '/sign-up', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Key' }, hint: 'Create the workspace user, then save the login and API key.' },
-  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life/auth/login', registerPath: '', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password' }, hint: 'Log in as admin, then add the firm user under Admin > People. Metabase does not use self-signup here.' },
-  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life/login', registerPath: '', fields: ['username', 'password'], labels: { username: 'Username or Email', password: 'Password' }, hint: 'Use the Mattermost system admin account and invite or create the firm user manually. Open signup is disabled in this workspace.' },
+type ServiceField = 'username' | 'password' | 'token' | 'metadata';
+type SetupMode = 'manual' | 'signup';
+
+interface ServiceTab {
+  key: string;
+  name: string;
+  defaultUrl: string;
+  loginPath?: string;
+  registerPath?: string;
+  setupMode: SetupMode;
+  signupNote?: string;
+  fields: ServiceField[];
+  labels: Record<ServiceField, string>;
+  hint: string;
+}
+
+const SERVICE_TABS: ServiceTab[] = [
+  { key: 'paperless', name: 'Paperless', defaultUrl: 'https://docs.maxed.life', loginPath: '', setupMode: 'manual', fields: ['username', 'password', 'token'], labels: { username: 'Email or Username', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Log in as the service admin, create the firm user manually, then generate and save that user API token.' },
+  { key: 'docuseal', name: 'DocuSeal', defaultUrl: 'https://sign.maxed.life', loginPath: '', setupMode: 'manual', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Log in as the service admin, create the firm user if needed, then save the login and API token.' },
+  { key: 'invoiceninja', name: 'Invoice Ninja', defaultUrl: 'https://billing.maxed.life', loginPath: '/#/login', setupMode: 'manual', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Invoice Ninja is seeded with a platform admin user. Create each CPA user from the admin account, then save the firm login and API token here.' },
+  { key: 'n8n', name: 'n8n', defaultUrl: 'https://flow.maxed.life', loginPath: '', setupMode: 'manual', fields: ['token'], labels: { username: 'Username', password: 'Password', token: 'API Key', metadata: 'Metadata' }, hint: 'Log in as admin and create or copy the API key for this firm workspace.' },
+  { key: 'kimai', name: 'Kimai', defaultUrl: 'https://time.maxed.life', loginPath: '', setupMode: 'manual', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Kimai self-registration is not configured in this deployment. Use the Kimai admin account to create the CPA user, then save the login and token.' },
+  { key: 'bigcapital', name: 'Bigcapital', defaultUrl: 'https://books.maxed.life', loginPath: '/auth/login', registerPath: '/', setupMode: 'signup', signupNote: 'Bigcapital signup is enabled on this deployment. If the iframe still lands on login, open the service root in a new tab and use the create-account flow there.', fields: ['username', 'password', 'token', 'metadata'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Tenant ID' }, hint: 'Create the firm organization, then save the workspace login, tenant ID, and API token.' },
+  { key: 'twenty', name: 'Twenty CRM', defaultUrl: 'https://crm.maxed.life', loginPath: '', registerPath: '/sign-up', setupMode: 'signup', signupNote: 'Twenty supports direct signup, so the embedded view can stay on the create-account flow.', fields: ['username', 'password', 'token'], labels: { username: 'Email', password: 'Password', token: 'API Key', metadata: 'Metadata' }, hint: 'Create the workspace user, then save the login and API key.' },
+  { key: 'metabase', name: 'Metabase', defaultUrl: 'https://reports.maxed.life', loginPath: '/auth/login', setupMode: 'manual', fields: ['username', 'password'], labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Metabase does not expose self-signup here. Log in as admin, then add the CPA user under Admin > People.' },
+  { key: 'mattermost', name: 'Mattermost', defaultUrl: 'https://chat.maxed.life', loginPath: '/login', registerPath: '/', setupMode: 'signup', signupNote: 'Mattermost open-server signup is enabled. If the embedded page only shows login, open the root URL in a new tab and use the create-account link from there.', fields: ['username', 'password'], labels: { username: 'Username or Email', password: 'Password', token: 'API Token', metadata: 'Metadata' }, hint: 'Create or invite the CPA user into Mattermost, then save the login used for that workspace.' },
 ];
 
 interface Credential {
@@ -32,6 +48,11 @@ interface Firm {
   email: string;
 }
 
+function buildServiceUrl(baseUrl: string, path = '') {
+  if (!path) return baseUrl;
+  return `${baseUrl.replace(/\/$/, '')}${path}`;
+}
+
 function AdminContent() {
   const { data: session } = useSession();
   const isAdmin = Boolean((session?.user as any)?.isPlatformAdmin);
@@ -46,7 +67,7 @@ function AdminContent() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [showRegister, setShowRegister] = useState(true);
+  const [showRegister, setShowRegister] = useState(false);
 
   const fetchCredentials = useCallback(async (fId: string) => {
     try {
@@ -87,6 +108,7 @@ function AdminContent() {
     if (cred?.username) form.username = cred.username;
     if (cred?.metadata) form.metadata = cred.metadata;
     setCredForm(form);
+    setShowRegister(svc?.setupMode === 'signup');
     setMessage('');
   }, [activeTab, credentials]);
 
@@ -143,8 +165,11 @@ function AdminContent() {
 
   const activeSvc = SERVICE_TABS.find((s) => s.key === activeTab)!;
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
-  const hasRegisterPage = !!activeSvc.registerPath;
-  const iframeUrl = showRegister && hasRegisterPage ? `${baseUrl}${activeSvc.registerPath}` : baseUrl;
+  const canRegister = activeSvc.setupMode === 'signup' && !!activeSvc.registerPath;
+  const iframeUrl = buildServiceUrl(
+    baseUrl,
+    showRegister && activeSvc.registerPath ? activeSvc.registerPath : activeSvc.loginPath
+  );
   const isConfigured = Boolean(credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password));
 
   return (
@@ -173,7 +198,7 @@ function AdminContent() {
               key={svc.key}
               onClick={() => {
                 setActiveTab(svc.key);
-                setShowRegister(true);
+                setShowRegister(svc.setupMode === 'signup');
               }}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
                 activeTab === svc.key
@@ -197,7 +222,7 @@ function AdminContent() {
               <span className="text-xs text-gray-400">
                 {activeSvc.name} at <code className="bg-gray-100 px-1 rounded">{iframeUrl}</code>
               </span>
-              {hasRegisterPage && (
+              {canRegister && (
                 <div className="flex items-center rounded-md border border-gray-200 overflow-hidden text-xs">
                   <button
                     onClick={() => setShowRegister(true)}
@@ -234,6 +259,16 @@ function AdminContent() {
           </div>
 
           <p className="text-xs text-gray-500 mb-4">{activeSvc.hint}</p>
+          {activeSvc.signupNote && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              {activeSvc.signupNote}
+            </div>
+          )}
+          {activeSvc.setupMode === 'manual' && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              This service does not expose a reliable public signup flow in this deployment. Create the CPA account from the service admin account, then save the credentials below.
+            </div>
+          )}
 
           <div className="space-y-3">
             {activeSvc.fields.map((field) => (

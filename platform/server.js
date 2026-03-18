@@ -545,9 +545,198 @@ app.get("/api/clients/:clientId/proposals", async (req, res) => {
   }
 });
 
+async function seedFirmDemoData(firmId) {
+  const existingCounts = await Promise.all([
+    prisma.client.count({ where: { firmId } }),
+    prisma.workflow.count({ where: { firmId } }),
+    prisma.message.count({ where: { client: { firmId } } }),
+  ]);
+
+  if (existingCounts.some((count) => count > 0)) {
+    return { seeded: false };
+  }
+
+  const firm = await prisma.firm.findUnique({
+    where: { id: firmId },
+    select: { id: true, name: true },
+  });
+
+  if (!firm) {
+    const error = new Error("Firm not found");
+    error.status = 404;
+    throw error;
+  }
+
+  const clientTemplates = [
+    { name: "Northwind Fitness Studio", email: "owner@northwindfit.com", phone: "(555) 210-4100", businessType: "Fitness", annualRevenue: 540000, employeeCount: 11 },
+    { name: "Pine & Ledger Realty", email: "ops@pineledger.com", phone: "(555) 210-4200", businessType: "Real Estate", annualRevenue: 1680000, employeeCount: 19 },
+    { name: "Harbor Pediatric Group", email: "billing@harborpediatrics.com", phone: "(555) 210-4300", businessType: "Healthcare", annualRevenue: 2240000, employeeCount: 27 },
+    { name: "Oakline Creative Co.", email: "finance@oaklinecreative.com", phone: "(555) 210-4400", businessType: "Marketing Agency", annualRevenue: 780000, employeeCount: 14 },
+  ];
+
+  const createdClients = [];
+  for (const client of clientTemplates) {
+    createdClients.push(await prisma.client.create({ data: { firmId, ...client } }));
+  }
+
+  const workflows = [
+    { name: "Q2 close review", status: "active" },
+    { name: "1099 cleanup", status: "active" },
+    { name: "Sales tax catch-up", status: "pending" },
+  ];
+  for (const workflow of workflows) {
+    await prisma.workflow.create({ data: { firmId, ...workflow } });
+  }
+
+  const documents = [
+    { clientId: createdClients[0].id, title: "March bookkeeping packet", type: "bookkeeping", status: "uploaded" },
+    { clientId: createdClients[1].id, title: "Property sale closing file", type: "closing_statement", status: "in_review" },
+    { clientId: createdClients[2].id, title: "Payroll tax notice", type: "tax_notice", status: "uploaded" },
+    { clientId: createdClients[3].id, title: "Estimated payment worksheet", type: "tax_planning", status: "draft" },
+  ];
+  for (const document of documents) {
+    await prisma.document.create({ data: document });
+  }
+
+  const invoices = [
+    { clientId: createdClients[0].id, amount: 1800, status: "sent", dueDate: new Date("2026-03-25") },
+    { clientId: createdClients[1].id, amount: 2400, status: "draft", dueDate: new Date("2026-03-29") },
+    { clientId: createdClients[2].id, amount: 3200, status: "paid", dueDate: new Date("2026-03-10"), paidDate: new Date("2026-03-08") },
+    { clientId: createdClients[3].id, amount: 1250, status: "sent", dueDate: new Date("2026-03-27") },
+  ];
+  for (const invoice of invoices) {
+    await prisma.invoice.create({ data: invoice });
+  }
+
+  const scenarios = [
+    { clientId: createdClients[0].id, question: "Should the studio move payroll in-house or stay outsourced?", optionChosen: null, outcome: null, projectedImpact: 6200 },
+    { clientId: createdClients[1].id, question: "How should the brokerage classify repair reimbursements this quarter?", optionChosen: null, outcome: null, projectedImpact: 4100 },
+  ];
+  for (const scenario of scenarios) {
+    await prisma.scenario.create({ data: scenario });
+  }
+
+  const messages = [
+    { clientId: createdClients[0].id, senderType: "client", content: `Can ${firm.name} review our trainer contractor agreements before payroll closes?` },
+    { clientId: createdClients[1].id, senderType: "client", content: "The March rent roll is uploaded. Need confirmation before the lender meeting." },
+    { clientId: createdClients[2].id, senderType: "firm", content: "We received the payroll notice and added it to this week's follow-up list." },
+    { clientId: createdClients[3].id, senderType: "client", content: "Please send the next estimated tax payment amount once the books are final." },
+  ];
+  for (const message of messages) {
+    await prisma.message.create({ data: message });
+  }
+
+  return {
+    seeded: true,
+    counts: {
+      clients: createdClients.length,
+      workflows: workflows.length,
+      documents: documents.length,
+      invoices: invoices.length,
+      scenarios: scenarios.length,
+      messages: messages.length,
+    },
+  };
+}
+
+async function getFirmDashboardSummary(firmId) {
+  const [recentClients, recentMessages, workflows, openInvoices, reviewDocs, scenarios] = await Promise.all([
+    prisma.client.findMany({
+      where: { firmId },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { id: true, name: true, businessType: true, annualRevenue: true },
+    }),
+    prisma.message.findMany({
+      where: { client: { firmId } },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+      select: { id: true, content: true, createdAt: true, client: { select: { name: true } } },
+    }),
+    prisma.workflow.findMany({
+      where: { firmId, status: { in: ["active", "pending"] } },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { id: true, name: true, status: true },
+    }),
+    prisma.invoice.findMany({
+      where: { client: { firmId }, status: { in: ["draft", "sent", "pending"] } },
+      orderBy: { dueDate: "asc" },
+      take: 3,
+      select: { id: true, status: true, dueDate: true, client: { select: { name: true } } },
+    }),
+    prisma.document.findMany({
+      where: { client: { firmId }, status: { in: ["uploaded", "in_review", "draft"] } },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: { id: true, title: true, status: true, client: { select: { name: true } } },
+    }),
+    prisma.scenario.findMany({
+      where: { client: { firmId }, resolvedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+      select: { id: true, question: true, client: { select: { name: true } } },
+    }),
+  ]);
+
+  const todoItems = [
+    ...workflows.map((workflow) => ({
+      id: `workflow-${workflow.id}`,
+      title: workflow.name,
+      detail: workflow.status === "pending" ? "Pending workflow follow-up" : "Active workflow in progress",
+      kind: "workflow",
+    })),
+    ...openInvoices.map((invoice) => ({
+      id: `invoice-${invoice.id}`,
+      title: `Invoice follow-up for ${invoice.client.name}`,
+      detail: `Status: ${invoice.status} | Due ${new Date(invoice.dueDate).toLocaleDateString("en-US")}`,
+      kind: "invoice",
+    })),
+    ...reviewDocs.map((document) => ({
+      id: `document-${document.id}`,
+      title: `${document.client.name}: ${document.title}`,
+      detail: `Document status: ${document.status}`,
+      kind: "document",
+    })),
+    ...scenarios.map((scenario) => ({
+      id: `scenario-${scenario.id}`,
+      title: `${scenario.client.name} planning review`,
+      detail: scenario.question,
+      kind: "scenario",
+    })),
+  ].slice(0, 6);
+
+  return {
+    recentClients,
+    todoItems,
+    recentMessages: recentMessages.map((message) => ({
+      id: message.id,
+      clientName: message.client.name,
+      content: message.content,
+      createdAt: message.createdAt,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Firm Stats
 // ---------------------------------------------------------------------------
+app.get("/api/firms/:firmId/dashboard-summary", async (req, res) => {
+  try {
+    res.json(await getFirmDashboardSummary(req.params.firmId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/demo-data", async (req, res) => {
+  try {
+    res.json(await seedFirmDemoData(req.params.firmId));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.get("/api/firms/:firmId/stats", async (req, res) => {
   try {
     const { firmId } = req.params;
@@ -559,10 +748,11 @@ app.get("/api/firms/:firmId/stats", async (req, res) => {
 
     const clientIds = clients.map((c) => c.id);
 
-    const [docCount, invoiceCount, scenarioCount] = await Promise.all([
+    const [docCount, invoiceCount, scenarioCount, workflowCount] = await Promise.all([
       prisma.document.count({ where: { clientId: { in: clientIds } } }),
       prisma.invoice.count({ where: { clientId: { in: clientIds } } }),
       prisma.scenario.count({ where: { clientId: { in: clientIds } } }),
+      prisma.workflow.count({ where: { firmId, status: { in: ["active", "pending"] } } }),
     ]);
 
     const pendingInvoices = await prisma.invoice.count({
@@ -577,7 +767,7 @@ app.get("/api/firms/:firmId/stats", async (req, res) => {
     res.json({
       // Dashboard-expected fields
       totalClients: clients.length,
-      activeWorkflows: 0, // Populated when n8n API is connected
+      activeWorkflows: workflowCount,
       pendingInvoices,
       upcomingDeadlines: scenarioCount, // Scenarios as proxy for deadlines
       // Extended stats

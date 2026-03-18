@@ -15,26 +15,75 @@ interface Stats {
   upcomingDeadlines: number;
 }
 
-function CpaDashboard() {
-  const [stats, setStats] = useState<Stats>({ totalClients: 0, activeWorkflows: 0, pendingInvoices: 0, upcomingDeadlines: 0 });
-  const [loading, setLoading] = useState(true);
+interface DashboardSummary {
+  recentClients: Array<{ id: string; name: string; businessType?: string | null; annualRevenue?: number | null }>;
+  todoItems: Array<{ id: string; title: string; detail: string; kind: string }>;
+  recentMessages: Array<{ id: string; clientName: string; content: string; createdAt: string }>;
+}
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const res = await fetch(firmApiUrl('/stats'));
-        if (res.ok) setStats(await res.json());
-      } catch { /* silent */ }
+function CpaDashboard() {
+  const { data: session } = useSession();
+  const [stats, setStats] = useState<Stats>({ totalClients: 0, activeWorkflows: 0, pendingInvoices: 0, upcomingDeadlines: 0 });
+  const [summary, setSummary] = useState<DashboardSummary>({ recentClients: [], todoItems: [], recentMessages: [] });
+  const [loading, setLoading] = useState(true);
+  const [loadingDemo, setLoadingDemo] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  async function fetchData() {
+    try {
+      const [statsRes, summaryRes] = await Promise.all([
+        fetch(firmApiUrl('/stats')),
+        fetch(firmApiUrl('/dashboard-summary')),
+      ]);
+
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (summaryRes.ok) setSummary(await summaryRes.json());
+    } catch {
+      // silent
+    } finally {
       setLoading(false);
     }
+  }
+
+  useEffect(() => {
     fetchData();
   }, []);
 
+  const handleLoadDemoData = async () => {
+    setLoadingDemo(true);
+    setFeedback('');
+    try {
+      const res = await fetch(firmApiUrl('/demo-data'), { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setFeedback(data.error || 'Unable to load demo data.');
+      } else {
+        setFeedback(data.seeded ? 'Demo data loaded for this firm.' : 'This firm already has demo data loaded.');
+        await fetchData();
+      }
+    } catch {
+      setFeedback('Unable to load demo data.');
+    } finally {
+      setLoadingDemo(false);
+    }
+  };
+
+  const formatCurrency = (amount?: number | null) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount || 0);
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Your firm overview</p>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 mt-1">{(session?.user as any)?.firmName || 'Your firm'} overview</p>
+        </div>
+        <div className="flex flex-col items-start gap-2">
+          <button onClick={handleLoadDemoData} disabled={loadingDemo} className="btn-primary disabled:opacity-50">
+            {loadingDemo ? 'Loading Demo Data...' : 'Load Demo Data'}
+          </button>
+          {feedback && <p className="text-xs text-gray-500">{feedback}</p>}
+        </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Clients" value={stats.totalClients} loading={loading} color="bg-blue-50 text-blue-600" />
@@ -46,6 +95,71 @@ function CpaDashboard() {
         <Link href="/dashboard/clients" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">Add Client</Link>
         <Link href="/dashboard/documents" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-green-50 text-green-600 hover:bg-green-100">Upload Document</Link>
         <Link href="/dashboard/invoicing" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-yellow-50 text-yellow-600 hover:bg-yellow-100">Create Invoice</Link>
+      </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="card p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-900">Clients</h2>
+            <Link href="/dashboard/clients" className="text-sm font-medium text-brand-600 hover:text-brand-700">View all</Link>
+          </div>
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-14 w-full rounded-xl" />)
+            ) : summary.recentClients.length > 0 ? (
+              summary.recentClients.map((client) => (
+                <div key={client.id} className="rounded-xl border border-gray-200 px-4 py-3">
+                  <p className="font-medium text-gray-900">{client.name}</p>
+                  <p className="mt-1 text-sm text-gray-500">{client.businessType || 'Client record'}</p>
+                  <p className="mt-1 text-sm text-gray-700">{formatCurrency(client.annualRevenue)}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500">No client activity yet.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <h2 className="text-base font-semibold text-gray-900">To Do</h2>
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-16 w-full rounded-xl" />)
+            ) : summary.todoItems.length > 0 ? (
+              summary.todoItems.map((item) => (
+                <div key={item.id} className="rounded-xl border border-gray-200 px-4 py-3">
+                  <p className="font-medium text-gray-900">{item.title}</p>
+                  <p className="mt-1 text-sm text-gray-500">{item.detail}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500">No tasks yet.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-900">Messages</h2>
+            <Link href="/dashboard/chat" className="text-sm font-medium text-brand-600 hover:text-brand-700">Open chat</Link>
+          </div>
+          <div className="mt-4 space-y-3">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-16 w-full rounded-xl" />)
+            ) : summary.recentMessages.length > 0 ? (
+              summary.recentMessages.map((message) => (
+                <div key={message.id} className="rounded-xl border border-gray-200 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-gray-900">{message.clientName}</p>
+                    <p className="text-xs text-gray-400">{new Date(message.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-500">{message.content}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500">No client messages yet.</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
