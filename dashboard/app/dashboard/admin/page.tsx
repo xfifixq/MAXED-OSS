@@ -69,6 +69,7 @@ function AdminContent() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
+  const [iframeVisible, setIframeVisible] = useState(true);
 
   const fetchCredentials = useCallback(async (fId: string) => {
     try {
@@ -110,6 +111,7 @@ function AdminContent() {
     if (cred?.metadata) form.metadata = cred.metadata;
     setCredForm(form);
     setShowRegister(svc?.setupMode === 'signup');
+    setIframeVisible(true);
     setMessage('');
   }, [activeTab, credentials]);
 
@@ -167,6 +169,8 @@ function AdminContent() {
   const activeSvc = SERVICE_TABS.find((s) => s.key === activeTab)!;
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const canRegister = activeSvc.setupMode === 'signup' && !!activeSvc.registerPath;
+  const loginUrl = buildServiceUrl(baseUrl, activeSvc.loginPath);
+  const registerUrl = activeSvc.registerPath ? buildServiceUrl(baseUrl, activeSvc.registerPath) : '';
   const iframeUrl = buildServiceUrl(
     baseUrl,
     showRegister && activeSvc.registerPath ? activeSvc.registerPath : activeSvc.loginPath
@@ -174,7 +178,7 @@ function AdminContent() {
   const isConfigured = Boolean(credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password));
 
   return (
-    <div className="space-y-4" style={{ height: 'calc(100vh - 8rem)' }}>
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Link href="/dashboard" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -216,41 +220,74 @@ function AdminContent() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ height: 'calc(100vh - 18rem)' }}>
-        <div className="lg:col-span-2 flex flex-col">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">
-                {activeSvc.name} at <code className="bg-gray-100 px-1 rounded">{iframeUrl}</code>
-              </span>
-              {canRegister && (
-                <div className="flex items-center rounded-md border border-gray-200 overflow-hidden text-xs">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 space-y-3">
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-gray-400">
+                    {activeSvc.name} at <code className="bg-gray-100 px-1 rounded">{iframeUrl}</code>
+                  </span>
+                  {canRegister && (
+                    <div className="flex items-center rounded-md border border-gray-200 overflow-hidden text-xs">
+                      <button
+                        onClick={() => setShowRegister(true)}
+                        className={`px-2.5 py-1 font-medium transition-colors ${showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Sign Up
+                      </button>
+                      <button
+                        onClick={() => setShowRegister(false)}
+                        className={`px-2.5 py-1 font-medium transition-colors ${!showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        Log In
+                      </button>
+                    </div>
+                  )}
                   <button
-                    onClick={() => setShowRegister(true)}
-                    className={`px-2.5 py-1 font-medium transition-colors ${showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    onClick={() => setIframeVisible((current) => !current)}
+                    className="text-xs text-gray-500 hover:text-gray-700 font-medium"
                   >
-                    Sign Up
-                  </button>
-                  <button
-                    onClick={() => setShowRegister(false)}
-                    className={`px-2.5 py-1 font-medium transition-colors ${!showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-                  >
-                    Log In
+                    {iframeVisible ? 'Hide embed' : 'Show embed'}
                   </button>
                 </div>
-              )}
+                <p className="text-xs text-gray-500">
+                  If the service blocks embedding or renders a blank frame, use the external launch buttons below and save the credentials back in Maxed after setup.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                  Open service
+                </a>
+                {activeSvc.loginPath !== undefined && (
+                  <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                    Open login
+                  </a>
+                )}
+                {registerUrl && (
+                  <a href={registerUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                    Open sign up
+                  </a>
+                )}
+              </div>
             </div>
-            <a href={iframeUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-600 hover:text-brand-700 font-medium">
-              Open in new tab
-            </a>
           </div>
-          <iframe
-            key={`${activeTab}-${showRegister}`}
-            src={iframeUrl}
-            className="w-full flex-1 rounded-xl border border-gray-200 bg-white"
-            style={{ minHeight: '400px' }}
-            title={activeSvc.name}
-          />
+
+          {iframeVisible ? (
+            <iframe
+              key={`${activeTab}-${showRegister}`}
+              src={iframeUrl}
+              className="w-full rounded-xl border border-gray-200 bg-white"
+              style={{ minHeight: '70vh' }}
+              title={activeSvc.name}
+            />
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
+              Embedded view hidden. Use the external launch buttons above to complete setup and then save the credentials on the right.
+            </div>
+          )}
         </div>
 
         <div className="card p-5 h-fit">

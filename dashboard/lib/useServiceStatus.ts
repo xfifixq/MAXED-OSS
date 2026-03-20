@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { apiUrl, serviceHeaders } from './api';
+import { apiUrl } from './api';
 import { useFirmReady } from './useFirmReady';
 
 export type ServiceHealth = 'connected' | 'degraded' | 'disconnected' | 'unknown';
@@ -27,7 +27,7 @@ const SERVICE_KEYS = [
 ] as const;
 
 export function useServiceStatus() {
-  const { isReady } = useFirmReady();
+  const { isReady, firmId } = useFirmReady();
   const [statuses, setStatuses] = useState<Record<string, ServiceStatusEntry>>({});
   const [serviceUrls, setServiceUrls] = useState<Record<string, string>>({});
 
@@ -36,25 +36,34 @@ export function useServiceStatus() {
 
     async function fetchStatuses() {
       try {
-        const [statusRes, diagnoseRes, urlsRes] = await Promise.all([
+        const [statusRes, urlsRes] = await Promise.all([
           fetch(apiUrl('/api/services/status')),
-          fetch(apiUrl('/api/services/diagnose'), { headers: serviceHeaders() }),
           fetch(apiUrl('/api/services/urls')),
         ]);
 
         const statusJson = statusRes.ok ? await statusRes.json() : {};
-        const diagnoseJson = diagnoseRes.ok ? await diagnoseRes.json() : {};
         const urlsJson = urlsRes.ok ? await urlsRes.json() : {};
+
+        let diagnoseJson: Record<string, any> = {};
+        if (firmId) {
+          const diagnoseRes = await fetch(apiUrl('/api/services/diagnose'), {
+            headers: { 'X-Firm-Id': firmId },
+          });
+          diagnoseJson = diagnoseRes.ok ? await diagnoseRes.json() : {};
+        }
 
         if (!active) return;
 
         const nextStatuses = SERVICE_KEYS.reduce<Record<string, ServiceStatusEntry>>((acc, key) => {
           const healthData = statusJson?.[key];
-          const configured = Boolean(diagnoseJson?.[key]?.configured);
-          const source = (diagnoseJson?.[key]?.source || 'none') as ServiceStatusEntry['source'];
+          const hasFirmScope = Boolean(firmId);
+          const configured = hasFirmScope ? Boolean(diagnoseJson?.[key]?.configured) : false;
+          const source = (hasFirmScope ? diagnoseJson?.[key]?.source : 'none') as ServiceStatusEntry['source'];
           let health: ServiceHealth = 'unknown';
 
-          if (!configured) {
+          if (!hasFirmScope) {
+            health = 'unknown';
+          } else if (!configured) {
             health = 'disconnected';
           } else if (healthData?.status === 'connected') {
             health = 'connected';
@@ -80,7 +89,7 @@ export function useServiceStatus() {
       }
     }
 
-    if (isReady) {
+    if (isReady && firmId) {
       fetchStatuses();
       const interval = window.setInterval(fetchStatuses, 60000);
       return () => {
@@ -93,7 +102,7 @@ export function useServiceStatus() {
     return () => {
       active = false;
     };
-  }, [isReady]);
+  }, [firmId, isReady]);
 
   const summary = useMemo(() => {
     const entries = Object.values(statuses);
