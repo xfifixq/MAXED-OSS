@@ -331,7 +331,7 @@ app.get("/api/firms/:firmId/clients", async (req, res) => {
   try {
     const clients = await prisma.client.findMany({
       where: { firmId: req.params.firmId },
-      include: { documents: true, invoices: true, scenarios: true },
+      include: { documents: true, invoices: true, scenarios: true, messages: true },
     });
     res.json(clients);
   } catch (err) {
@@ -1185,6 +1185,82 @@ app.get("/api/services/paperless/documents/:id/thumb", async (req, res) => {
   }
 });
 
+app.get("/api/services/paperless/documents/:id/download", async (req, res) => {
+  try {
+    const url = `${SERVICES.paperless}/api/documents/${req.params.id}/download/`;
+    const upstream = await fetch(url, { headers: await paperlessAuth(req.firmId) });
+
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      return res.status(upstream.status).json({
+        error: "Paperless download failed",
+        detail,
+      });
+    }
+
+    const contentType = upstream.headers.get("content-type");
+    const contentDisposition = upstream.headers.get("content-disposition");
+
+    if (contentType) res.set("Content-Type", contentType);
+    if (contentDisposition) res.set("Content-Disposition", contentDisposition);
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    res.status(502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/paperless/documents/upload", async (req, res) => {
+  try {
+    const {
+      filename,
+      base64Data,
+      contentType,
+      title,
+      created,
+      correspondent,
+      documentType,
+      archiveSerialNumber,
+      tags,
+    } = req.body || {};
+
+    if (!filename || !base64Data) {
+      return res.status(400).json({ error: "filename and base64Data are required" });
+    }
+
+    const form = new FormData();
+    const buffer = Buffer.from(base64Data, "base64");
+    const blob = new Blob([buffer], { type: contentType || "application/octet-stream" });
+
+    form.append("document", blob, filename);
+    if (title) form.append("title", String(title));
+    if (created) form.append("created", String(created));
+    if (correspondent) form.append("correspondent", String(correspondent));
+    if (documentType) form.append("document_type", String(documentType));
+    if (archiveSerialNumber) form.append("archive_serial_number", String(archiveSerialNumber));
+
+    const normalizedTags = Array.isArray(tags) ? tags : tags ? [tags] : [];
+    normalizedTags.forEach((tag) => form.append("tags", String(tag)));
+
+    const upstream = await fetch(`${SERVICES.paperless}/api/documents/post_document/`, {
+      method: "POST",
+      headers: await paperlessAuth(req.firmId),
+      body: form,
+    });
+
+    const text = await upstream.text();
+    try {
+      const json = text ? JSON.parse(text) : {};
+      return res.status(upstream.status).json(json);
+    } catch {
+      return res.status(upstream.status).send(text);
+    }
+  } catch (err) {
+    res.status(502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
 app.get("/api/services/paperless/tags", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.paperless, "/api/tags/", {
@@ -1267,13 +1343,14 @@ app.get("/api/services/n8n/executions", async (req, res) => {
 
 app.post("/api/services/n8n/workflows/:id/activate", async (req, res) => {
   try {
+    const active = req.body?.active !== false;
     const result = await proxyFetch(
       SERVICES.n8n,
       `/api/v1/workflows/${req.params.id}`,
       {
         method: "PATCH",
         headers: await n8nAuth(req.firmId),
-        body: JSON.stringify({ active: true }),
+        body: JSON.stringify({ active }),
       }
     );
     res.status(result.status).json(result.data);

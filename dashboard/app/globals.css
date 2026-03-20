@@ -135,12 +135,3 @@
   @apply bg-gray-400;
 }
 
-/* Iframe container */
-.iframe-container {
-  @apply w-full rounded-xl overflow-hidden border border-gray-200;
-  height: calc(100vh - 12rem);
-}
-
-.iframe-container iframe {
-  @apply w-full h-full border-0;
-}
