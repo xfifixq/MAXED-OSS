@@ -193,6 +193,13 @@ interface Firm {
   email: string;
 }
 
+type ServiceHealth = 'connected' | 'degraded' | 'disconnected' | 'unknown';
+
+type ServiceStatusEntry = {
+  configured: boolean;
+  health: ServiceHealth;
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -214,6 +221,7 @@ function AdminContent() {
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
   const [iframeVisible, setIframeVisible] = useState(true);
+  const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -248,6 +256,45 @@ function AdminContent() {
 
     init();
   }, [fetchCredentials, firmIdParam]);
+
+  const fetchServiceStatus = useCallback(async (firmId: string) => {
+    try {
+      const [statusRes, diagnoseRes] = await Promise.all([
+        fetch(apiUrl('/api/services/status')),
+        fetch(apiUrl('/api/services/diagnose'), {
+          headers: { 'X-Firm-Id': firmId },
+        }),
+      ]);
+
+      const statusJson = statusRes.ok ? await statusRes.json() : {};
+      const diagnoseJson = diagnoseRes.ok ? await diagnoseRes.json() : {};
+
+      const nextStatus = SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>((acc, service) => {
+        const configured = Boolean(diagnoseJson?.[service.key]?.configured);
+        let health: ServiceHealth = 'unknown';
+
+        if (!configured) {
+          health = 'disconnected';
+        } else if (statusJson?.[service.key]?.status === 'connected') {
+          health = 'connected';
+        } else if (statusJson?.[service.key]?.status === 'unavailable') {
+          health = 'degraded';
+        }
+
+        acc[service.key] = { configured, health };
+        return acc;
+      }, {});
+
+      setServiceStatus(nextStatus);
+    } catch {
+      setServiceStatus({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!firmIdParam) return;
+    fetchServiceStatus(firmIdParam);
+  }, [fetchServiceStatus, firmIdParam]);
 
   useEffect(() => {
     const credential = credentials[activeTab];
@@ -336,6 +383,47 @@ function AdminContent() {
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
   );
+  const activeStatus = serviceStatus[activeTab];
+  const readinessSummary = SERVICE_TABS.reduce(
+    (summary, service) => {
+      const entry = serviceStatus[service.key];
+      if (!entry || entry.health === 'unknown') summary.unknown += 1;
+      else if (entry.health === 'connected') summary.connected += 1;
+      else if (entry.health === 'degraded') summary.degraded += 1;
+      else summary.disconnected += 1;
+      return summary;
+    },
+    { connected: 0, degraded: 0, disconnected: 0, unknown: 0 },
+  );
+  const cpaReadyCore = ['paperless', 'docuseal', 'invoiceninja', 'kimai', 'bigcapital', 'metabase', 'mattermost'];
+  const cpaReadyCount = cpaReadyCore.filter((key) => serviceStatus[key]?.health === 'connected').length;
+  const cpaReady = cpaReadyCount === cpaReadyCore.length;
+
+  const statusLabel = (health?: ServiceHealth) => {
+    switch (health) {
+      case 'connected':
+        return 'Connected';
+      case 'degraded':
+        return 'Configured';
+      case 'disconnected':
+        return 'Needs setup';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  const statusTone = (health?: ServiceHealth) => {
+    switch (health) {
+      case 'connected':
+        return 'bg-green-100 text-green-700';
+      case 'degraded':
+        return 'bg-amber-100 text-amber-700';
+      case 'disconnected':
+        return 'bg-red-100 text-red-700';
+      default:
+        return 'bg-gray-100 text-gray-600';
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -351,9 +439,35 @@ function AdminContent() {
         </div>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">CPA readiness</p>
+          <p className={`mt-2 text-lg font-semibold ${cpaReady ? 'text-green-600' : 'text-amber-600'}`}>
+            {cpaReady ? 'Core stack ready' : `${cpaReadyCount}/${cpaReadyCore.length} core services live`}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">Paperless, Sign, Billing, Time, Books, Reports, Chat</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connected</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.connected}</p>
+          <p className="mt-1 text-sm text-slate-500">Healthy firm-scoped services</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs attention</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.degraded + readinessSummary.disconnected}</p>
+          <p className="mt-1 text-sm text-slate-500">Configured or missing services</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Unknown</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.unknown}</p>
+          <p className="mt-1 text-sm text-slate-500">Not yet diagnosed in this view</p>
+        </div>
+      </div>
+
       <div className="flex gap-1 overflow-x-auto pb-1">
         {SERVICE_TABS.map((service) => {
-          const configured = Boolean(
+          const entry = serviceStatus[service.key];
+          const configured = entry?.configured || Boolean(
             credentials[service.key] &&
             (credentials[service.key].token || credentials[service.key].username || credentials[service.key].password),
           );
@@ -372,7 +486,13 @@ function AdminContent() {
               }`}
             >
               {configured ? (
-                <span className={`h-1.5 w-1.5 rounded-full ${activeTab === service.key ? 'bg-green-300' : 'bg-green-500'}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  entry?.health === 'connected'
+                    ? activeTab === service.key ? 'bg-green-300' : 'bg-green-500'
+                    : entry?.health === 'degraded'
+                      ? activeTab === service.key ? 'bg-amber-200' : 'bg-amber-500'
+                      : activeTab === service.key ? 'bg-red-200' : 'bg-red-500'
+                }`} />
               ) : null}
               {service.name}
             </button>
@@ -452,8 +572,20 @@ function AdminContent() {
 
         <div className="card h-fit p-5">
           <div className="mb-4 flex items-center gap-2">
-            <div className={`h-2.5 w-2.5 rounded-full ${isConfigured ? 'bg-green-500' : 'bg-gray-300'}`} />
+            <div className={`h-2.5 w-2.5 rounded-full ${
+              activeStatus?.health === 'connected'
+                ? 'bg-green-500'
+                : activeStatus?.health === 'degraded'
+                  ? 'bg-amber-500'
+                  : isConfigured
+                    ? 'bg-blue-500'
+                    : 'bg-gray-300'
+            }`} />
             <h3 className="text-sm font-semibold text-gray-900">{activeSvc.name} Setup</h3>
+          </div>
+
+          <div className={`mb-4 inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusTone(activeStatus?.health)}`}>
+            {statusLabel(activeStatus?.health)}
           </div>
 
           <p className="mb-4 text-xs text-gray-500">{activeSvc.hint}</p>
@@ -476,6 +608,28 @@ function AdminContent() {
                 </li>
               ))}
             </ol>
+          </div>
+
+          <div className="mb-5 rounded-xl border border-slate-200 bg-white px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Go / No-Go</p>
+            <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              <li className="flex items-center justify-between gap-3">
+                <span>Credentials saved in Maxed</span>
+                <span className={isConfigured ? 'badge-green' : 'badge-yellow'}>{isConfigured ? 'Yes' : 'No'}</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span>Service reachable</span>
+                <span className={activeStatus?.health === 'connected' ? 'badge-green' : activeStatus?.health === 'degraded' ? 'badge-yellow' : 'badge'}>
+                  {activeStatus?.health === 'connected' ? 'Healthy' : activeStatus?.health === 'degraded' ? 'Degraded' : 'Unknown'}
+                </span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span>Ready for CPA handoff</span>
+                <span className={activeStatus?.health === 'connected' && isConfigured ? 'badge-green' : 'badge-yellow'}>
+                  {activeStatus?.health === 'connected' && isConfigured ? 'Ready' : 'Not ready'}
+                </span>
+              </li>
+            </ul>
           </div>
 
           <div className="space-y-3">
