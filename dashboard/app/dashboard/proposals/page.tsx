@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
 import { firmFetch, serviceFetch } from '@/lib/service-client';
@@ -19,6 +21,8 @@ type DraftState = {
 
 export default function ProposalsPage() {
   const { isReady } = useFirmReady();
+  const searchParams = useSearchParams();
+  const preferredClientId = searchParams.get('clientId') || '';
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -51,8 +55,9 @@ export default function ProposalsPage() {
       setTemplates(normalizedTemplates);
       setSubmissions(normalizedSubmissions);
       setSelectedSubmissionId((current) => current || normalizedSubmissions[0]?.id || '');
+      const nextClientId = preferredClientId || normalizedClients[0]?.id || '';
       setDraft((current) => ({
-        clientId: current.clientId || normalizedClients[0]?.id || '',
+        clientId: current.clientId || nextClientId,
         templateId: current.templateId || normalizedTemplates[0]?.id || '',
         role: current.role || normalizedTemplates[0]?.roles[0] || 'Signer',
       }));
@@ -61,7 +66,7 @@ export default function ProposalsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isReady]);
+  }, [isReady, preferredClientId]);
 
   useEffect(() => {
     loadProposals();
@@ -70,6 +75,11 @@ export default function ProposalsPage() {
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === draft.templateId) || null,
     [draft.templateId, templates],
+  );
+
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === draft.clientId) || null,
+    [clients, draft.clientId],
   );
 
   const filteredTemplates = useMemo(() => {
@@ -166,6 +176,19 @@ export default function ProposalsPage() {
             <WorkspaceEmpty title="Missing templates or clients" message="Add DocuSeal templates and at least one client record before sending a proposal." />
           ) : (
             <div className="space-y-4">
+              {selectedClient ? (
+                <div className="rounded-2xl border border-brand-200 bg-brand-50/50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{selectedClient.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">Proposal delivery is currently scoped to this client.</p>
+                    </div>
+                    <Link href={`/dashboard/clients/${selectedClient.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
+                      Open client
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
               <div>
                 <label className="block text-sm font-medium text-slate-700">Client</label>
                 <select className="input mt-2" value={draft.clientId} onChange={(event) => setDraft((current) => ({ ...current, clientId: event.target.value }))}>

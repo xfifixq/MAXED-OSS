@@ -193,6 +193,7 @@ export default function ClientDetailPage() {
             <button onClick={() => setEditing((current) => !current)} className="btn-secondary text-sm">
               {editing ? 'Close Editor' : 'Edit Client'}
             </button>
+            <Link href={`/dashboard/proposals?clientId=${client.id}`} className="btn-secondary text-sm">Proposal</Link>
             <Link href={`/dashboard/documents?clientId=${client.id}`} className="btn-secondary text-sm">Documents</Link>
             <Link href={`/dashboard/advisory?clientId=${client.id}`} className="btn-primary text-sm">Run Scenario</Link>
           </div>
@@ -310,6 +311,9 @@ export default function ClientDetailPage() {
               </Link>
               <Link href={`/dashboard/documents?clientId=${client.id}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
                 Review documents
+              </Link>
+              <Link href={`/dashboard/proposals?clientId=${client.id}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
+                Send engagement letter
               </Link>
             </div>
           </div>
