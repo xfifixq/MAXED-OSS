@@ -121,6 +121,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [readinessFilter, setReadinessFilter] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState('');
 
@@ -145,14 +146,24 @@ export default function ClientsPage() {
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return clients;
-    return clients.filter((client) =>
-      [client.name, client.businessType, client.email]
-        .join(' ')
-        .toLowerCase()
-        .includes(query),
-    );
-  }, [clients, search]);
+    return clients.filter((client) => {
+      const matchesSearch = !query || [client.name, client.businessType, client.email].join(' ').toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+
+      switch (readinessFilter) {
+        case 'ready':
+          return Boolean(client.bigcapitalId && client.invoiceNinjaId && client.paperlessTag);
+        case 'missing-ledger':
+          return !client.bigcapitalId;
+        case 'missing-billing':
+          return !client.invoiceNinjaId;
+        case 'missing-docs':
+          return !client.paperlessTag;
+        default:
+          return true;
+      }
+    });
+  }, [clients, readinessFilter, search]);
 
   const clientStage = (client: ReturnType<typeof normalizeFirmClients>[number]) => {
     if (client.invoices.some((invoice) => invoice.status !== 'paid')) return 'follow-up';
@@ -174,6 +185,25 @@ export default function ClientsPage() {
     }
   };
 
+  const readinessBadges = (client: ReturnType<typeof normalizeFirmClients>[number]) => (
+    <div className="flex flex-wrap gap-1.5 text-xs">
+      <span className={client.bigcapitalId ? 'badge-green' : 'badge-yellow'}>
+        {client.bigcapitalId ? 'Ledger' : 'No ledger'}
+      </span>
+      <span className={client.invoiceNinjaId ? 'badge-green' : 'badge-yellow'}>
+        {client.invoiceNinjaId ? 'Billing' : 'No billing'}
+      </span>
+      <span className={client.paperlessTag ? 'badge-green' : 'badge-yellow'}>
+        {client.paperlessTag ? 'Docs' : 'No docs'}
+      </span>
+    </div>
+  );
+
+  const readyCount = useMemo(
+    () => clients.filter((client) => client.bigcapitalId && client.invoiceNinjaId && client.paperlessTag).length,
+    [clients],
+  );
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -190,17 +220,29 @@ export default function ClientsPage() {
       </div>
 
       <div className="card p-4">
-        <div className="relative">
-          <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search clients by name, email, or type..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="input pl-9"
-          />
+        <div className="grid gap-4 lg:grid-cols-[1fr,220px,auto]">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search clients by name, email, or type..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="input pl-9"
+            />
+          </div>
+          <select className="input" value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value)}>
+            <option value="all">All clients</option>
+            <option value="ready">CPA ready</option>
+            <option value="missing-ledger">Missing ledger</option>
+            <option value="missing-billing">Missing billing</option>
+            <option value="missing-docs">Missing docs</option>
+          </select>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            {readyCount} of {clients.length} clients fully linked
+          </div>
         </div>
       </div>
 
@@ -219,6 +261,7 @@ export default function ClientsPage() {
                 <th className="table-header">Business Type</th>
                 <th className="table-header">Annual Revenue</th>
                 <th className="table-header">Pipeline Status</th>
+                <th className="table-header">Readiness</th>
                 <th className="table-header">Activity</th>
                 <th className="table-header">Actions</th>
               </tr>
@@ -226,14 +269,15 @@ export default function ClientsPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 Array.from({ length: 5 }).map((_, index) => (
-                  <tr key={index}>
-                    <td className="table-cell"><div className="skeleton h-4 w-40" /></td>
-                    <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
-                    <td className="table-cell"><div className="skeleton h-4 w-24" /></td>
-                    <td className="table-cell"><div className="skeleton h-5 w-24 rounded-full" /></td>
-                    <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
-                    <td className="table-cell"><div className="skeleton h-4 w-12" /></td>
-                  </tr>
+                <tr key={index}>
+                  <td className="table-cell"><div className="skeleton h-4 w-40" /></td>
+                  <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
+                  <td className="table-cell"><div className="skeleton h-4 w-24" /></td>
+                  <td className="table-cell"><div className="skeleton h-5 w-24 rounded-full" /></td>
+                  <td className="table-cell"><div className="skeleton h-5 w-36 rounded-full" /></td>
+                  <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
+                  <td className="table-cell"><div className="skeleton h-4 w-12" /></td>
+                </tr>
                 ))
               ) : filteredClients.length > 0 ? (
                 filteredClients.map((client) => (
@@ -249,6 +293,7 @@ export default function ClientsPage() {
                     <td className="table-cell text-gray-500">{client.businessType || 'Unclassified'}</td>
                     <td className="table-cell">{formatCurrency(client.annualRevenue || 0)}</td>
                     <td className="table-cell">{statusBadge(client)}</td>
+                    <td className="table-cell">{readinessBadges(client)}</td>
                     <td className="table-cell text-sm text-gray-500">
                       {client.documents.length} docs · {client.invoices.length} invoices · {client.messages.length} msgs
                     </td>
@@ -261,7 +306,7 @@ export default function ClientsPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                     No clients found
                   </td>
                 </tr>
