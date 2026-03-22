@@ -721,7 +721,7 @@ async function getFirmDashboardSummary(firmId) {
       where: { client: { firmId }, resolvedAt: null },
       orderBy: { createdAt: "desc" },
       take: 2,
-      select: { id: true, question: true, client: { select: { name: true } } },
+      select: { id: true, question: true, client: { select: { id: true, name: true } } },
     }),
   ]);
 
@@ -731,35 +731,43 @@ async function getFirmDashboardSummary(firmId) {
       title: workflow.name,
       detail: workflow.status === "pending" ? "Pending workflow follow-up" : "Active workflow in progress",
       kind: "workflow",
+      href: "/dashboard/workflows",
     })),
     ...openInvoices.map((invoice) => ({
       id: `invoice-${invoice.id}`,
       title: `Invoice follow-up for ${invoice.client.name}`,
       detail: `Status: ${invoice.status} | Due ${new Date(invoice.dueDate).toLocaleDateString("en-US")}`,
       kind: "invoice",
+      href: "/dashboard/invoicing",
     })),
     ...reviewDocs.map((document) => ({
       id: `document-${document.id}`,
       title: `${document.client.name}: ${document.title}`,
       detail: `Document status: ${document.status}`,
       kind: "document",
+      href: "/dashboard/documents",
     })),
     ...scenarios.map((scenario) => ({
       id: `scenario-${scenario.id}`,
       title: `${scenario.client.name} planning review`,
       detail: scenario.question,
       kind: "scenario",
+      href: `/dashboard/clients/${scenario.client.id}`,
     })),
   ].slice(0, 6);
 
   return {
-    recentClients,
+    recentClients: recentClients.map((client) => ({
+      ...client,
+      href: `/dashboard/clients/${client.id}`,
+    })),
     todoItems,
     recentMessages: recentMessages.map((message) => ({
       id: message.id,
       clientName: message.client.name,
       content: message.content,
       createdAt: message.createdAt,
+      href: "/dashboard/chat",
     })),
   };
 }

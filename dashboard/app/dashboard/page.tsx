@@ -16,9 +16,9 @@ interface Stats {
 }
 
 interface DashboardSummary {
-  recentClients: Array<{ id: string; name: string; businessType?: string | null; annualRevenue?: number | null }>;
-  todoItems: Array<{ id: string; title: string; detail: string; kind: string }>;
-  recentMessages: Array<{ id: string; clientName: string; content: string; createdAt: string }>;
+  recentClients: Array<{ id: string; name: string; businessType?: string | null; annualRevenue?: number | null; href: string }>;
+  todoItems: Array<{ id: string; title: string; detail: string; kind: string; href: string }>;
+  recentMessages: Array<{ id: string; clientName: string; content: string; createdAt: string; href: string }>;
 }
 
 function CpaDashboard() {
@@ -71,6 +71,19 @@ function CpaDashboard() {
   const formatCurrency = (amount?: number | null) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount || 0);
 
+  const todoBadgeClass = (kind: string) => {
+    switch (kind) {
+      case 'invoice':
+        return 'bg-amber-50 text-amber-700';
+      case 'document':
+        return 'bg-emerald-50 text-emerald-700';
+      case 'scenario':
+        return 'bg-violet-50 text-violet-700';
+      default:
+        return 'bg-slate-100 text-slate-700';
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -107,11 +120,16 @@ function CpaDashboard() {
               Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-14 w-full rounded-xl" />)
             ) : summary.recentClients.length > 0 ? (
               summary.recentClients.map((client) => (
-                <div key={client.id} className="rounded-xl border border-gray-200 px-4 py-3">
-                  <p className="font-medium text-gray-900">{client.name}</p>
-                  <p className="mt-1 text-sm text-gray-500">{client.businessType || 'Client record'}</p>
-                  <p className="mt-1 text-sm text-gray-700">{formatCurrency(client.annualRevenue)}</p>
-                </div>
+                <Link key={client.id} href={client.href} className="block rounded-xl border border-gray-200 px-4 py-3 transition hover:border-brand-200 hover:bg-brand-50/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-gray-900">{client.name}</p>
+                      <p className="mt-1 text-sm text-gray-500">{client.businessType || 'Client record'}</p>
+                    </div>
+                    <span className="text-xs font-medium text-brand-600">Open</span>
+                  </div>
+                  <p className="mt-2 text-sm text-gray-700">{formatCurrency(client.annualRevenue)}</p>
+                </Link>
               ))
             ) : (
               <p className="text-sm text-gray-500">No client activity yet.</p>
@@ -126,10 +144,15 @@ function CpaDashboard() {
               Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-16 w-full rounded-xl" />)
             ) : summary.todoItems.length > 0 ? (
               summary.todoItems.map((item) => (
-                <div key={item.id} className="rounded-xl border border-gray-200 px-4 py-3">
-                  <p className="font-medium text-gray-900">{item.title}</p>
+                <Link key={item.id} href={item.href} className="block rounded-xl border border-gray-200 px-4 py-3 transition hover:border-brand-200 hover:bg-brand-50/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-medium text-gray-900">{item.title}</p>
+                    <span className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold uppercase tracking-wide ${todoBadgeClass(item.kind)}`}>
+                      {item.kind}
+                    </span>
+                  </div>
                   <p className="mt-1 text-sm text-gray-500">{item.detail}</p>
-                </div>
+                </Link>
               ))
             ) : (
               <p className="text-sm text-gray-500">No tasks yet.</p>
@@ -147,13 +170,13 @@ function CpaDashboard() {
               Array.from({ length: 3 }).map((_, index) => <div key={index} className="skeleton h-16 w-full rounded-xl" />)
             ) : summary.recentMessages.length > 0 ? (
               summary.recentMessages.map((message) => (
-                <div key={message.id} className="rounded-xl border border-gray-200 px-4 py-3">
+                <Link key={message.id} href={message.href} className="block rounded-xl border border-gray-200 px-4 py-3 transition hover:border-brand-200 hover:bg-brand-50/40">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium text-gray-900">{message.clientName}</p>
                     <p className="text-xs text-gray-400">{new Date(message.createdAt).toLocaleDateString()}</p>
                   </div>
                   <p className="mt-1 text-sm text-gray-500">{message.content}</p>
-                </div>
+                </Link>
               ))
             ) : (
               <p className="text-sm text-gray-500">No client messages yet.</p>
