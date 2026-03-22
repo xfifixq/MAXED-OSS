@@ -863,6 +863,108 @@ const PUBLIC_SERVICES = {
   mattermost: process.env.MATTERMOST_PUBLIC_URL || "https://chat.maxed.life",
 };
 
+const SERVICE_CATALOG = {
+  paperless: {
+    key: "paperless",
+    name: "Paperless",
+    provisioningMode: "embedded",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "signin_or_admin",
+    setupPath: "",
+    adminPath: "",
+    note: "Paperless can stay embedded once firm credentials exist.",
+  },
+  docuseal: {
+    key: "docuseal",
+    name: "DocuSeal",
+    provisioningMode: "embedded",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "signin_or_admin",
+    setupPath: "",
+    adminPath: "",
+    note: "DocuSeal remains embedded when the workspace is already initialized.",
+  },
+  invoiceninja: {
+    key: "invoiceninja",
+    name: "Invoice Ninja",
+    provisioningMode: "bootstrap_then_admin",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "setup_then_user_management",
+    setupPath: "/setup",
+    adminPath: "/#/settings/user_management",
+    note: "Invoice Ninja needs first-run setup before CPA staff users can be created from User Management.",
+  },
+  n8n: {
+    key: "n8n",
+    name: "n8n",
+    provisioningMode: "embedded",
+    controlPlaneManaged: true,
+    core: false,
+    preferredAction: "setup_owner_then_api_key",
+    setupPath: "/setup",
+    adminPath: "",
+    note: "n8n exposes an owner setup flow on fresh instances and can stay embedded for that workflow.",
+  },
+  kimai: {
+    key: "kimai",
+    name: "Kimai",
+    provisioningMode: "bootstrap_then_admin",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "first_admin_then_users",
+    setupPath: "",
+    adminPath: "/en/admin/user/",
+    note: "Kimai may require a first super-admin from bootstrap or CLI before normal user provisioning works.",
+  },
+  mattermost: {
+    key: "mattermost",
+    name: "Mattermost",
+    provisioningMode: "config_or_signup",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "enable_signup_or_admin_create",
+    setupPath: "/signup_email",
+    adminPath: "/admin_console/user_management/users",
+    note: "Mattermost public signup depends on server-wide account creation settings.",
+  },
+  metabase: {
+    key: "metabase",
+    name: "Metabase",
+    provisioningMode: "bootstrap_then_admin",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "setup_then_invite",
+    setupPath: "/setup",
+    adminPath: "/admin/people",
+    note: "Metabase requires the first admin during setup, and only after that can firm users be invited.",
+  },
+  twenty: {
+    key: "twenty",
+    name: "Twenty CRM",
+    provisioningMode: "embedded",
+    controlPlaneManaged: true,
+    core: false,
+    preferredAction: "signup",
+    setupPath: "/sign-up",
+    adminPath: "",
+    note: "Twenty remains embedded because its signup flow already behaves correctly in Maxed.",
+  },
+  bigcapital: {
+    key: "bigcapital",
+    name: "Bigcapital",
+    provisioningMode: "embedded",
+    controlPlaneManaged: true,
+    core: true,
+    preferredAction: "signup_or_admin",
+    setupPath: "/auth/register",
+    adminPath: "/admin/users",
+    note: "Bigcapital keeps a direct signup flow through Maxed's embedded path.",
+  },
+};
+
 function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
@@ -2254,6 +2356,15 @@ app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
 // Return public-facing service URLs for admin iframe page
 app.get("/api/services/urls", (_req, res) => {
   res.json(PUBLIC_SERVICES);
+});
+
+app.get("/api/services/catalog", (_req, res) => {
+  res.json(
+    Object.values(SERVICE_CATALOG).map((service) => ({
+      ...service,
+      defaultUrl: PUBLIC_SERVICES[service.key] || null,
+    })),
+  );
 });
 
 // ---------------------------------------------------------------------------

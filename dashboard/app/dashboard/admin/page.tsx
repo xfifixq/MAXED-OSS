@@ -228,6 +228,19 @@ type ServiceStatusEntry = {
   health: ServiceHealth;
 };
 
+type ServiceCatalogEntry = {
+  key: string;
+  name: string;
+  provisioningMode: string;
+  controlPlaneManaged: boolean;
+  core: boolean;
+  preferredAction: string;
+  setupPath?: string;
+  adminPath?: string;
+  note?: string;
+  defaultUrl?: string | null;
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -250,6 +263,7 @@ function AdminContent() {
   const [showRegister, setShowRegister] = useState(false);
   const [iframeVisible, setIframeVisible] = useState(true);
   const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
+  const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -267,8 +281,15 @@ function AdminContent() {
   useEffect(() => {
     async function init() {
       try {
-        const res = await fetch(apiUrl('/api/services/urls'));
-        if (res.ok) setServiceUrls(await res.json());
+        const [urlsRes, catalogRes] = await Promise.all([
+          fetch(apiUrl('/api/services/urls')),
+          fetch(apiUrl('/api/services/catalog')),
+        ]);
+        if (urlsRes.ok) setServiceUrls(await urlsRes.json());
+        if (catalogRes.ok) {
+          const items = (await catalogRes.json()) as ServiceCatalogEntry[];
+          setServiceCatalog(Object.fromEntries(items.map((item) => [item.key, item])));
+        }
       } catch {}
 
       if (firmIdParam) {
@@ -399,6 +420,7 @@ function AdminContent() {
   }
 
   const activeSvc = SERVICE_TABS.find((item) => item.key === activeTab)!;
+  const catalogEntry = serviceCatalog[activeTab];
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const canRegister = activeSvc.setupMode === 'signup' && Boolean(activeSvc.registerPath);
   const isManualProvision = activeSvc.setupMode === 'manual';
@@ -470,6 +492,23 @@ function AdminContent() {
           <p className="text-sm text-gray-500">Provision each upstream account correctly, then save the credentials inside Maxed.</p>
         </div>
       </div>
+
+      {catalogEntry ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Platform Strategy</p>
+              <p className="mt-1 text-sm text-slate-800">
+                {catalogEntry.controlPlaneManaged ? 'Maxed-managed provisioning' : 'Direct upstream provisioning'} · {catalogEntry.provisioningMode}
+              </p>
+            </div>
+            <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+              Next action: {catalogEntry.preferredAction.replace(/_/g, ' ')}
+            </div>
+          </div>
+          {catalogEntry.note ? <p className="mt-3 text-sm text-slate-600">{catalogEntry.note}</p> : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
