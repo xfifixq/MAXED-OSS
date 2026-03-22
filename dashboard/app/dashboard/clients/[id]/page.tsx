@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { firmFetch, serviceFetch } from '@/lib/service-client';
@@ -23,6 +23,15 @@ type DashboardSummary = {
   recentMessages?: number;
 };
 
+type ClientFormState = {
+  name: string;
+  email: string;
+  phone: string;
+  businessType: string;
+  annualRevenue: string;
+  employeeCount: string;
+};
+
 export default function ClientDetailPage() {
   const params = useParams();
   const clientId = params.id as string;
@@ -32,45 +41,69 @@ export default function ClientDetailPage() {
   const [client, setClient] = useState<ReturnType<typeof normalizeFirmClients>[number] | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [summary, setSummary] = useState<DashboardSummary>({});
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [form, setForm] = useState<ClientFormState>({
+    name: '',
+    email: '',
+    phone: '',
+    businessType: '',
+    annualRevenue: '',
+    employeeCount: '',
+  });
 
-  useEffect(() => {
-    async function fetchClient() {
-      setLoading(true);
-      setError('');
+  const syncFormFromClient = useCallback((nextClient: ReturnType<typeof normalizeFirmClients>[number] | null) => {
+    if (!nextClient) return;
+    setForm({
+      name: nextClient.name,
+      email: nextClient.email,
+      phone: nextClient.phone,
+      businessType: nextClient.businessType,
+      annualRevenue: String(nextClient.annualRevenue || ''),
+      employeeCount: String(nextClient.employeeCount || ''),
+    });
+  }, []);
 
-      const results = await Promise.allSettled([
-        firmFetch('/clients'),
-        serviceFetch(`/api/clients/${clientId}/scenarios`),
-        serviceFetch(`/api/clients/${clientId}/dashboard`),
-      ]);
+  const fetchClient = useCallback(async () => {
+    setLoading(true);
+    setError('');
 
-      const [clientsResult, scenariosResult, summaryResult] = results;
+    const results = await Promise.allSettled([
+      firmFetch('/clients'),
+      serviceFetch(`/api/clients/${clientId}/scenarios`),
+      serviceFetch(`/api/clients/${clientId}/dashboard`),
+    ]);
 
-      if (clientsResult.status === 'fulfilled') {
-        const clients = normalizeFirmClients(clientsResult.value);
-        const selected = clients.find((entry) => entry.id === clientId) || null;
-        setClient(selected);
-      } else {
-        setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : 'Unable to load client.');
-      }
+    const [clientsResult, scenariosResult, summaryResult] = results;
 
-      if (scenariosResult.status === 'fulfilled') {
-        setScenarios(Array.isArray(scenariosResult.value) ? (scenariosResult.value as Scenario[]) : []);
-      } else {
-        setScenarios([]);
-      }
-
-      if (summaryResult.status === 'fulfilled') {
-        setSummary((summaryResult.value as DashboardSummary) || {});
-      } else {
-        setSummary({});
-      }
-
-      setLoading(false);
+    if (clientsResult.status === 'fulfilled') {
+      const clients = normalizeFirmClients(clientsResult.value);
+      const selected = clients.find((entry) => entry.id === clientId) || null;
+      setClient(selected);
+      syncFormFromClient(selected);
+    } else {
+      setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : 'Unable to load client.');
     }
 
+    if (scenariosResult.status === 'fulfilled') {
+      setScenarios(Array.isArray(scenariosResult.value) ? (scenariosResult.value as Scenario[]) : []);
+    } else {
+      setScenarios([]);
+    }
+
+    if (summaryResult.status === 'fulfilled') {
+      setSummary((summaryResult.value as DashboardSummary) || {});
+    } else {
+      setSummary({});
+    }
+
+    setLoading(false);
+  }, [clientId, syncFormFromClient]);
+
+  useEffect(() => {
     fetchClient();
-  }, [clientId]);
+  }, [fetchClient]);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
@@ -88,6 +121,32 @@ export default function ClientDetailPage() {
     () => scenarios.reduce((sum, scenario) => sum + (scenario.projectedImpact || 0), 0),
     [scenarios],
   );
+
+  const handleSaveClient = useCallback(async () => {
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      await firmFetch(`/clients/${clientId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone || null,
+          businessType: form.businessType || 'Unclassified',
+          annualRevenue: Number(form.annualRevenue) || 0,
+          employeeCount: Number(form.employeeCount) || 0,
+        }),
+      });
+
+      await fetchClient();
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Unable to save client.');
+    } finally {
+      setSaving(false);
+    }
+  }, [clientId, fetchClient, form]);
 
   if (loading) {
     return (
@@ -131,11 +190,59 @@ export default function ClientDetailPage() {
             <p className="mt-1 text-gray-500">{client.businessType || 'Unclassified'} · {client.email}</p>
           </div>
           <div className="flex gap-2">
+            <button onClick={() => setEditing((current) => !current)} className="btn-secondary text-sm">
+              {editing ? 'Close Editor' : 'Edit Client'}
+            </button>
             <Link href="/dashboard/documents" className="btn-secondary text-sm">Documents</Link>
             <Link href="/dashboard/advisory" className="btn-primary text-sm">Run Scenario</Link>
           </div>
         </div>
       </div>
+
+      {editing ? (
+        <div className="card p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Client profile editor</h2>
+              <p className="mt-1 text-sm text-gray-500">Update core client information without leaving the record.</p>
+            </div>
+            <button
+              onClick={handleSaveClient}
+              disabled={saving}
+              className="btn-primary text-sm disabled:opacity-60"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Business name
+              <input className="input mt-2" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Email
+              <input className="input mt-2" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Phone
+              <input className="input mt-2" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Business type
+              <input className="input mt-2" value={form.businessType} onChange={(event) => setForm((current) => ({ ...current, businessType: event.target.value }))} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Annual revenue
+              <input className="input mt-2" type="number" value={form.annualRevenue} onChange={(event) => setForm((current) => ({ ...current, annualRevenue: event.target.value }))} />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Employees
+              <input className="input mt-2" type="number" value={form.employeeCount} onChange={(event) => setForm((current) => ({ ...current, employeeCount: event.target.value }))} />
+            </label>
+          </div>
+          {saveError ? <p className="mt-3 text-sm text-red-600">{saveError}</p> : null}
+        </div>
+      ) : null}
 
       <div className="flex w-fit gap-1 rounded-lg bg-gray-100 p-1">
         {tabs.map((tab) => (
@@ -196,6 +303,14 @@ export default function ClientDetailPage() {
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-medium text-slate-900">Recent messages</p>
               <p className="mt-1 text-sm text-slate-500">{summary.recentMessages || client.messages.length} messages in the current client history.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link href="/dashboard/invoicing" className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
+                Open billing workspace
+              </Link>
+              <Link href="/dashboard/documents" className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
+                Review documents
+              </Link>
             </div>
           </div>
         </div>
