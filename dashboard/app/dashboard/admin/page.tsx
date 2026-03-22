@@ -90,13 +90,15 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'n8n',
     defaultUrl: 'https://flow.maxed.life',
     loginPath: '',
+    registerPath: '/setup',
     adminPath: '',
     embedPreferred: true,
-    setupMode: 'manual',
+    setupMode: 'signup',
     fields: ['token'],
     labels: { username: 'Username', password: 'Password', token: 'API Key', metadata: 'Metadata' },
-    hint: 'Store the n8n API key used for this firm workspace.',
+    hint: 'Complete the n8n owner setup flow if needed, then store the API key used for this firm workspace.',
     checklist: [
+      'If this is a fresh instance, complete the n8n in-app owner setup flow first.',
       'Sign in to n8n with the admin account.',
       'Create or copy the API key for the workspace.',
       'Save the API key into Maxed.',
@@ -425,9 +427,9 @@ function AdminContent() {
     },
     { connected: 0, degraded: 0, disconnected: 0, unknown: 0 },
   );
-  const cpaReadyCore = ['paperless', 'docuseal', 'invoiceninja', 'kimai', 'bigcapital', 'metabase', 'mattermost'];
-  const cpaReadyCount = cpaReadyCore.filter((key) => serviceStatus[key]?.health === 'connected').length;
-  const cpaReady = cpaReadyCount === cpaReadyCore.length;
+  const connectedServiceCount = SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
+  const configuredServiceCount = SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
+  const allConnected = connectedServiceCount === SERVICE_TABS.length;
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
@@ -471,11 +473,11 @@ function AdminContent() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Core readiness</p>
-          <p className={`mt-2 text-lg font-semibold ${cpaReady ? 'text-green-600' : 'text-amber-600'}`}>
-            {cpaReady ? 'Core stack ready' : `${cpaReadyCount}/${cpaReadyCore.length} core services live`}
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connected services</p>
+          <p className={`mt-2 text-lg font-semibold ${allConnected ? 'text-green-600' : 'text-amber-600'}`}>
+            {allConnected ? 'All services connected' : `${connectedServiceCount}/${SERVICE_TABS.length} services live`}
           </p>
-          <p className="mt-1 text-sm text-slate-500">Paperless, Sign, Billing, Time, Books, Reports, Chat</p>
+          <p className="mt-1 text-sm text-slate-500">{configuredServiceCount} configured in this firm workspace</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connected</p>
