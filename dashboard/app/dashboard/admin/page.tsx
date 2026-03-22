@@ -593,6 +593,52 @@ function AdminContent() {
         </div>
       </div>
 
+      {provisioningOverview ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Core Service Checklist</p>
+              <p className="mt-1 text-sm text-slate-500">Use this as the CPA handoff board for the firm.</p>
+            </div>
+            <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+              {provisioningOverview.summary.coreConnected}/{provisioningOverview.summary.coreTotal} core services connected
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {Object.values(provisioningOverview.services)
+              .filter((service) => service.core)
+              .map((service) => (
+                <button
+                  key={service.key}
+                  onClick={() => {
+                    setActiveTab(service.key);
+                    setShowRegister(service.setupMode === 'signup');
+                  }}
+                  className="rounded-2xl border border-slate-200 px-4 py-4 text-left transition hover:border-brand-200 hover:bg-brand-50/40"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{service.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{service.preferredAction.replace(/_/g, ' ')}</p>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusTone(service.health)}`}>
+                      {statusLabel(service.health)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
+                      {service.configured ? 'Credentials saved' : 'Credentials missing'}
+                    </span>
+                    <span className={service.launch?.setup ? 'badge-blue' : 'badge'}>
+                      {service.launch?.setup ? 'Setup available' : 'No setup route'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex gap-1 overflow-x-auto pb-1">
         {SERVICE_TABS.map((service) => {
           const entry = serviceStatus[service.key];
