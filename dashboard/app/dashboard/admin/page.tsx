@@ -16,6 +16,8 @@ interface ServiceTab {
   loginPath?: string;
   registerPath?: string;
   adminPath?: string;
+  setupPath?: string;
+  embedPreferred?: boolean;
   setupMode: SetupMode;
   signupNote?: string;
   setupNote?: string;
@@ -32,6 +34,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://docs.maxed.life',
     loginPath: '',
     adminPath: '',
+    embedPreferred: true,
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email or Username', password: 'Password', token: 'API Token', metadata: 'Metadata' },
@@ -49,6 +52,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://sign.maxed.life',
     loginPath: '',
     adminPath: '',
+    embedPreferred: true,
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
@@ -66,13 +70,16 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://billing.maxed.life',
     loginPath: '/#/login',
     adminPath: '/#/settings/user_management',
+    setupPath: '/setup',
+    embedPreferred: false,
     setupMode: 'manual',
-    setupNote: 'Invoice Ninja does not expose staff self-signup here. Its public registration is for the client portal, so the CPA account must be created from the admin billing workspace.',
+    setupNote: 'Invoice Ninja does not expose staff self-signup here. If the instance is not initialized yet, use the initial setup flow first. After that, create CPA staff users from User Management.',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Provision the CPA user inside Invoice Ninja, then save the user login and API token.',
     checklist: [
-      'Sign in with the admin dev account.',
+      'If this is a fresh instance, complete the initial setup flow first to create the first admin account.',
+      'Sign in with the admin account.',
       'Create the CPA staff user from Invoice Ninja user management.',
       'Create an API token for that user under account or API token settings.',
       'Save the email, password, and API token in Maxed.',
@@ -84,6 +91,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://flow.maxed.life',
     loginPath: '',
     adminPath: '',
+    embedPreferred: true,
     setupMode: 'manual',
     fields: ['token'],
     labels: { username: 'Username', password: 'Password', token: 'API Key', metadata: 'Metadata' },
@@ -100,12 +108,14 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://time.maxed.life',
     loginPath: '',
     adminPath: '/en/admin/user/',
+    embedPreferred: false,
     setupMode: 'manual',
-    setupNote: 'Kimai self-registration is not dependable for this stack. Provision the CPA user from the admin account, then generate that user API token.',
+    setupNote: 'Kimai can create the first user either from the login/register screen or via the server command line. After the first super admin exists, create additional CPA users from Kimai administration.',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Create the Kimai user from the admin account and save the login plus API token.',
     checklist: [
+      'If no Kimai admin exists yet, create the first super admin from the login/register screen or via the Kimai CLI command documented upstream.',
       'Sign in with the Kimai admin account.',
       'Create the CPA user manually in Kimai administration.',
       'Open that user profile and generate an API token.',
@@ -119,6 +129,7 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/auth/login',
     registerPath: '/auth/register',
     adminPath: '/admin/users',
+    embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Bigcapital exposes a direct register route, and Maxed now proxies its API correctly. If the firm signup page was buffering forever before, that was a platform routing problem rather than a user error.',
     fields: ['username', 'password', 'token', 'metadata'],
@@ -138,6 +149,7 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '',
     registerPath: '/sign-up',
     adminPath: '',
+    embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Twenty supports direct signup, so this setup can stay on the create-account flow.',
     fields: ['username', 'password', 'token'],
@@ -156,12 +168,15 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://reports.maxed.life',
     loginPath: '/auth/login',
     adminPath: '/admin/people',
+    setupPath: '/setup',
+    embedPreferred: false,
     setupMode: 'manual',
-    setupNote: 'Metabase does not expose normal public self-signup. Invite the CPA user from Admin > People or provision it directly from the admin account.',
+    setupNote: 'Metabase does not expose normal public self-signup. A fresh instance must complete the initial setup flow to create the first admin account; after that, invite CPA users from Admin > People.',
     fields: ['username', 'password'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Invite the CPA user in Metabase, then save the login here.',
     checklist: [
+      'If this Metabase instance is fresh, complete the initial setup flow first to create the first admin account.',
       'Sign in with the Metabase admin account.',
       'Invite the CPA user from the People or Admin area.',
       'Have the invited user finish password setup, or reset the password manually if needed.',
@@ -175,6 +190,7 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/login',
     registerPath: '/signup_email',
     adminPath: '/admin_console/user_management/users',
+    embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Mattermost email signup is now explicitly enabled in the container config. If you prefer controlled provisioning, you can still create the CPA user from the system admin account and then save those credentials here.',
     fields: ['username', 'password'],
@@ -384,9 +400,11 @@ function AdminContent() {
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const canRegister = activeSvc.setupMode === 'signup' && Boolean(activeSvc.registerPath);
   const isManualProvision = activeSvc.setupMode === 'manual';
+  const useEmbeddedFlow = activeSvc.embedPreferred !== false;
   const loginUrl = buildServiceUrl(baseUrl, activeSvc.loginPath);
   const registerUrl = activeSvc.registerPath ? buildServiceUrl(baseUrl, activeSvc.registerPath) : '';
   const adminUrl = activeSvc.adminPath ? buildServiceUrl(baseUrl, activeSvc.adminPath) : baseUrl;
+  const setupUrl = activeSvc.setupPath ? buildServiceUrl(baseUrl, activeSvc.setupPath) : '';
   const iframeUrl = buildServiceUrl(
     baseUrl,
     showRegister && activeSvc.registerPath ? activeSvc.registerPath : activeSvc.loginPath,
@@ -453,7 +471,7 @@ function AdminContent() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">CPA readiness</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Core readiness</p>
           <p className={`mt-2 text-lg font-semibold ${cpaReady ? 'text-green-600' : 'text-amber-600'}`}>
             {cpaReady ? 'Core stack ready' : `${cpaReadyCount}/${cpaReadyCore.length} core services live`}
           </p>
@@ -519,9 +537,9 @@ function AdminContent() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs text-gray-400">
-                    {activeSvc.name} at <code className="rounded bg-gray-100 px-1">{isManualProvision ? adminUrl : iframeUrl}</code>
+                    {activeSvc.name} at <code className="rounded bg-gray-100 px-1">{useEmbeddedFlow ? iframeUrl : adminUrl}</code>
                   </span>
-                  {canRegister && !isManualProvision ? (
+                  {canRegister && useEmbeddedFlow ? (
                     <div className="overflow-hidden rounded-md border border-gray-200 text-xs">
                       <button
                         onClick={() => setShowRegister(true)}
@@ -545,7 +563,7 @@ function AdminContent() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-500">
-                  {isManualProvision
+                  {!useEmbeddedFlow
                     ? 'This service is admin-provisioned. Use the launch buttons to open the upstream admin area in a new tab, create the user there, then save the credentials in Maxed.'
                     : 'If the embedded app blocks framing or is not the right place to provision users, use the external launch buttons and follow the setup checklist on the right.'}
                 </p>
@@ -555,9 +573,14 @@ function AdminContent() {
                 <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
                   Open service
                 </a>
-                {isManualProvision ? (
+                {!useEmbeddedFlow ? (
                   <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
                     Open admin console
+                  </a>
+                ) : null}
+                {!useEmbeddedFlow && setupUrl ? (
+                  <a href={setupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                    Open initial setup
                   </a>
                 ) : null}
                 {activeSvc.loginPath !== undefined ? (
@@ -574,7 +597,7 @@ function AdminContent() {
             </div>
           </div>
 
-          {iframeVisible && !isManualProvision ? (
+          {iframeVisible && useEmbeddedFlow ? (
             <iframe
               key={`${activeTab}-${showRegister}`}
               src={iframeUrl}
@@ -584,8 +607,8 @@ function AdminContent() {
             />
           ) : (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
-              {isManualProvision
-                ? 'This service uses admin-created accounts rather than public signup. Open the upstream admin console in a new tab, create the user there, then save the credentials here.'
+              {!useEmbeddedFlow
+                ? 'This service should be set up from a dedicated launch flow instead of the embedded login page. Use the launch buttons above for initial setup, admin user creation, or login, then save the resulting credentials here.'
                 : 'Embedded view hidden. Use the external launch buttons above and the setup checklist on the right to complete provisioning.'}
             </div>
           )}
@@ -617,9 +640,9 @@ function AdminContent() {
             </div>
           ) : null}
 
-          {isManualProvision ? (
+          {!useEmbeddedFlow ? (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              This service does not use self-signup for CPA staff onboarding here. Open the upstream admin area, create or invite the user there, then save the resulting credentials back into Maxed.
+              This service is not supposed to be created from the embedded login page. Use the launch buttons above to either complete the first-install setup flow or open the upstream admin area to create or invite the user.
             </div>
           ) : null}
 
