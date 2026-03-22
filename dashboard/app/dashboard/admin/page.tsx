@@ -15,6 +15,7 @@ interface ServiceTab {
   defaultUrl: string;
   loginPath?: string;
   registerPath?: string;
+  adminPath?: string;
   setupMode: SetupMode;
   signupNote?: string;
   setupNote?: string;
@@ -30,6 +31,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'Paperless',
     defaultUrl: 'https://docs.maxed.life',
     loginPath: '',
+    adminPath: '',
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email or Username', password: 'Password', token: 'API Token', metadata: 'Metadata' },
@@ -46,6 +48,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'DocuSeal',
     defaultUrl: 'https://sign.maxed.life',
     loginPath: '',
+    adminPath: '',
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
@@ -62,6 +65,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'Invoice Ninja',
     defaultUrl: 'https://billing.maxed.life',
     loginPath: '/#/login',
+    adminPath: '/#/settings/user_management',
     setupMode: 'manual',
     setupNote: 'Invoice Ninja does not expose staff self-signup here. Its public registration is for the client portal, so the CPA account must be created from the admin billing workspace.',
     fields: ['username', 'password', 'token'],
@@ -79,6 +83,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'n8n',
     defaultUrl: 'https://flow.maxed.life',
     loginPath: '',
+    adminPath: '',
     setupMode: 'manual',
     fields: ['token'],
     labels: { username: 'Username', password: 'Password', token: 'API Key', metadata: 'Metadata' },
@@ -94,6 +99,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'Kimai',
     defaultUrl: 'https://time.maxed.life',
     loginPath: '',
+    adminPath: '/en/admin/user/',
     setupMode: 'manual',
     setupNote: 'Kimai self-registration is not dependable for this stack. Provision the CPA user from the admin account, then generate that user API token.',
     fields: ['username', 'password', 'token'],
@@ -112,6 +118,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://books.maxed.life',
     loginPath: '/auth/login',
     registerPath: '/auth/register',
+    adminPath: '/admin/users',
     setupMode: 'signup',
     signupNote: 'Bigcapital exposes a direct register route, and Maxed now proxies its API correctly. If the firm signup page was buffering forever before, that was a platform routing problem rather than a user error.',
     fields: ['username', 'password', 'token', 'metadata'],
@@ -130,6 +137,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://crm.maxed.life',
     loginPath: '',
     registerPath: '/sign-up',
+    adminPath: '',
     setupMode: 'signup',
     signupNote: 'Twenty supports direct signup, so this setup can stay on the create-account flow.',
     fields: ['username', 'password', 'token'],
@@ -147,6 +155,7 @@ const SERVICE_TABS: ServiceTab[] = [
     name: 'Metabase',
     defaultUrl: 'https://reports.maxed.life',
     loginPath: '/auth/login',
+    adminPath: '/admin/people',
     setupMode: 'manual',
     setupNote: 'Metabase does not expose normal public self-signup. Invite the CPA user from Admin > People or provision it directly from the admin account.',
     fields: ['username', 'password'],
@@ -165,6 +174,7 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://chat.maxed.life',
     loginPath: '/login',
     registerPath: '/signup_email',
+    adminPath: '/admin_console/user_management/users',
     setupMode: 'signup',
     signupNote: 'Mattermost email signup is now explicitly enabled in the container config. If you prefer controlled provisioning, you can still create the CPA user from the system admin account and then save those credentials here.',
     fields: ['username', 'password'],
@@ -373,8 +383,10 @@ function AdminContent() {
   const activeSvc = SERVICE_TABS.find((item) => item.key === activeTab)!;
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const canRegister = activeSvc.setupMode === 'signup' && Boolean(activeSvc.registerPath);
+  const isManualProvision = activeSvc.setupMode === 'manual';
   const loginUrl = buildServiceUrl(baseUrl, activeSvc.loginPath);
   const registerUrl = activeSvc.registerPath ? buildServiceUrl(baseUrl, activeSvc.registerPath) : '';
+  const adminUrl = activeSvc.adminPath ? buildServiceUrl(baseUrl, activeSvc.adminPath) : baseUrl;
   const iframeUrl = buildServiceUrl(
     baseUrl,
     showRegister && activeSvc.registerPath ? activeSvc.registerPath : activeSvc.loginPath,
@@ -507,9 +519,9 @@ function AdminContent() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs text-gray-400">
-                    {activeSvc.name} at <code className="rounded bg-gray-100 px-1">{iframeUrl}</code>
+                    {activeSvc.name} at <code className="rounded bg-gray-100 px-1">{isManualProvision ? adminUrl : iframeUrl}</code>
                   </span>
-                  {canRegister ? (
+                  {canRegister && !isManualProvision ? (
                     <div className="overflow-hidden rounded-md border border-gray-200 text-xs">
                       <button
                         onClick={() => setShowRegister(true)}
@@ -533,7 +545,9 @@ function AdminContent() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-500">
-                  If the embedded app blocks framing or is not the right place to provision users, use the external launch buttons and follow the setup checklist on the right.
+                  {isManualProvision
+                    ? 'This service is admin-provisioned. Use the launch buttons to open the upstream admin area in a new tab, create the user there, then save the credentials in Maxed.'
+                    : 'If the embedded app blocks framing or is not the right place to provision users, use the external launch buttons and follow the setup checklist on the right.'}
                 </p>
               </div>
 
@@ -541,6 +555,11 @@ function AdminContent() {
                 <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
                   Open service
                 </a>
+                {isManualProvision ? (
+                  <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                    Open admin console
+                  </a>
+                ) : null}
                 {activeSvc.loginPath !== undefined ? (
                   <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
                     Open login
@@ -555,7 +574,7 @@ function AdminContent() {
             </div>
           </div>
 
-          {iframeVisible ? (
+          {iframeVisible && !isManualProvision ? (
             <iframe
               key={`${activeTab}-${showRegister}`}
               src={iframeUrl}
@@ -565,7 +584,9 @@ function AdminContent() {
             />
           ) : (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
-              Embedded view hidden. Use the external launch buttons above and the setup checklist on the right to complete provisioning.
+              {isManualProvision
+                ? 'This service uses admin-created accounts rather than public signup. Open the upstream admin console in a new tab, create the user there, then save the credentials here.'
+                : 'Embedded view hidden. Use the external launch buttons above and the setup checklist on the right to complete provisioning.'}
             </div>
           )}
         </div>
@@ -593,6 +614,12 @@ function AdminContent() {
           {(activeSvc.signupNote || activeSvc.setupNote) ? (
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
               {activeSvc.signupNote || activeSvc.setupNote}
+            </div>
+          ) : null}
+
+          {isManualProvision ? (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              This service does not use self-signup for CPA staff onboarding here. Open the upstream admin area, create or invite the user there, then save the resulting credentials back into Maxed.
             </div>
           ) : null}
 
