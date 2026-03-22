@@ -241,6 +241,26 @@ type ServiceCatalogEntry = {
   defaultUrl?: string | null;
 };
 
+type ProvisioningOverview = {
+  firmId: string;
+  services: Record<string, ServiceCatalogEntry & {
+    configured: boolean;
+    health: ServiceHealth;
+    source: string;
+    launch: {
+      service?: string | null;
+      setup?: string | null;
+      admin?: string | null;
+    };
+  }>;
+  summary: {
+    connected: number;
+    configured: number;
+    coreConnected: number;
+    coreTotal: number;
+  };
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -264,6 +284,7 @@ function AdminContent() {
   const [iframeVisible, setIframeVisible] = useState(true);
   const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
   const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
+  const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -298,6 +319,10 @@ function AdminContent() {
           if (res.ok) setFirm(await res.json());
         } catch {}
         await fetchCredentials(firmIdParam);
+        try {
+          const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`));
+          if (res.ok) setProvisioningOverview(await res.json());
+        } catch {}
       }
 
       setLoading(false);
@@ -420,7 +445,8 @@ function AdminContent() {
   }
 
   const activeSvc = SERVICE_TABS.find((item) => item.key === activeTab)!;
-  const catalogEntry = serviceCatalog[activeTab];
+  const overviewEntry = provisioningOverview?.services?.[activeTab];
+  const catalogEntry = overviewEntry || serviceCatalog[activeTab];
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const canRegister = activeSvc.setupMode === 'signup' && Boolean(activeSvc.registerPath);
   const isManualProvision = activeSvc.setupMode === 'manual';
@@ -449,8 +475,8 @@ function AdminContent() {
     },
     { connected: 0, degraded: 0, disconnected: 0, unknown: 0 },
   );
-  const connectedServiceCount = SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
-  const configuredServiceCount = SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
+  const connectedServiceCount = provisioningOverview?.summary.connected ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
+  const configuredServiceCount = provisioningOverview?.summary.configured ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
   const allConnected = connectedServiceCount === SERVICE_TABS.length;
 
   const statusLabel = (health?: ServiceHealth) => {
@@ -615,12 +641,12 @@ function AdminContent() {
                   Open service
                 </a>
                 {!useEmbeddedFlow ? (
-                  <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                  <a href={overviewEntry?.launch?.admin || adminUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
                     Open admin console
                   </a>
                 ) : null}
-                {!useEmbeddedFlow && setupUrl ? (
-                  <a href={setupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                {!useEmbeddedFlow && (overviewEntry?.launch?.setup || setupUrl) ? (
+                  <a href={overviewEntry?.launch?.setup || setupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
                     Open initial setup
                   </a>
                 ) : null}

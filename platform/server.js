@@ -969,6 +969,13 @@ function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
 
+function buildPublicServiceUrl(service, path = "") {
+  const baseUrl = getPublicServiceUrl(service);
+  if (!baseUrl) return null;
+  if (!path) return baseUrl;
+  return `${String(baseUrl).replace(/\/$/, "")}${path}`;
+}
+
 function normalizeBridgeTarget(target) {
   if (typeof target !== "string" || !target.trim()) return "/";
   if (/^https?:\/\//i.test(target)) return "/";
@@ -2365,6 +2372,61 @@ app.get("/api/services/catalog", (_req, res) => {
       defaultUrl: PUBLIC_SERVICES[service.key] || null,
     })),
   );
+});
+
+app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const results = {};
+    const status = {};
+
+    for (const [name, url] of Object.entries(SERVICES)) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        const r = await fetch(`${url}/`, { signal: controller.signal });
+        clearTimeout(timeout);
+        status[name] = { status: "connected", code: r.status };
+      } catch {
+        status[name] = { status: "unavailable" };
+      }
+    }
+
+    for (const service of Object.values(SERVICE_CATALOG)) {
+      const cred = await getServiceCredential(firmId, service.key);
+      const hasFirmCred = !!cred?.token || (!!cred?.username && !!cred?.password) || !!cred?.username;
+      const healthState = status[service.key]?.status === "connected"
+        ? "connected"
+        : hasFirmCred
+          ? "degraded"
+          : "disconnected";
+
+      results[service.key] = {
+        ...service,
+        configured: hasFirmCred,
+        health: healthState,
+        source: hasFirmCred ? "firm" : "none",
+        launch: {
+          service: buildPublicServiceUrl(service.key),
+          setup: buildPublicServiceUrl(service.key, service.setupPath || ""),
+          admin: buildPublicServiceUrl(service.key, service.adminPath || ""),
+        },
+      };
+    }
+
+    res.json({
+      firmId,
+      services: results,
+      summary: {
+        connected: Object.values(results).filter((entry) => entry.health === "connected").length,
+        configured: Object.values(results).filter((entry) => entry.configured).length,
+        coreConnected: Object.values(results).filter((entry) => entry.core && entry.health === "connected").length,
+        coreTotal: Object.values(results).filter((entry) => entry.core).length,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---------------------------------------------------------------------------
