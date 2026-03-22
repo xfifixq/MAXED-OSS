@@ -194,7 +194,7 @@ export default function ClientDetailPage() {
               {editing ? 'Close Editor' : 'Edit Client'}
             </button>
             <Link href="/dashboard/documents" className="btn-secondary text-sm">Documents</Link>
-            <Link href="/dashboard/advisory" className="btn-primary text-sm">Run Scenario</Link>
+            <Link href={`/dashboard/advisory?clientId=${client.id}`} className="btn-primary text-sm">Run Scenario</Link>
           </div>
         </div>
       </div>
@@ -394,7 +394,7 @@ export default function ClientDetailPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900">Advisory Scenarios</h3>
-            <Link href="/dashboard/advisory" className="btn-primary text-sm">
+            <Link href={`/dashboard/advisory?clientId=${client.id}`} className="btn-primary text-sm">
               Run New Scenario
             </Link>
           </div>
