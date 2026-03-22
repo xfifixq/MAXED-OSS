@@ -193,7 +193,7 @@ export default function ClientDetailPage() {
             <button onClick={() => setEditing((current) => !current)} className="btn-secondary text-sm">
               {editing ? 'Close Editor' : 'Edit Client'}
             </button>
-            <Link href="/dashboard/documents" className="btn-secondary text-sm">Documents</Link>
+            <Link href={`/dashboard/documents?clientId=${client.id}`} className="btn-secondary text-sm">Documents</Link>
             <Link href={`/dashboard/advisory?clientId=${client.id}`} className="btn-primary text-sm">Run Scenario</Link>
           </div>
         </div>
@@ -305,10 +305,10 @@ export default function ClientDetailPage() {
               <p className="mt-1 text-sm text-slate-500">{summary.recentMessages || client.messages.length} messages in the current client history.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Link href="/dashboard/invoicing" className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
+              <Link href={`/dashboard/invoicing?clientId=${client.id}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
                 Open billing workspace
               </Link>
-              <Link href="/dashboard/documents" className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
+              <Link href={`/dashboard/documents?clientId=${client.id}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
                 Review documents
               </Link>
             </div>
@@ -320,7 +320,7 @@ export default function ClientDetailPage() {
         <div className="card">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <h3 className="text-sm font-semibold text-gray-900">Documents</h3>
-            <Link href="/dashboard/documents" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+            <Link href={`/dashboard/documents?clientId=${client.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
               Open in Documents
             </Link>
           </div>
@@ -351,7 +351,7 @@ export default function ClientDetailPage() {
         <div className="card">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <h3 className="text-sm font-semibold text-gray-900">Invoices</h3>
-            <Link href="/dashboard/invoicing" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+            <Link href={`/dashboard/invoicing?clientId=${client.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
               Open Billing
             </Link>
           </div>

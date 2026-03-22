@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { apiUrl } from '@/lib/api';
 import { useFirmReady } from '@/lib/useFirmReady';
@@ -31,6 +33,8 @@ type DraftPayment = {
 
 export default function InvoicingPage() {
   const { isReady } = useFirmReady();
+  const searchParams = useSearchParams();
+  const preferredClientId = searchParams.get('clientId') || '';
   const [loading, setLoading] = useState(true);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
@@ -73,7 +77,8 @@ export default function InvoicingPage() {
     if (localClientsResult.status === 'fulfilled') {
       const normalizedClients = normalizeFirmClients(localClientsResult.value);
       setClients(normalizedClients);
-      setDraft((current) => ({ ...current, clientId: current.clientId || normalizedClients[0]?.id || '' }));
+      const nextClientId = preferredClientId || normalizedClients[0]?.id || '';
+      setDraft((current) => ({ ...current, clientId: current.clientId || nextClientId }));
     } else {
       setError(localClientsResult.reason instanceof Error ? localClientsResult.reason.message : 'Unable to load billing workspace.');
     }
@@ -103,7 +108,7 @@ export default function InvoicingPage() {
     }
 
     setLoading(false);
-  }, [isReady]);
+  }, [isReady, preferredClientId]);
 
   useEffect(() => {
     loadBilling();
@@ -131,6 +136,11 @@ export default function InvoicingPage() {
     const overdue = remoteInvoices.filter((invoice) => invoice.balanceDue > 0 && invoice.dueDate && new Date(invoice.dueDate) < new Date()).length;
     return { outstanding, billed, collected, overdue };
   }, [payments, remoteInvoices]);
+
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === draft.clientId) || null,
+    [clients, draft.clientId],
+  );
 
   const createInvoice = useCallback(async () => {
     if (!draft.clientId || !draft.amount || !draft.dueDate) return;
@@ -244,6 +254,19 @@ export default function InvoicingPage() {
             />
           ) : (
             <div className="space-y-4">
+              {selectedClient ? (
+                <div className="rounded-2xl border border-brand-200 bg-brand-50/50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{selectedClient.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">Invoice creation is currently scoped to this client.</p>
+                    </div>
+                    <Link href={`/dashboard/clients/${selectedClient.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
+                      Open client
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
               <div>
                 <label className="block text-sm font-medium text-slate-700">Firm client</label>
                 <select

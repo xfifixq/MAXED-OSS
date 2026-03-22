@@ -2,6 +2,8 @@
 
 import type { ChangeEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   WorkspaceEmpty,
   WorkspaceError,
@@ -58,6 +60,8 @@ function toBase64(file: File) {
 
 export default function DocumentsPage() {
   const { firmId, isReady } = useFirmReady();
+  const searchParams = useSearchParams();
+  const preferredClientId = searchParams.get('clientId') || '';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -113,7 +117,7 @@ export default function DocumentsPage() {
       setClients(normalizedClients);
       setUploadState((current) => ({
         ...current,
-        clientId: current.clientId || normalizedClients[0]?.id || '',
+        clientId: current.clientId || preferredClientId || normalizedClients[0]?.id || '',
       }));
     } else {
       setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : 'Unable to load client records.');
@@ -151,7 +155,7 @@ export default function DocumentsPage() {
     }
 
     setLoading(false);
-  }, [filters.correspondent, filters.documentType, filters.search, filters.tag, isReady]);
+  }, [filters.correspondent, filters.documentType, filters.search, filters.tag, isReady, preferredClientId]);
 
   useEffect(() => {
     loadDocuments();
@@ -169,6 +173,11 @@ export default function DocumentsPage() {
         )
         .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [clients],
+  );
+
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === uploadState.clientId) || null,
+    [clients, uploadState.clientId],
   );
 
   const pendingReviewCount = localDocuments.filter((document) => /pending|review/i.test(document.status)).length;
@@ -354,6 +363,19 @@ export default function DocumentsPage() {
       <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
         <WorkspacePanel title="Upload intake" description="Attach files to a client record and sync them into the Paperless vault.">
           <div className="space-y-4">
+            {selectedClient ? (
+              <div className="rounded-2xl border border-brand-200 bg-brand-50/50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{selectedClient.name}</p>
+                    <p className="mt-1 text-sm text-slate-500">Document intake is currently scoped to this client.</p>
+                  </div>
+                  <Link href={`/dashboard/clients/${selectedClient.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
+                    Open client
+                  </Link>
+                </div>
+              </div>
+            ) : null}
             <div>
               <label className="block text-sm font-medium text-slate-700">Assign to client</label>
               <select
