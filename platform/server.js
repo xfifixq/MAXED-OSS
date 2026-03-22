@@ -1062,6 +1062,23 @@ function generatePortalAccessCode() {
   return Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
 }
 
+function generateStrongPassword(length = 20) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
+  let password = "";
+  for (let i = 0; i < length; i += 1) {
+    password += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return password;
+}
+
+function slugifyName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+}
+
 function normalizeCredentialField(value) {
   if (typeof value !== "string") return value ?? undefined;
   const trimmed = value.trim();
@@ -2423,6 +2440,57 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
         coreConnected: Object.values(results).filter((entry) => entry.core && entry.health === "connected").length,
         coreTotal: Object.values(results).filter((entry) => entry.core).length,
       },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/provisioning/prepare/:service", async (req, res) => {
+  try {
+    const { firmId, service } = req.params;
+    const firm = await prisma.firm.findUnique({
+      where: { id: firmId },
+      select: { id: true, name: true, email: true },
+    });
+
+    if (!firm) return res.status(404).json({ error: "Firm not found" });
+    if (!SERVICE_CATALOG[service]) return res.status(404).json({ error: "Service not supported" });
+
+    const baseEmail = String(firm.email || "").trim().toLowerCase();
+    const emailParts = baseEmail.includes("@") ? baseEmail.split("@") : [slugifyName(firm.name), "maxed.local"];
+    const localPart = emailParts[0] || slugifyName(firm.name) || "firm";
+    const domainPart = emailParts[1] || "maxed.local";
+    const slug = slugifyName(firm.name) || "firm";
+
+    const defaults = {
+      username: `${localPart}+${service}@${domainPart}`,
+      password: generateStrongPassword(),
+      token: "",
+      metadata: "",
+    };
+
+    if (service === "mattermost") {
+      defaults.username = `${slug}-${service}`.replace(/[^a-z0-9-_]/g, "").slice(0, 22) || `${slug}chat`;
+    }
+
+    if (service === "bigcapital") {
+      defaults.metadata = slug;
+    }
+
+    if (service === "n8n") {
+      defaults.username = baseEmail || `${slug}@${domainPart}`;
+    }
+
+    if (service === "kimai" || service === "metabase" || service === "invoiceninja" || service === "docuseal" || service === "paperless" || service === "twenty") {
+      defaults.username = baseEmail || `${localPart}@${domainPart}`;
+    }
+
+    res.json({
+      firmId,
+      service,
+      suggested: defaults,
+      note: SERVICE_CATALOG[service].note,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

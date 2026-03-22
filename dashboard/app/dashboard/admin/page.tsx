@@ -278,6 +278,7 @@ function AdminContent() {
   const [credentials, setCredentials] = useState<Record<string, Credential>>({});
   const [credForm, setCredForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
@@ -413,6 +414,37 @@ function AdminContent() {
       setMessage('Unable to connect.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePrepare = async () => {
+    if (!firmIdParam) return;
+
+    setPreparing(true);
+    setMessage('');
+
+    try {
+      const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/prepare/${activeTab}`), {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || 'Unable to prepare credentials.');
+        return;
+      }
+
+      setCredForm((current) => ({
+        ...current,
+        username: data?.suggested?.username ?? current.username ?? '',
+        password: data?.suggested?.password ?? current.password ?? '',
+        token: data?.suggested?.token ?? current.token ?? '',
+        metadata: data?.suggested?.metadata ?? current.metadata ?? '',
+      }));
+      setMessage('Suggested credentials prepared.');
+    } catch {
+      setMessage('Unable to prepare credentials.');
+    } finally {
+      setPreparing(false);
     }
   };
 
@@ -776,6 +808,14 @@ function AdminContent() {
             className="btn-primary mt-4 w-full text-sm disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Credentials'}
+          </button>
+
+          <button
+            onClick={handlePrepare}
+            disabled={preparing}
+            className="btn-secondary mt-2 w-full text-sm disabled:opacity-50"
+          >
+            {preparing ? 'Preparing...' : 'Generate Suggested Credentials'}
           </button>
 
           {isConfigured ? (
