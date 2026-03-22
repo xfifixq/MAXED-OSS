@@ -339,6 +339,52 @@ app.get("/api/firms/:firmId/clients", async (req, res) => {
   }
 });
 
+app.get("/api/firms/:firmId/clients/:clientId", async (req, res) => {
+  try {
+    const client = await prisma.client.findFirst({
+      where: { id: req.params.clientId, firmId: req.params.firmId },
+      include: { documents: true, invoices: true, scenarios: true, messages: true },
+    });
+    if (!client) return res.status(404).json({ error: "Client not found" });
+    res.json(client);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/firms/:firmId/clients/:clientId", async (req, res) => {
+  try {
+    const existing = await prisma.client.findFirst({
+      where: { id: req.params.clientId, firmId: req.params.firmId },
+      select: { id: true },
+    });
+    if (!existing) return res.status(404).json({ error: "Client not found" });
+
+    const client = await prisma.client.update({
+      where: { id: req.params.clientId },
+      data: req.body,
+    });
+    res.json(client);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete("/api/firms/:firmId/clients/:clientId", async (req, res) => {
+  try {
+    const existing = await prisma.client.findFirst({
+      where: { id: req.params.clientId, firmId: req.params.firmId },
+      select: { id: true },
+    });
+    if (!existing) return res.status(404).json({ error: "Client not found" });
+
+    await prisma.client.delete({ where: { id: req.params.clientId } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Scenarios
 // ---------------------------------------------------------------------------

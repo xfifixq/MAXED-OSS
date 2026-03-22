@@ -1,50 +1,53 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { firmApiUrl } from '@/lib/api';
-
-interface Client {
-  id: string;
-  name: string;
-  businessType: string;
-  annualRevenue: number;
-  status: string;
-  email: string;
-}
+import { firmFetch } from '@/lib/service-client';
+import { formatCurrency, normalizeFirmClients } from '@/lib/service-adapters';
 
 function AddClientModal({
   open,
   onClose,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
+  onCreated: () => Promise<void>;
 }) {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    phone: '',
     businessType: 'LLC',
     annualRevenue: '',
+    employeeCount: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   if (!open) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setSubmitting(true);
+    setError('');
+
     try {
-      await fetch(firmApiUrl('/clients'), {
+      await firmFetch('/clients', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...form,
+          name: form.name,
+          email: form.email,
+          phone: form.phone || null,
+          businessType: form.businessType,
           annualRevenue: parseFloat(form.annualRevenue) || 0,
+          employeeCount: parseInt(form.employeeCount, 10) || 0,
         }),
       });
+      await onCreated();
       onClose();
-    } catch {
-      // Handle error silently for now
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to add client.');
     } finally {
       setSubmitting(false);
     }
@@ -53,11 +56,11 @@ function AddClientModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 mx-4">
-        <div className="flex items-center justify-between mb-5">
+      <div className="relative mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Add New Client</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -65,33 +68,20 @@ function AddClientModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
-            <input
-              className="input"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Enter business name"
-              required
-            />
+            <label className="mb-1 block text-sm font-medium text-gray-700">Business Name</label>
+            <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Enter business name" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              className="input"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="contact@business.com"
-              required
-            />
+            <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+            <input className="input" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="contact@business.com" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Business Type</label>
-            <select
-              className="input"
-              value={form.businessType}
-              onChange={(e) => setForm({ ...form, businessType: e.target.value })}
-            >
+            <label className="mb-1 block text-sm font-medium text-gray-700">Phone</label>
+            <input className="input" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="(555) 123-4567" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Business Type</label>
+            <select className="input" value={form.businessType} onChange={(event) => setForm({ ...form, businessType: event.target.value })}>
               <option value="LLC">LLC</option>
               <option value="S-Corp">S-Corp</option>
               <option value="C-Corp">C-Corp</option>
@@ -100,16 +90,18 @@ function AddClientModal({
               <option value="Non-Profit">Non-Profit</option>
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Annual Revenue</label>
-            <input
-              className="input"
-              type="number"
-              value={form.annualRevenue}
-              onChange={(e) => setForm({ ...form, annualRevenue: e.target.value })}
-              placeholder="0"
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Annual Revenue</label>
+              <input className="input" type="number" value={form.annualRevenue} onChange={(event) => setForm({ ...form, annualRevenue: event.target.value })} placeholder="0" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Employees</label>
+              <input className="input" type="number" value={form.employeeCount} onChange={(event) => setForm({ ...form, employeeCount: event.target.value })} placeholder="0" />
+            </div>
           </div>
+
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
@@ -126,113 +118,120 @@ function AddClientModal({
 }
 
 export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
+  const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function fetchClients() {
-      try {
-        const res = await fetch(firmApiUrl('/clients'));
-        if (res.ok) {
-          const data = await res.json();
-          setClients(Array.isArray(data) ? data : data.clients || []);
-        } else {
-          setClients([]);
-          setError(`Unable to load clients (${res.status}).`);
-        }
-      } catch {
-        setClients([]);
-        setError('Unable to load clients.');
-      } finally {
-        setLoading(false);
-      }
+  const loadClients = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const payload = await firmFetch('/clients');
+      setClients(normalizeFirmClients(payload));
+    } catch (err) {
+      setClients([]);
+      setError(err instanceof Error ? err.message : 'Unable to load clients.');
+    } finally {
+      setLoading(false);
     }
-    fetchClients();
   }, []);
 
-  const filteredClients = clients.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.businessType.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    loadClients();
+  }, [loadClients]);
 
-  const statusBadge = (status: string) => {
-    switch (status) {
+  const filteredClients = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return clients;
+    return clients.filter((client) =>
+      [client.name, client.businessType, client.email]
+        .join(' ')
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [clients, search]);
+
+  const clientStage = (client: ReturnType<typeof normalizeFirmClients>[number]) => {
+    if (client.invoices.some((invoice) => invoice.status !== 'paid')) return 'follow-up';
+    if (client.documents.length === 0 && client.messages.length === 0) return 'onboarding';
+    return 'active';
+  };
+
+  const statusBadge = (client: ReturnType<typeof normalizeFirmClients>[number]) => {
+    const stage = clientStage(client);
+    switch (stage) {
       case 'active':
         return <span className="badge-green">Active</span>;
       case 'onboarding':
         return <span className="badge-blue">Onboarding</span>;
-      case 'inactive':
-        return <span className="badge-yellow">Inactive</span>;
+      case 'follow-up':
+        return <span className="badge-yellow">Billing Follow-up</span>;
       default:
-        return <span className="badge">{status}</span>;
+        return <span className="badge">Client</span>;
     }
   };
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage your firm&apos;s client portfolio</p>
+          <p className="mt-1 text-sm text-gray-500">Manage your firm&apos;s client portfolio</p>
         </div>
         <button onClick={() => setShowAddModal(true)} className="btn-primary">
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Add Client
         </button>
       </div>
 
-      {/* Search */}
       <div className="card p-4">
         <div className="relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             type="text"
-            placeholder="Search clients by name or type..."
+            placeholder="Search clients by name, email, or type..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             className="input pl-9"
           />
         </div>
       </div>
 
-      {error && (
+      {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
-      )}
+      ) : null}
 
-      {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="border-b border-gray-200 bg-gray-50">
               <tr>
                 <th className="table-header">Name</th>
                 <th className="table-header">Business Type</th>
                 <th className="table-header">Annual Revenue</th>
-                <th className="table-header">Status</th>
+                <th className="table-header">Pipeline Status</th>
+                <th className="table-header">Activity</th>
                 <th className="table-header">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>
+                Array.from({ length: 5 }).map((_, index) => (
+                  <tr key={index}>
                     <td className="table-cell"><div className="skeleton h-4 w-40" /></td>
                     <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
                     <td className="table-cell"><div className="skeleton h-4 w-24" /></td>
-                    <td className="table-cell"><div className="skeleton h-5 w-16 rounded-full" /></td>
+                    <td className="table-cell"><div className="skeleton h-5 w-24 rounded-full" /></td>
+                    <td className="table-cell"><div className="skeleton h-4 w-20" /></td>
                     <td className="table-cell"><div className="skeleton h-4 w-12" /></td>
                   </tr>
                 ))
@@ -240,21 +239,21 @@ export default function ClientsPage() {
                 filteredClients.map((client) => (
                   <tr key={client.id} className="hover:bg-gray-50">
                     <td className="table-cell">
-                      <Link
-                        href={`/dashboard/clients/${client.id}`}
-                        className="font-medium text-brand-600 hover:text-brand-700"
-                      >
-                        {client.name}
-                      </Link>
+                      <div>
+                        <Link href={`/dashboard/clients/${client.id}`} className="font-medium text-brand-600 hover:text-brand-700">
+                          {client.name}
+                        </Link>
+                        <p className="mt-0.5 text-xs text-gray-400">{client.email}</p>
+                      </div>
                     </td>
-                    <td className="table-cell text-gray-500">{client.businessType}</td>
-                    <td className="table-cell">{formatCurrency(client.annualRevenue)}</td>
-                    <td className="table-cell">{statusBadge(client.status)}</td>
+                    <td className="table-cell text-gray-500">{client.businessType || 'Unclassified'}</td>
+                    <td className="table-cell">{formatCurrency(client.annualRevenue || 0)}</td>
+                    <td className="table-cell">{statusBadge(client)}</td>
+                    <td className="table-cell text-sm text-gray-500">
+                      {client.documents.length} docs · {client.invoices.length} invoices · {client.messages.length} msgs
+                    </td>
                     <td className="table-cell">
-                      <Link
-                        href={`/dashboard/clients/${client.id}`}
-                        className="text-sm text-brand-600 hover:text-brand-700 font-medium"
-                      >
+                      <Link href={`/dashboard/clients/${client.id}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
                         View
                       </Link>
                     </td>
@@ -262,7 +261,7 @@ export default function ClientsPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
                     No clients found
                   </td>
                 </tr>
@@ -272,7 +271,7 @@ export default function ClientsPage() {
         </div>
       </div>
 
-      <AddClientModal open={showAddModal} onClose={() => setShowAddModal(false)} />
+      <AddClientModal open={showAddModal} onClose={() => setShowAddModal(false)} onCreated={loadClients} />
     </div>
   );
 }
