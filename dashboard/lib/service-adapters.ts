@@ -210,8 +210,11 @@ export interface PaperlessDocument {
   id: string;
   title: string;
   createdAt: string | null;
+  correspondentId: string;
   correspondent: string;
+  documentTypeId: string;
   documentType: string;
+  tagIds: string[];
   tags: string[];
   archiveSerialNumber: string;
   originalFileName: string;
@@ -223,22 +226,33 @@ export interface PaperlessTag {
   documentCount: number;
 }
 
+export interface PaperlessLookupOption {
+  id: string;
+  name: string;
+  documentCount: number;
+}
+
 export function normalizePaperlessDocuments(value: unknown): PaperlessDocument[] {
   return uniqueById(
     extractCollection(value, ['results', 'documents', 'data']).map((item) => ({
       id: stringValue(item.id),
       title: stringValue(item.title || item.original_file_name || item.name || 'Untitled document'),
       createdAt: dateValue(item.created || item.created_date || item.createdAt || item.added || item.modified),
+      correspondentId: stringValue(asRecord(item.correspondent).id, item.correspondent_id),
       correspondent: stringValue(
         asRecord(item.correspondent).name,
         item.correspondent_name,
         item.correspondent,
       ),
+      documentTypeId: stringValue(asRecord(item.document_type).id, item.document_type_id),
       documentType: stringValue(
         asRecord(item.document_type).name,
         item.document_type_name,
         item.document_type,
       ),
+      tagIds: extractCollection(item.tags, ['results', 'data'])
+        .map((tag) => stringValue(tag.id))
+        .filter(Boolean),
       tags: extractCollection(item.tags, ['results', 'data'])
         .map((tag) => stringValue(tag.name || tag.label || tag.id))
         .filter(Boolean),
@@ -254,6 +268,91 @@ export function normalizePaperlessTags(value: unknown): PaperlessTag[] {
       id: stringValue(item.id),
       name: stringValue(item.name || item.label || 'Tag'),
       documentCount: numberValue(item.document_count || item.documents_count || item.count),
+    })),
+  );
+}
+
+export function normalizePaperlessLookupOptions(value: unknown): PaperlessLookupOption[] {
+  return uniqueById(
+    extractCollection(value, ['results', 'data']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(item.name || item.label || item.title || 'Option'),
+      documentCount: numberValue(item.document_count || item.documents_count || item.count),
+    })),
+  );
+}
+
+export interface InvoiceNinjaClient {
+  id: string;
+  name: string;
+  email: string;
+  balance: number;
+  paidToDate: number;
+}
+
+export interface InvoiceNinjaInvoice {
+  id: string;
+  number: string;
+  clientId: string;
+  clientName: string;
+  amount: number;
+  balanceDue: number;
+  status: string;
+  dueDate: string | null;
+  createdAt: string | null;
+}
+
+export interface InvoiceNinjaPayment {
+  id: string;
+  invoiceId: string;
+  clientId: string;
+  amount: number;
+  status: string;
+  date: string | null;
+}
+
+export function normalizeInvoiceNinjaClients(value: unknown): InvoiceNinjaClient[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'clients', 'results']).map((item) => {
+      const contacts = extractCollection(item.contacts, ['data', 'contacts', 'results']);
+      const primary = contacts[0] || {};
+
+      return {
+        id: stringValue(item.id),
+        name: stringValue(item.name || item.display_name || 'Client'),
+        email: stringValue(primary.email, item.email),
+        balance: numberValue(item.balance || item.balance_due),
+        paidToDate: numberValue(item.paid_to_date || item.paidToDate),
+      };
+    }),
+  );
+}
+
+export function normalizeInvoiceNinjaInvoices(value: unknown): InvoiceNinjaInvoice[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'invoices', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      number: stringValue(item.number || item.invoice_number || item.id),
+      clientId: stringValue(item.client_id || asRecord(item.client).id),
+      clientName: stringValue(asRecord(item.client).name, item.client_name, 'Client'),
+      amount: numberValue(item.amount || item.total || item.balance),
+      balanceDue: numberValue(item.balance || item.amount_due || item.partial),
+      status: stringValue(item.status || item.state || 'draft'),
+      dueDate: dateValue(item.due_date || item.dueDate),
+      createdAt: dateValue(item.created_at || item.createdAt || item.date),
+    })),
+  );
+}
+
+export function normalizeInvoiceNinjaPayments(value: unknown): InvoiceNinjaPayment[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'payments', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      invoiceId: stringValue(item.invoice_id || asRecord(item.invoice).id),
+      clientId: stringValue(item.client_id || asRecord(item.client).id),
+      amount: numberValue(item.amount),
+      status: stringValue(item.status || 'completed'),
+      date: dateValue(item.date || item.created_at || item.createdAt),
     })),
   );
 }
@@ -558,6 +657,11 @@ export interface KimaiActivity {
   name: string;
 }
 
+export interface KimaiCustomer {
+  id: string;
+  name: string;
+}
+
 export function normalizeKimaiProjects(value: unknown): KimaiProject[] {
   return uniqueById(
     extractCollection(value, ['data', 'projects', 'results']).map((item) => ({
@@ -572,6 +676,15 @@ export function normalizeKimaiActivities(value: unknown): KimaiActivity[] {
     extractCollection(value, ['data', 'activities', 'results']).map((item) => ({
       id: stringValue(item.id),
       name: stringValue(item.name || item.title || 'Activity'),
+    })),
+  );
+}
+
+export function normalizeKimaiCustomers(value: unknown): KimaiCustomer[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'customers', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(item.name || item.title || 'Customer'),
     })),
   );
 }
@@ -595,5 +708,106 @@ export function normalizeKimaiTimesheets(value: unknown): TimesheetEntry[] {
         rate: numberValue(item.rate || item.hourlyRate || item.internal_rate),
       };
     }),
+  );
+}
+
+export interface MattermostTeam {
+  id: string;
+  name: string;
+  displayName: string;
+}
+
+export interface MattermostChannel {
+  id: string;
+  name: string;
+  displayName: string;
+  type: string;
+}
+
+export interface MattermostPost {
+  id: string;
+  message: string;
+  channelId: string;
+  userId: string;
+  createAt: string | null;
+}
+
+export function normalizeMattermostTeams(value: unknown): MattermostTeam[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'teams', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(item.name || item.display_name || 'team'),
+      displayName: stringValue(item.display_name || item.name || 'Team'),
+    })),
+  );
+}
+
+export function normalizeMattermostChannels(value: unknown): MattermostChannel[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'channels', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(item.name || item.display_name || 'channel'),
+      displayName: stringValue(item.display_name || item.name || 'Channel'),
+      type: stringValue(item.type || 'O'),
+    })),
+  );
+}
+
+export function normalizeMattermostPosts(value: unknown): MattermostPost[] {
+  const record = asRecord(value);
+  const postsRecord = asRecord(record.posts);
+  const order = Array.isArray(record.order) ? record.order : Object.keys(postsRecord);
+
+  return order
+    .map((id) => asRecord(postsRecord[String(id)]))
+    .map((item) => ({
+      id: stringValue(item.id),
+      message: stringValue(item.message),
+      channelId: stringValue(item.channel_id),
+      userId: stringValue(item.user_id),
+      createAt: dateValue(item.create_at),
+    }))
+    .filter((item) => item.id);
+}
+
+export interface TwentyCompany {
+  id: string;
+  name: string;
+  domain: string;
+  createdAt: string | null;
+}
+
+export interface TwentyPerson {
+  id: string;
+  name: string;
+  email: string;
+  companyId: string;
+  createdAt: string | null;
+}
+
+export function normalizeTwentyCompanies(value: unknown): TwentyCompany[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'companies', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(item.name || item.displayName || 'Company'),
+      domain: stringValue(item.domainName || item.domain || item.website),
+      createdAt: dateValue(item.createdAt || item.created_at),
+    })),
+  );
+}
+
+export function normalizeTwentyPeople(value: unknown): TwentyPerson[] {
+  return uniqueById(
+    extractCollection(value, ['data', 'people', 'results']).map((item) => ({
+      id: stringValue(item.id),
+      name: stringValue(
+        item.name,
+        [stringValue(item.firstName), stringValue(item.lastName)].filter(Boolean).join(' '),
+        'Person',
+      ),
+      email: stringValue(item.primaryEmail || item.email),
+      companyId: stringValue(asRecord(item.company).id, item.companyId || item.company_id),
+      createdAt: dateValue(item.createdAt || item.created_at),
+    })),
   );
 }

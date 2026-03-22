@@ -1,193 +1,318 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
-import { formatDateTime, normalizeFirmClients } from '@/lib/service-adapters';
+import { serviceFetch } from '@/lib/service-client';
+import {
+  formatDateTime,
+  normalizeMattermostChannels,
+  normalizeMattermostPosts,
+  normalizeMattermostTeams,
+} from '@/lib/service-adapters';
+
+type DraftChannel = {
+  teamId: string;
+  name: string;
+  displayName: string;
+  type: 'O' | 'P';
+};
 
 export default function ChatPage() {
-  const { data: session } = useSession();
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [creatingChannel, setCreatingChannel] = useState(false);
   const [error, setError] = useState('');
-  const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
-  const [activeClientId, setActiveClientId] = useState('');
+  const [currentUserName, setCurrentUserName] = useState('Team member');
+  const [teams, setTeams] = useState<ReturnType<typeof normalizeMattermostTeams>>([]);
+  const [channels, setChannels] = useState<ReturnType<typeof normalizeMattermostChannels>>([]);
+  const [posts, setPosts] = useState<ReturnType<typeof normalizeMattermostPosts>>([]);
+  const [activeTeamId, setActiveTeamId] = useState('');
+  const [activeChannelId, setActiveChannelId] = useState('');
   const [draftMessage, setDraftMessage] = useState('');
+  const [draftChannel, setDraftChannel] = useState<DraftChannel>({
+    teamId: '',
+    name: '',
+    displayName: '',
+    type: 'O',
+  });
 
-  const loadMessages = useCallback(async () => {
+  const loadWorkspace = useCallback(async () => {
     if (!isReady) return;
 
     setLoading(true);
     setError('');
 
     try {
-      const clientsPayload = await firmFetch('/clients');
-      const normalizedClients = normalizeFirmClients(clientsPayload).sort((a, b) => {
-        const latestA = a.messages[0]?.createdAt || a.createdAt || '';
-        const latestB = b.messages[0]?.createdAt || b.createdAt || '';
-        return latestB.localeCompare(latestA);
-      });
-      setClients(normalizedClients);
-      setActiveClientId((current) => current || normalizedClients[0]?.id || '');
+      const [mePayload, teamsPayload] = await Promise.all([
+        serviceFetch('/api/services/mattermost/me'),
+        serviceFetch('/api/services/mattermost/teams'),
+      ]);
+
+      const nextTeams = normalizeMattermostTeams(teamsPayload);
+      setTeams(nextTeams);
+      setCurrentUserName(String((mePayload as { username?: string; first_name?: string; last_name?: string })?.username || 'Team member'));
+      setActiveTeamId((current) => current || nextTeams[0]?.id || '');
+      setDraftChannel((current) => ({ ...current, teamId: current.teamId || nextTeams[0]?.id || '' }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load conversations.');
+      setError(err instanceof Error ? err.message : 'Unable to load team chat.');
     } finally {
       setLoading(false);
     }
   }, [isReady]);
 
+  const loadChannels = useCallback(async () => {
+    if (!isReady || !activeTeamId) return;
+
+    try {
+      const payload = await serviceFetch(`/api/services/mattermost/teams/${activeTeamId}/channels`);
+      const nextChannels = normalizeMattermostChannels(payload);
+      setChannels(nextChannels);
+      setActiveChannelId((current) => current || nextChannels[0]?.id || '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load channels.');
+    }
+  }, [activeTeamId, isReady]);
+
+  const loadPosts = useCallback(async () => {
+    if (!isReady || !activeChannelId) return;
+
+    try {
+      const payload = await serviceFetch(`/api/services/mattermost/channels/${activeChannelId}/posts`);
+      setPosts(normalizeMattermostPosts(payload));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load posts.');
+    }
+  }, [activeChannelId, isReady]);
+
   useEffect(() => {
-    loadMessages();
-    if (!isReady) return;
+    loadWorkspace();
+  }, [loadWorkspace]);
 
-    const interval = window.setInterval(loadMessages, 30000);
+  useEffect(() => {
+    loadChannels();
+  }, [loadChannels]);
+
+  useEffect(() => {
+    loadPosts();
+    if (!activeChannelId) return;
+
+    const interval = window.setInterval(loadPosts, 15000);
     return () => window.clearInterval(interval);
-  }, [isReady, loadMessages]);
-
-  const activeClient = useMemo(
-    () => clients.find((client) => client.id === activeClientId) || null,
-    [activeClientId, clients],
-  );
-
-  const totalMessages = useMemo(
-    () => clients.reduce((sum, client) => sum + client.messages.length, 0),
-    [clients],
-  );
+  }, [activeChannelId, loadPosts]);
 
   const sendMessage = useCallback(async () => {
-    if (!activeClient || !draftMessage.trim()) return;
+    if (!activeChannelId || !draftMessage.trim()) return;
 
     setSending(true);
     setError('');
 
     try {
-      await serviceFetch(`/api/clients/${activeClient.id}/messages`, {
+      await serviceFetch(`/api/services/mattermost/channels/${activeChannelId}/posts`, {
         method: 'POST',
         body: JSON.stringify({
-          senderType: 'firm',
-          content: draftMessage.trim(),
+          channel_id: activeChannelId,
+          message: draftMessage.trim(),
         }),
       });
       setDraftMessage('');
-      await loadMessages();
+      await loadPosts();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to send message.');
     } finally {
       setSending(false);
     }
-  }, [activeClient, draftMessage, loadMessages]);
+  }, [activeChannelId, draftMessage, loadPosts]);
+
+  const createChannel = useCallback(async () => {
+    if (!draftChannel.teamId || !draftChannel.name.trim() || !draftChannel.displayName.trim()) return;
+
+    setCreatingChannel(true);
+    setError('');
+
+    try {
+      await serviceFetch('/api/services/mattermost/channels', {
+        method: 'POST',
+        body: JSON.stringify({
+          team_id: draftChannel.teamId,
+          name: draftChannel.name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-'),
+          display_name: draftChannel.displayName.trim(),
+          type: draftChannel.type,
+        }),
+      });
+
+      setDraftChannel((current) => ({
+        ...current,
+        name: '',
+        displayName: '',
+      }));
+      await loadChannels();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create channel.');
+    } finally {
+      setCreatingChannel(false);
+    }
+  }, [draftChannel.displayName, draftChannel.name, draftChannel.teamId, draftChannel.type, loadChannels]);
+
+  const activeChannel = useMemo(
+    () => channels.find((channel) => channel.id === activeChannelId) || null,
+    [activeChannelId, channels],
+  );
 
   return (
     <WorkspaceShell
       service="mattermost"
-      eyebrow="Native Client Chat"
-      title="Maxed Messages"
-      description="A unified, client-facing messaging workspace inside Maxed. Conversations now stay in the product shell instead of bouncing users into an embedded chat app."
+      eyebrow="Native Team Chat"
+      title="Maxed Team Chat"
+      description="Mattermost-backed team collaboration for a CPA firm. Browse teams and channels, create new channels, and post messages from the Maxed shell."
       actions={
-        <button onClick={loadMessages} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
-          Refresh inbox
+        <button onClick={loadWorkspace} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
+          Refresh chat
         </button>
       }
       metrics={
         <>
-          <WorkspaceMetric label="Active conversations" value={loading ? '--' : String(clients.filter((client) => client.messages.length > 0).length)} detail="Client threads with message history" />
-          <WorkspaceMetric label="Messages" value={loading ? '--' : String(totalMessages)} detail="Firm-wide conversation volume" />
-          <WorkspaceMetric label="Contacts" value={loading ? '--' : String(clients.length)} detail="Clients available to message" />
-          <WorkspaceMetric label="Signed in as" value={loading ? '--' : String((session?.user as { name?: string } | undefined)?.name || 'Firm staff')} detail="Outbound messages are sent from the firm side" />
+          <WorkspaceMetric label="Teams" value={loading ? '--' : String(teams.length)} detail="Mattermost teams available" />
+          <WorkspaceMetric label="Channels" value={loading ? '--' : String(channels.length)} detail="Channels in the selected team" />
+          <WorkspaceMetric label="Posts" value={loading ? '--' : String(posts.length)} detail="Current channel history" />
+          <WorkspaceMetric label="Signed in as" value={loading ? '--' : currentUserName} detail="Mattermost user backing this workspace" />
         </>
       }
     >
-      {error ? <WorkspaceError message={error} onRetry={loadMessages} /> : null}
+      {error ? <WorkspaceError message={error} onRetry={loadWorkspace} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[0.78fr,1.22fr]">
-        <WorkspacePanel title="Conversation list" description="Client communication threads surfaced as native Maxed inbox cards.">
-          {loading ? (
-            <WorkspaceSkeleton rows={6} />
-          ) : clients.length === 0 ? (
-            <WorkspaceEmpty
-              title="No client conversations"
-              message="Add a client or wait for inbound portal messages to start a thread."
-            />
-          ) : (
-            <div className="space-y-3">
-              {clients.map((client) => {
-                const latestMessage = [...client.messages].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
-                const active = client.id === activeClientId;
-                return (
-                  <button
-                    key={client.id}
-                    onClick={() => setActiveClientId(client.id)}
-                    className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
-                      active ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
+      <div className="grid gap-6 xl:grid-cols-[0.82fr,1.18fr]">
+        <div className="space-y-6">
+          <WorkspacePanel title="Teams and channels" description="Choose a team, then work inside its channel list.">
+            {loading ? (
+              <WorkspaceSkeleton rows={6} />
+            ) : teams.length === 0 ? (
+              <WorkspaceEmpty title="No teams available" message="Create or join a Mattermost team before using the native chat workspace." />
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Team</label>
+                  <select
+                    className="input mt-2"
+                    value={activeTeamId}
+                    onChange={(event) => {
+                      setActiveTeamId(event.target.value);
+                      setActiveChannelId('');
+                      setDraftChannel((current) => ({ ...current, teamId: event.target.value }));
+                    }}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-900">{client.name}</p>
-                        <p className="mt-1 text-sm text-slate-500">{client.email}</p>
-                      </div>
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-                        {client.messages.length}
-                      </span>
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-sm text-slate-500">
-                      {latestMessage?.content || 'No messages yet'}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </WorkspacePanel>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  {channels.map((channel) => {
+                    const active = channel.id === activeChannelId;
+                    return (
+                      <button
+                        key={channel.id}
+                        onClick={() => setActiveChannelId(channel.id)}
+                        className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
+                          active ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="font-medium text-slate-900">{channel.displayName}</p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
+                          {channel.type === 'P' ? 'Private channel' : 'Public channel'}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </WorkspacePanel>
 
-        <WorkspacePanel title={activeClient ? activeClient.name : 'Conversation'} description="View and respond to client messages without leaving Maxed.">
+          <WorkspacePanel title="Create channel" description="Open a new client room, close-team room, or engagement channel.">
+            {loading ? (
+              <WorkspaceSkeleton rows={4} />
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Team</label>
+                  <select
+                    className="input mt-2"
+                    value={draftChannel.teamId}
+                    onChange={(event) => setDraftChannel((current) => ({ ...current, teamId: event.target.value }))}
+                  >
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Display name</label>
+                  <input
+                    className="input mt-2"
+                    value={draftChannel.displayName}
+                    onChange={(event) => setDraftChannel((current) => ({ ...current, displayName: event.target.value }))}
+                    placeholder="Client onboarding"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">URL name</label>
+                  <input
+                    className="input mt-2"
+                    value={draftChannel.name}
+                    onChange={(event) => setDraftChannel((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="client-onboarding"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Visibility</label>
+                  <select
+                    className="input mt-2"
+                    value={draftChannel.type}
+                    onChange={(event) => setDraftChannel((current) => ({ ...current, type: event.target.value as 'O' | 'P' }))}
+                  >
+                    <option value="O">Public</option>
+                    <option value="P">Private</option>
+                  </select>
+                </div>
+                <button onClick={createChannel} disabled={creatingChannel} className="btn-primary w-full disabled:opacity-60">
+                  {creatingChannel ? 'Creating channel...' : 'Create channel'}
+                </button>
+              </div>
+            )}
+          </WorkspacePanel>
+        </div>
+
+        <WorkspacePanel title={activeChannel ? activeChannel.displayName : 'Channel'} description="View and respond to the current Mattermost thread.">
           {loading ? (
             <WorkspaceSkeleton rows={6} />
-          ) : !activeClient ? (
-            <WorkspaceEmpty
-              title="No conversation selected"
-              message="Choose a client thread from the left to review or send a message."
-            />
+          ) : !activeChannel ? (
+            <WorkspaceEmpty title="No channel selected" message="Choose a team channel from the left to read or post messages." />
           ) : (
             <div className="space-y-4">
-              <div className="max-h-[32rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                {activeClient.messages.length === 0 ? (
-                  <WorkspaceEmpty
-                    title="Start the conversation"
-                    message="This client does not have any messages yet. Send the first note from the composer below."
-                  />
+              <div className="max-h-[34rem] space-y-3 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                {posts.length === 0 ? (
+                  <WorkspaceEmpty title="No posts yet" message="Start the conversation in this channel from the composer below." />
                 ) : (
-                  [...activeClient.messages]
-                    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
-                    .map((message) => {
-                      const isFirm = message.senderType === 'firm';
-                      return (
-                        <div key={message.id} className={`flex ${isFirm ? 'justify-end' : 'justify-start'}`}>
-                          <div
-                            className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                              isFirm ? 'bg-brand-600 text-white' : 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-                            }`}
-                          >
-                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                            <p className={`mt-2 text-xs ${isFirm ? 'text-brand-100' : 'text-slate-400'}`}>
-                              {formatDateTime(message.createdAt)}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })
+                  posts.map((post) => (
+                    <div key={post.id} className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
+                      <p className="text-sm whitespace-pre-wrap text-slate-900">{post.message}</p>
+                      <p className="mt-2 text-xs text-slate-400">{formatDateTime(post.createAt)}</p>
+                    </div>
+                  ))
                 )}
               </div>
-
               <div className="space-y-3">
                 <textarea
                   className="input min-h-[120px] resize-y"
                   value={draftMessage}
                   onChange={(event) => setDraftMessage(event.target.value)}
-                  placeholder={`Message ${activeClient.name}...`}
+                  placeholder={`Post to ${activeChannel.displayName}...`}
                 />
                 <div className="flex justify-end">
                   <button onClick={sendMessage} disabled={sending || !draftMessage.trim()} className="btn-primary disabled:opacity-60">

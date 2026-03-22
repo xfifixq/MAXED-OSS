@@ -41,6 +41,8 @@ export default function ReportingPage() {
   const [profitLoss, setProfitLoss] = useState<ReturnType<typeof normalizeBigcapitalStatement>>([]);
   const [selectedDashboardId, setSelectedDashboardId] = useState('');
   const [selectedDashboard, setSelectedDashboard] = useState<ReturnType<typeof normalizeMetabaseDashboardDetail>>(null);
+  const [dashboardSearch, setDashboardSearch] = useState('');
+  const [questionSearch, setQuestionSearch] = useState('');
 
   const loadAnalytics = useCallback(async () => {
     if (!isReady) return;
@@ -95,7 +97,7 @@ export default function ReportingPage() {
     }
 
     setLoading(false);
-  }, [isReady]);
+  }, [isReady, selectedDashboardId]);
 
   const loadSelectedDashboard = useCallback(async () => {
     if (!selectedDashboardId || !isReady) return;
@@ -124,9 +126,31 @@ export default function ReportingPage() {
     return { revenue, expenses, netIncome, assets };
   }, [balanceSheet, profitLoss]);
 
-  const sortedQuestions = useMemo(
-    () => [...questions].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
-    [questions],
+  const filteredDashboards = useMemo(() => {
+    const query = dashboardSearch.trim().toLowerCase();
+    if (!query) return dashboards;
+    return dashboards.filter((dashboard) =>
+      [dashboard.name, dashboard.description].join(' ').toLowerCase().includes(query),
+    );
+  }, [dashboardSearch, dashboards]);
+
+  const filteredQuestions = useMemo(() => {
+    const query = questionSearch.trim().toLowerCase();
+    const ordered = [...questions].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    if (!query) return ordered;
+    return ordered.filter((question) =>
+      [question.name, question.description, question.display].join(' ').toLowerCase().includes(query),
+    );
+  }, [questionSearch, questions]);
+
+  const financeReviewCards = useMemo(
+    () => [
+      { label: 'Revenue', value: totals.revenue },
+      { label: 'Expenses', value: totals.expenses },
+      { label: 'Net income', value: totals.netIncome },
+      { label: 'Assets', value: totals.assets },
+    ],
+    [totals.assets, totals.expenses, totals.netIncome, totals.revenue],
   );
 
   return (
@@ -134,7 +158,7 @@ export default function ReportingPage() {
       service="metabase"
       eyebrow="Native Analytics"
       title="Maxed Analytics"
-      description="A native reporting hub that blends firm KPIs, accounting signals, and the saved analytics catalog from Metabase without dropping the user into a separate dashboard product."
+      description="A fuller reporting hub for CPA review. Work from firm KPIs, accounting signals, dashboard inventory, and question libraries without leaving the Maxed shell."
       actions={
         <button onClick={loadAnalytics} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh analytics
@@ -154,43 +178,41 @@ export default function ReportingPage() {
         <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[0.95fr,1.25fr]">
-        <WorkspacePanel title="Performance snapshot" description="Key finance lines in a Maxed-native overview.">
+      <div className="grid gap-6 lg:grid-cols-[0.92fr,1.08fr]">
+        <WorkspacePanel title="Performance snapshot" description="Fast finance review cards sourced from live ledger data and firm KPIs.">
           {loading ? (
             <WorkspaceSkeleton rows={4} />
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-sm font-medium text-slate-500">Revenue</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totals.revenue)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-sm font-medium text-slate-500">Expenses</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totals.expenses)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-sm font-medium text-slate-500">Net income</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totals.netIncome)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-sm font-medium text-slate-500">Assets</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(totals.assets)}</p>
-              </div>
+              {financeReviewCards.map((card) => (
+                <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <p className="text-sm font-medium text-slate-500">{card.label}</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCurrency(card.value)}</p>
+                </div>
+              ))}
             </div>
           )}
         </WorkspacePanel>
 
-        <WorkspacePanel title="Dashboard catalog" description="Saved analytics workspaces exposed as native navigation cards.">
+        <WorkspacePanel
+          title="Dashboard catalog"
+          description="Search and select saved Metabase dashboards without leaving Maxed."
+          action={
+            <input
+              value={dashboardSearch}
+              onChange={(event) => setDashboardSearch(event.target.value)}
+              className="input min-w-[16rem]"
+              placeholder="Search dashboards..."
+            />
+          }
+        >
           {loading ? (
             <WorkspaceSkeleton rows={5} />
-          ) : dashboards.length === 0 ? (
-            <WorkspaceEmpty
-              title="No saved dashboards"
-              message="Metabase is connected, but no dashboards are available for this firm yet."
-            />
+          ) : filteredDashboards.length === 0 ? (
+            <WorkspaceEmpty title="No saved dashboards" message="Metabase is connected, but no dashboards match this search yet." />
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {dashboards.map((dashboard) => {
+              {filteredDashboards.map((dashboard) => {
                 const active = dashboard.id === selectedDashboardId;
                 return (
                   <button
@@ -215,15 +237,12 @@ export default function ReportingPage() {
         </WorkspacePanel>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-        <WorkspacePanel title="Selected dashboard" description="Card inventory for the currently selected analytics workspace.">
+      <div className="grid gap-6 xl:grid-cols-[1.08fr,0.92fr]">
+        <WorkspacePanel title="Selected dashboard" description="Inspect the card inventory for the current analytics workspace.">
           {loading ? (
             <WorkspaceSkeleton rows={4} />
           ) : !selectedDashboard ? (
-            <WorkspaceEmpty
-              title="No dashboard selected"
-              message="Choose a saved dashboard above to inspect its cards and question mix."
-            />
+            <WorkspaceEmpty title="No dashboard selected" message="Choose a saved dashboard above to inspect its cards and question mix." />
           ) : (
             <div className="space-y-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
@@ -231,10 +250,7 @@ export default function ReportingPage() {
                 <p className="mt-1 text-sm text-slate-500">{selectedDashboard.description || 'Saved dashboard overview'}</p>
               </div>
               {selectedDashboard.cards.length === 0 ? (
-                <WorkspaceEmpty
-                  title="No dashboard cards"
-                  message="This dashboard exists, but Metabase did not return any card metadata for it."
-                />
+                <WorkspaceEmpty title="No dashboard cards" message="This dashboard exists, but Metabase did not return any card metadata for it." />
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {selectedDashboard.cards.map((card) => (
@@ -249,17 +265,25 @@ export default function ReportingPage() {
           )}
         </WorkspacePanel>
 
-        <WorkspacePanel title="Question library" description="Recently updated saved questions in the analytics stack.">
+        <WorkspacePanel
+          title="Question library"
+          description="Search recently updated Metabase questions inside Maxed."
+          action={
+            <input
+              value={questionSearch}
+              onChange={(event) => setQuestionSearch(event.target.value)}
+              className="input min-w-[16rem]"
+              placeholder="Search questions..."
+            />
+          }
+        >
           {loading ? (
             <WorkspaceSkeleton rows={5} />
-          ) : sortedQuestions.length === 0 ? (
-            <WorkspaceEmpty
-              title="No saved questions"
-              message="Add saved questions in Metabase and they will appear here as first-class Maxed assets."
-            />
+          ) : filteredQuestions.length === 0 ? (
+            <WorkspaceEmpty title="No saved questions" message="Add saved questions in Metabase and they will appear here as first-class Maxed assets." />
           ) : (
             <div className="space-y-3">
-              {sortedQuestions.slice(0, 8).map((question) => (
+              {filteredQuestions.slice(0, 10).map((question) => (
                 <div key={question.id} className="rounded-2xl border border-slate-200 px-4 py-3">
                   <div className="flex items-start justify-between gap-4">
                     <div>

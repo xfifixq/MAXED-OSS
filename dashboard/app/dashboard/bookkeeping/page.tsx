@@ -40,6 +40,8 @@ export default function BookkeepingPage() {
   const [ledger, setLedger] = useState<LedgerState>(EMPTY_LEDGER);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [transactionSearch, setTransactionSearch] = useState('');
+  const [accountTypeFilter, setAccountTypeFilter] = useState('');
 
   const loadLedger = useCallback(async () => {
     if (!isReady) return;
@@ -84,20 +86,27 @@ export default function BookkeepingPage() {
     return { assets, liabilities, equity, revenue, expenses, netIncome };
   }, [ledger.balanceSheet, ledger.profitLoss]);
 
-  const accountGroups = useMemo(() => {
-    const groups = ledger.accounts.reduce<Record<string, { count: number; balance: number }>>((acc, account) => {
-      const key = account.type || 'Other';
-      if (!acc[key]) acc[key] = { count: 0, balance: 0 };
-      acc[key].count += 1;
-      acc[key].balance += account.balance;
-      return acc;
-    }, {});
+  const accountTypes = useMemo(
+    () => Array.from(new Set(ledger.accounts.map((account) => account.type).filter(Boolean))).sort(),
+    [ledger.accounts],
+  );
 
-    return Object.entries(groups)
-      .map(([label, value]) => ({ label, ...value }))
-      .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
-      .slice(0, 6);
-  }, [ledger.accounts]);
+  const filteredAccounts = useMemo(
+    () => ledger.accounts.filter((account) => !accountTypeFilter || account.type === accountTypeFilter),
+    [accountTypeFilter, ledger.accounts],
+  );
+
+  const filteredTransactions = useMemo(() => {
+    const query = transactionSearch.trim().toLowerCase();
+    if (!query) return ledger.transactions;
+
+    return ledger.transactions.filter((transaction) =>
+      [transaction.description, transaction.reference, transaction.contact]
+        .join(' ')
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [ledger.transactions, transactionSearch]);
 
   const statementHighlights = useMemo(() => {
     const highlights = [...ledger.balanceSheet, ...ledger.profitLoss]
@@ -112,7 +121,7 @@ export default function BookkeepingPage() {
       service="bigcapital"
       eyebrow="Native Ledger"
       title="Maxed Ledger"
-      description="A native bookkeeping workspace for account balances, statement health, and recent journal activity. Bigcapital remains the system of record behind the scenes, but the CPA workflow now stays inside Maxed."
+      description="A deeper bookkeeping workspace for CPA review. Search recent ledger activity, inspect chart of accounts slices, and work from balance sheet and P&L detail without bouncing straight into Bigcapital."
       actions={
         <button onClick={loadLedger} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh ledger
@@ -121,26 +130,31 @@ export default function BookkeepingPage() {
       metrics={
         <>
           <WorkspaceMetric label="Accounts" value={loading ? '--' : formatNumber(ledger.accounts.length)} detail="Live chart of accounts" />
-          <WorkspaceMetric label="Total assets" value={loading ? '--' : formatCurrency(totals.assets)} detail={`Liabilities ${formatCurrency(totals.liabilities)}`} />
+          <WorkspaceMetric label="Assets" value={loading ? '--' : formatCurrency(totals.assets)} detail={`Liabilities ${formatCurrency(totals.liabilities)}`} />
           <WorkspaceMetric label="Net income" value={loading ? '--' : formatCurrency(totals.netIncome)} detail={`Revenue ${formatCurrency(totals.revenue)}`} />
-          <WorkspaceMetric label="Recent activity" value={loading ? '--' : formatNumber(ledger.transactions.length)} detail="Latest posted transactions" />
+          <WorkspaceMetric label="Transactions" value={loading ? '--' : formatNumber(ledger.transactions.length)} detail="Recent posted activity" />
         </>
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadLedger} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr,0.95fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
         <WorkspacePanel
           title="Recent transactions"
-          description="Posted bookkeeping activity pulled through the Bigcapital adapter."
+          description="Search posted bookkeeping activity by description, contact, or reference."
+          action={
+            <input
+              value={transactionSearch}
+              onChange={(event) => setTransactionSearch(event.target.value)}
+              className="input min-w-[16rem]"
+              placeholder="Search transactions..."
+            />
+          }
         >
           {loading ? (
             <WorkspaceSkeleton rows={5} />
-          ) : ledger.transactions.length === 0 ? (
-            <WorkspaceEmpty
-              title="No transactions yet"
-              message="Transactions will appear here once the ledger connection is configured and activity has synced."
-            />
+          ) : filteredTransactions.length === 0 ? (
+            <WorkspaceEmpty title="No transactions returned" message="Try a different search, or confirm the Bigcapital ledger has posted activity." />
           ) : (
             <div className="overflow-hidden rounded-2xl border border-slate-200">
               <div className="overflow-x-auto">
@@ -155,7 +169,7 @@ export default function BookkeepingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {ledger.transactions.slice(0, 12).map((transaction) => (
+                    {filteredTransactions.slice(0, 20).map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-slate-50">
                         <td className="table-cell text-slate-500">{formatDate(transaction.date)}</td>
                         <td className="table-cell font-medium text-slate-900">{transaction.description}</td>
@@ -174,14 +188,11 @@ export default function BookkeepingPage() {
         </WorkspacePanel>
 
         <div className="space-y-6">
-          <WorkspacePanel title="Statement highlights" description="Top balance sheet and P&L lines surfaced natively.">
+          <WorkspacePanel title="Statement highlights" description="Top balance sheet and P&L lines surfaced for quick review.">
             {loading ? (
               <WorkspaceSkeleton rows={4} />
             ) : statementHighlights.length === 0 ? (
-              <WorkspaceEmpty
-                title="No statement lines available"
-                message="Once Bigcapital is connected, Maxed will flatten your balance sheet and P&L into reusable workspace cards."
-              />
+              <WorkspaceEmpty title="No statement lines available" message="Once Bigcapital is connected, Maxed will flatten statement detail into reusable review cards." />
             ) : (
               <div className="space-y-3">
                 {statementHighlights.map((line) => (
@@ -197,24 +208,34 @@ export default function BookkeepingPage() {
             )}
           </WorkspacePanel>
 
-          <WorkspacePanel title="Account mix" description="Which ledger buckets are carrying the most weight right now.">
+          <WorkspacePanel
+            title="Chart of accounts"
+            description="Filter the account list by account type and review live balances."
+            action={
+              <select className="input min-w-[12rem]" value={accountTypeFilter} onChange={(event) => setAccountTypeFilter(event.target.value)}>
+                <option value="">All account types</option>
+                {accountTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            }
+          >
             {loading ? (
               <WorkspaceSkeleton rows={4} />
-            ) : accountGroups.length === 0 ? (
-              <WorkspaceEmpty
-                title="No accounts returned"
-                message="The Bigcapital connection is active, but there are no account groups to summarize yet."
-              />
+            ) : filteredAccounts.length === 0 ? (
+              <WorkspaceEmpty title="No accounts returned" message="The ledger is connected, but there are no accounts in this slice yet." />
             ) : (
               <div className="space-y-3">
-                {accountGroups.map((group) => (
-                  <div key={group.label} className="rounded-2xl border border-slate-200 px-4 py-3">
+                {filteredAccounts.slice(0, 10).map((account) => (
+                  <div key={account.id} className="rounded-2xl border border-slate-200 px-4 py-3">
                     <div className="flex items-center justify-between gap-4">
                       <div>
-                        <p className="font-medium text-slate-900">{group.label}</p>
-                        <p className="text-sm text-slate-500">{group.count} account{group.count === 1 ? '' : 's'}</p>
+                        <p className="font-medium text-slate-900">{account.name}</p>
+                        <p className="text-sm text-slate-500">{account.code || 'No code'} · {account.type || 'Other'}</p>
                       </div>
-                      <p className="text-base font-semibold text-slate-950">{formatCurrency(group.balance)}</p>
+                      <p className="text-base font-semibold text-slate-950">{formatCurrency(account.balance, account.currency || 'USD')}</p>
                     </div>
                   </div>
                 ))}
@@ -224,22 +245,41 @@ export default function BookkeepingPage() {
         </div>
       </div>
 
-      <WorkspacePanel title="Balance sheet snapshot" description="Key accounting anchors surfaced without leaving the Maxed shell.">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-            <p className="text-sm font-medium text-slate-500">Assets</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{loading ? '--' : formatCurrency(totals.assets)}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-            <p className="text-sm font-medium text-slate-500">Liabilities</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{loading ? '--' : formatCurrency(totals.liabilities)}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-            <p className="text-sm font-medium text-slate-500">Equity</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{loading ? '--' : formatCurrency(totals.equity)}</p>
-          </div>
-        </div>
-      </WorkspacePanel>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <WorkspacePanel title="Balance sheet detail" description="Flattened Bigcapital balance sheet lines available for CPA review.">
+          {loading ? (
+            <WorkspaceSkeleton rows={5} />
+          ) : ledger.balanceSheet.length === 0 ? (
+            <WorkspaceEmpty title="No balance sheet data" message="Balance sheet lines will appear here once Bigcapital returns statement detail." />
+          ) : (
+            <div className="space-y-3">
+              {ledger.balanceSheet.slice(0, 14).map((line) => (
+                <div key={`${line.label}-${line.amount}`} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+                  <p className="font-medium text-slate-900">{line.label}</p>
+                  <p className="text-sm font-semibold text-slate-950">{formatCurrency(line.amount)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </WorkspacePanel>
+
+        <WorkspacePanel title="Profit and loss detail" description="Flattened income statement lines for quick review and follow-up.">
+          {loading ? (
+            <WorkspaceSkeleton rows={5} />
+          ) : ledger.profitLoss.length === 0 ? (
+            <WorkspaceEmpty title="No P&L data" message="Profit-and-loss lines will appear here once Bigcapital returns statement detail." />
+          ) : (
+            <div className="space-y-3">
+              {ledger.profitLoss.slice(0, 14).map((line) => (
+                <div key={`${line.label}-${line.amount}`} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+                  <p className="font-medium text-slate-900">{line.label}</p>
+                  <p className="text-sm font-semibold text-slate-950">{formatCurrency(line.amount)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </WorkspacePanel>
+      </div>
     </WorkspaceShell>
   );
 }

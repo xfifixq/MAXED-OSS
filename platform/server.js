@@ -1026,6 +1026,70 @@ async function invoiceNinjaAuth(firmId) {
     : { "X-Requested-With": "XMLHttpRequest" };
 }
 
+function invoiceNinjaResourceId(payload) {
+  return String(
+    payload?.data?.id ||
+    payload?.data?.client?.id ||
+    payload?.data?.invoice?.id ||
+    payload?.id ||
+    ""
+  );
+}
+
+async function ensureInvoiceNinjaClient(firmId, clientId) {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+  });
+
+  if (!client || client.firmId !== firmId) {
+    const err = new Error("Client not found");
+    err.status = 404;
+    throw err;
+  }
+
+  if (client.invoiceNinjaId) {
+    return { client, remoteClientId: client.invoiceNinjaId };
+  }
+
+  const [firstName, ...rest] = client.name.split(" ");
+  const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/clients", {
+    method: "POST",
+    headers: await invoiceNinjaAuth(firmId),
+    body: JSON.stringify({
+      name: client.name,
+      contacts: [
+        {
+          first_name: firstName || client.name,
+          last_name: rest.join(" "),
+          email: client.email,
+          phone: client.phone || undefined,
+          is_primary: true,
+        },
+      ],
+    }),
+  });
+
+  if (result.status >= 400) {
+    const err = new Error(result.data?.message || result.data?.error || "Invoice Ninja client sync failed");
+    err.status = result.status;
+    throw err;
+  }
+
+  const remoteClientId = invoiceNinjaResourceId(result.data);
+  if (!remoteClientId) {
+    const err = new Error("Invoice Ninja returned no client id");
+    err.status = 502;
+    throw err;
+  }
+
+  await prisma.client.update({
+    where: { id: client.id },
+    data: { invoiceNinjaId: remoteClientId },
+  });
+
+  return { client, remoteClientId };
+}
+
 async function bigcapitalAuth(firmId) {
   const cred = await getServiceCredential(firmId, "bigcapital");
   if (cred?.token) {
@@ -1159,9 +1223,12 @@ app.get("/bridge/:service", async (req, res) => {
 
 app.get("/api/services/paperless/documents", async (req, res) => {
   try {
-    const { page = 1, search = "" } = req.query;
+    const { page = 1, search = "", tag = "", correspondent = "", documentType = "" } = req.query;
     const qs = new URLSearchParams({ page: String(page), ordering: "-created" });
     if (search) qs.set("query", String(search));
+    if (tag) qs.set("tags__id", String(tag));
+    if (correspondent) qs.set("correspondent__id", String(correspondent));
+    if (documentType) qs.set("document_type__id", String(documentType));
     const result = await proxyFetch(
       SERVICES.paperless,
       `/api/documents/?${qs}`,
@@ -1206,6 +1273,29 @@ app.get("/api/services/paperless/documents/:id/download", async (req, res) => {
 
     const buffer = Buffer.from(await upstream.arrayBuffer());
     res.send(buffer);
+  } catch (err) {
+    res.status(502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.patch("/api/services/paperless/documents/:id", async (req, res) => {
+  try {
+    const upstream = await fetch(`${SERVICES.paperless}/api/documents/${req.params.id}/`, {
+      method: "PATCH",
+      headers: {
+        ...(await paperlessAuth(req.firmId)),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const text = await upstream.text();
+    try {
+      const json = text ? JSON.parse(text) : {};
+      return res.status(upstream.status).json(json);
+    } catch {
+      return res.status(upstream.status).send(text);
+    }
   } catch (err) {
     res.status(502).json({ error: "Paperless unavailable", detail: err.message });
   }
@@ -1264,6 +1354,28 @@ app.post("/api/services/paperless/documents/upload", async (req, res) => {
 app.get("/api/services/paperless/tags", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.paperless, "/api/tags/", {
+      headers: await paperlessAuth(req.firmId),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/paperless/correspondents", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.paperless, "/api/correspondents/", {
+      headers: await paperlessAuth(req.firmId),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/paperless/document-types", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.paperless, "/api/document_types/", {
       headers: await paperlessAuth(req.firmId),
     });
     res.status(result.status).json(result.data);
@@ -1400,10 +1512,60 @@ app.get("/api/services/kimai/projects", async (req, res) => {
   }
 });
 
+app.get("/api/services/kimai/customers", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.kimai, "/api/customers", {
+      headers: await kimaiAuth(req.firmId),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/kimai/customers", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.kimai, "/api/customers", {
+      method: "POST",
+      headers: await kimaiAuth(req.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/kimai/projects", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.kimai, "/api/projects", {
+      method: "POST",
+      headers: await kimaiAuth(req.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
 app.get("/api/services/kimai/activities", async (req, res) => {
   try {
     const result = await proxyFetch(SERVICES.kimai, "/api/activities", {
       headers: await kimaiAuth(req.firmId),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/kimai/activities", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.kimai, "/api/activities", {
+      method: "POST",
+      headers: await kimaiAuth(req.firmId),
+      body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
   } catch (err) {
@@ -1435,6 +1597,91 @@ app.get("/api/services/invoiceninja/clients", async (req, res) => {
       "/api/v1/clients?per_page=100",
       { headers: await invoiceNinjaAuth(req.firmId) }
     );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/invoiceninja/firm-clients/:clientId/sync", async (req, res) => {
+  try {
+    const result = await ensureInvoiceNinjaClient(req.firmId, req.params.clientId);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/invoiceninja/firm-clients/:clientId/invoices", async (req, res) => {
+  try {
+    const { amount, dueDate, description, status } = req.body || {};
+    if (!amount || !dueDate) {
+      return res.status(400).json({ error: "amount and dueDate are required" });
+    }
+
+    const { client, remoteClientId } = await ensureInvoiceNinjaClient(req.firmId, req.params.clientId);
+    const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/invoices", {
+      method: "POST",
+      headers: await invoiceNinjaAuth(req.firmId),
+      body: JSON.stringify({
+        client_id: remoteClientId,
+        due_date: new Date(dueDate).toISOString().slice(0, 10),
+        line_items: [
+          {
+            product_key: description || "Accounting services",
+            notes: description || "",
+            cost: Number(amount),
+            quantity: 1,
+          },
+        ],
+      }),
+    });
+
+    if (result.status >= 400) {
+      return res.status(result.status).json(result.data);
+    }
+
+    const invoiceNinjaId = invoiceNinjaResourceId(result.data);
+    const localInvoice = await prisma.invoice.create({
+      data: {
+        clientId: client.id,
+        amount: Number(amount),
+        status: status || "draft",
+        dueDate: new Date(dueDate),
+        invoiceNinjaId: invoiceNinjaId || null,
+      },
+    });
+
+    res.status(201).json({
+      localInvoice,
+      remote: result.data,
+    });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/invoiceninja/payments", async (req, res) => {
+  try {
+    const { page = 1 } = req.query;
+    const result = await proxyFetch(
+      SERVICES.invoiceninja,
+      `/api/v1/payments?page=${page}&per_page=50&sort=created_at|desc`,
+      { headers: await invoiceNinjaAuth(req.firmId) }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/invoiceninja/payments", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/payments", {
+      method: "POST",
+      headers: await invoiceNinjaAuth(req.firmId),
+      body: JSON.stringify(req.body),
+    });
     res.status(result.status).json(result.data);
   } catch (err) {
     res.status(502).json({ error: "Invoice Ninja unavailable", detail: err.message });
@@ -1780,6 +2027,49 @@ app.get("/api/services/mattermost/teams", async (req, res) => {
     if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
     const result = await proxyFetch(SERVICES.mattermost, "/api/v4/teams", {
       headers: { Authorization: "Bearer " + token },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/mattermost/me", async (req, res) => {
+  try {
+    const token = await getMattermostToken(req.firmId);
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users/me", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/mattermost/teams/:teamId/channels", async (req, res) => {
+  try {
+    const token = await getMattermostToken(req.firmId);
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(
+      SERVICES.mattermost,
+      `/api/v4/users/me/teams/${req.params.teamId}/channels`,
+      { headers: { Authorization: "Bearer " + token } }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/services/mattermost/channels", async (req, res) => {
+  try {
+    const token = await getMattermostToken(req.firmId);
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/channels", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token },
+      body: JSON.stringify(req.body),
     });
     res.status(result.status).json(result.data);
   } catch (err) {

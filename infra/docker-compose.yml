@@ -103,7 +103,7 @@ services:
     ports:
       - "3001:80"
     environment:
-      API_URL: http://bigcapital-server:3000
+      API_URL: /api
     depends_on:
       - bigcapital-server
 
@@ -354,6 +354,7 @@ services:
       MM_SQLSETTINGS_DATASOURCE: ${MM_SQLSETTINGS_DATASOURCE}
       MM_SERVICESETTINGS_SITEURL: https://chat.maxed.life
       MM_SERVICESETTINGS_ENABLEOPENSERVER: "true"
+      MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL: "true"
     volumes:
       - mattermost_config:/mattermost/config
       - mattermost_data:/mattermost/data
