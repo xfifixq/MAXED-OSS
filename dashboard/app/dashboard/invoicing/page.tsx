@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
+import { apiUrl } from '@/lib/api';
 import { useFirmReady } from '@/lib/useFirmReady';
 import { firmFetch, serviceFetch } from '@/lib/service-client';
 import {
@@ -38,6 +39,8 @@ export default function InvoicingPage() {
   const [remoteClients, setRemoteClients] = useState<ReturnType<typeof normalizeInvoiceNinjaClients>>([]);
   const [remoteInvoices, setRemoteInvoices] = useState<ReturnType<typeof normalizeInvoiceNinjaInvoices>>([]);
   const [payments, setPayments] = useState<ReturnType<typeof normalizeInvoiceNinjaPayments>>([]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+  const [selectedInvoiceDetail, setSelectedInvoiceDetail] = useState<Record<string, unknown> | null>(null);
   const [draft, setDraft] = useState<DraftInvoice>({
     clientId: '',
     amount: '',
@@ -84,6 +87,7 @@ export default function InvoicingPage() {
     if (invoicesResult.status === 'fulfilled') {
       const invoices = normalizeInvoiceNinjaInvoices(invoicesResult.value);
       setRemoteInvoices(invoices);
+      setSelectedInvoiceId((current) => current || invoices[0]?.id || '');
       setPaymentDraft((current) => ({
         ...current,
         invoiceId: current.invoiceId || invoices.find((invoice) => invoice.balanceDue > 0)?.id || '',
@@ -104,6 +108,21 @@ export default function InvoicingPage() {
   useEffect(() => {
     loadBilling();
   }, [loadBilling]);
+
+  const loadInvoiceDetail = useCallback(async () => {
+    if (!selectedInvoiceId || !isReady) return;
+
+    try {
+      const payload = await serviceFetch(`/api/services/invoiceninja/invoices/${selectedInvoiceId}`);
+      setSelectedInvoiceDetail((payload as { data?: Record<string, unknown> }).data || (payload as Record<string, unknown>));
+    } catch {
+      setSelectedInvoiceDetail(null);
+    }
+  }, [isReady, selectedInvoiceId]);
+
+  useEffect(() => {
+    loadInvoiceDetail();
+  }, [loadInvoiceDetail]);
 
   const totals = useMemo(() => {
     const outstanding = remoteInvoices.reduce((sum, invoice) => sum + invoice.balanceDue, 0);
@@ -175,6 +194,22 @@ export default function InvoicingPage() {
       setSavingPayment(false);
     }
   }, [loadBilling, paymentDraft.amount, paymentDraft.clientId, paymentDraft.date, paymentDraft.invoiceId, remoteInvoices]);
+
+  const downloadInvoice = useCallback(async (invoiceId: string, label: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/services/invoiceninja/invoices/${invoiceId}/download`));
+      if (!res.ok) throw new Error(`Unable to download ${label}.`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${label || invoiceId}.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to download invoice PDF.');
+    }
+  }, []);
 
   return (
     <WorkspaceShell
@@ -341,8 +376,12 @@ export default function InvoicingPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {remoteInvoices.map((invoice) => (
-                      <tr key={invoice.id} className="hover:bg-slate-50">
-                        <td className="table-cell font-medium text-slate-900">{invoice.number}</td>
+                      <tr key={invoice.id} className={`hover:bg-slate-50 ${selectedInvoiceId === invoice.id ? 'bg-brand-50/60' : ''}`}>
+                        <td className="table-cell font-medium text-slate-900">
+                          <button onClick={() => setSelectedInvoiceId(invoice.id)} className="text-left hover:text-brand-700">
+                            {invoice.number}
+                          </button>
+                        </td>
                         <td className="table-cell text-slate-500">{invoice.clientName}</td>
                         <td className="table-cell text-slate-500">{formatDate(invoice.dueDate)}</td>
                         <td className="table-cell">
@@ -363,6 +402,47 @@ export default function InvoicingPage() {
             <WorkspaceSkeleton rows={5} />
           ) : (
             <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 px-4 py-4">
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">Selected invoice</p>
+                {!selectedInvoiceId ? (
+                  <p className="mt-3 text-sm text-slate-500">Choose an invoice from the queue to inspect its live detail.</p>
+                ) : !selectedInvoiceDetail ? (
+                  <p className="mt-3 text-sm text-slate-500">Invoice detail is unavailable right now, but you can still download the PDF.</p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <p className="font-medium text-slate-900">{String(selectedInvoiceDetail.number || selectedInvoiceId)}</p>
+                      <p className="text-sm text-slate-500">{String(selectedInvoiceDetail.status || 'Invoice')}</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Amount</p>
+                        <p className="mt-1 text-sm text-slate-700">{formatCurrency(Number(selectedInvoiceDetail.amount || 0))}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Balance due</p>
+                        <p className="mt-1 text-sm text-slate-700">{formatCurrency(Number(selectedInvoiceDetail.balance || 0))}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Created</p>
+                        <p className="mt-1 text-sm text-slate-700">{formatDate(String(selectedInvoiceDetail.created_at || selectedInvoiceDetail.date || ''))}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Due</p>
+                        <p className="mt-1 text-sm text-slate-700">{formatDate(String(selectedInvoiceDetail.due_date || ''))}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {selectedInvoiceId ? (
+                  <div className="mt-4">
+                    <button onClick={() => downloadInvoice(selectedInvoiceId, String(selectedInvoiceDetail?.number || selectedInvoiceId))} className="btn-secondary">
+                      Download PDF
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="rounded-2xl border border-slate-200 px-4 py-4">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">Remote clients</p>
                 <div className="mt-3 space-y-3">

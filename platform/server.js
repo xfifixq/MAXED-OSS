@@ -1590,6 +1590,45 @@ app.get("/api/services/invoiceninja/invoices", async (req, res) => {
   }
 });
 
+app.get("/api/services/invoiceninja/invoices/:id", async (req, res) => {
+  try {
+    const result = await proxyFetch(
+      SERVICES.invoiceninja,
+      `/api/v1/invoices/${req.params.id}`,
+      { headers: await invoiceNinjaAuth(req.firmId) }
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/services/invoiceninja/invoices/:id/download", async (req, res) => {
+  try {
+    const upstream = await fetch(`${SERVICES.invoiceninja}/api/v1/invoices/${req.params.id}/download`, {
+      headers: await invoiceNinjaAuth(req.firmId),
+    });
+
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      return res.status(upstream.status).json({
+        error: "Invoice Ninja download failed",
+        detail,
+      });
+    }
+
+    const contentType = upstream.headers.get("content-type");
+    const contentDisposition = upstream.headers.get("content-disposition");
+    if (contentType) res.set("Content-Type", contentType);
+    if (contentDisposition) res.set("Content-Disposition", contentDisposition);
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    res.status(502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
 app.get("/api/services/invoiceninja/clients", async (req, res) => {
   try {
     const result = await proxyFetch(
