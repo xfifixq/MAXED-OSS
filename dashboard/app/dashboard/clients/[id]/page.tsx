@@ -305,6 +305,20 @@ export default function ClientDetailPage() {
               <p className="text-sm font-medium text-slate-900">Recent messages</p>
               <p className="mt-1 text-sm text-slate-500">{summary.recentMessages || client.messages.length} messages in the current client history.</p>
             </div>
+            <div className="rounded-xl border border-slate-200 p-4">
+              <p className="text-sm font-medium text-slate-900">Integration coverage</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className={client.bigcapitalId ? 'badge-green' : 'badge-yellow'}>
+                  {client.bigcapitalId ? 'Bigcapital linked' : 'Bigcapital missing'}
+                </span>
+                <span className={client.invoiceNinjaId ? 'badge-green' : 'badge-yellow'}>
+                  {client.invoiceNinjaId ? 'Invoice Ninja linked' : 'Invoice Ninja missing'}
+                </span>
+                <span className={client.paperlessTag ? 'badge-green' : 'badge-yellow'}>
+                  {client.paperlessTag ? 'Paperless tagged' : 'Paperless tag missing'}
+                </span>
+              </div>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Link href={`/dashboard/invoicing?clientId=${client.id}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50/40">
                 Open billing workspace
