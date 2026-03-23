@@ -2467,8 +2467,6 @@ app.get("/bridge/:service", async (req, res) => {
     }
 
     const firmId = typeof req.query.firmId === "string" ? req.query.firmId : null;
-    const target = normalizeBridgeTarget(req.query.target);
-    const targetUrl = `${serviceUrl.replace(/\/$/, "")}${target}`;
     const credential = firmId ? await getServiceCredential(firmId, service) : null;
     const hasSavedAccess =
       !!credential?.token || (!!credential?.username && !!credential?.password);
@@ -2494,7 +2492,7 @@ app.get("/bridge/:service", async (req, res) => {
     if (!accessCapability.browserSessionBroker) {
       return res.status(200).send(bridgePage({
         title: "Open In Maxed",
-        message: "This service does not support a true brokered browser session yet. Maxed is routing the firm back to its native workspace instead of handing off to a separate upstream login.",
+        message: "This workspace is Maxed-managed. CPA access stays in Maxed, and upstream access remains an admin exception path.",
         redirectUrl: maxedWorkspaceUrl,
         autoRedirect: true,
       }));
@@ -2504,7 +2502,7 @@ app.get("/bridge/:service", async (req, res) => {
     return res.status(200).send(bridgePage({
       title: "Opening Workspace",
       message: "Maxed is handing off to the live workspace for this firm.",
-      redirectUrl: targetUrl,
+      redirectUrl: serviceUrl,
       autoRedirect: true,
     }));
   } catch (err) {

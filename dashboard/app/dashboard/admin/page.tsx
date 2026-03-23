@@ -851,7 +851,7 @@ function AdminContent() {
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 lg:w-[26rem]">
               <p className="text-sm text-slate-700">{accessPolicy.note}</p>
               <p className="mt-2 text-xs text-slate-500">
-                True browser-session brokering is only shown once Maxed actually supports it. Until then, CPA handoff stays in Maxed-native workspaces.
+                Maxed is the CPA-facing workspace. Upstream apps stay behind the platform as setup and exception tools.
               </p>
             </div>
           </div>
@@ -870,7 +870,7 @@ function AdminContent() {
                   {service.bootstrapRequired ? 'Bootstrap admin required before CPA handoff.' : 'Direct Maxed-first access model.'}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {service.browserSessionBroker ? 'Brokered browser session available.' : 'No brokered browser session yet; Maxed remains the CPA-facing surface.'}
+                  {service.browserSessionBroker ? 'Direct upstream handoff available.' : 'CPA workflow stays in Maxed; upstream remains admin-only.'}
                 </p>
               </div>
             ))}
@@ -936,7 +936,7 @@ function AdminContent() {
                       {service.configured ? 'Credentials saved' : 'Credentials missing'}
                     </span>
                     <span className="badge-blue">
-                      {service.accessCapability?.browserSessionBroker ? 'Brokered session' : 'Maxed-native CPA access'}
+                      {service.accessCapability?.browserSessionBroker ? 'Direct handoff' : 'Maxed-native CPA access'}
                     </span>
                   </div>
                 </button>
@@ -1168,7 +1168,7 @@ function AdminContent() {
 
           {!useEmbeddedFlow ? (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              This service does not have a Maxed-brokered browser session yet. Use the admin setup surface to provision it, then keep CPA work inside Maxed.
+              This service is managed through Maxed. Use the admin exception surface only when setup or repair work is needed.
             </div>
           ) : null}
 
