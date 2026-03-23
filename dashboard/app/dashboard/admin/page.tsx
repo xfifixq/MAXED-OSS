@@ -281,6 +281,37 @@ type ProvisioningOverview = {
   };
 };
 
+type IdentityWorkspace = {
+  firm: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  canonicalIdentity: {
+    primaryMember: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+    } | null;
+    canonicalEmail: string;
+    canonicalUsername: string;
+    bootstrapRoleLabel: string;
+    cpaRoleLabel: string;
+  };
+  universalProcess: string[];
+  services: Record<string, {
+    key: string;
+    name: string;
+    accountType: string;
+    bootstrapRequired: boolean;
+    summary: string;
+    recommendedWorkspace: string | null;
+    suggestedIdentifier: string | null;
+    credentialsSaved: boolean;
+  }>;
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -317,6 +348,7 @@ function AdminContent() {
   const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
   const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
   const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
+  const [identityWorkspace, setIdentityWorkspace] = useState<IdentityWorkspace | null>(null);
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -352,8 +384,12 @@ function AdminContent() {
         } catch {}
         await fetchCredentials(firmIdParam);
         try {
-          const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`));
-          if (res.ok) setProvisioningOverview(await res.json());
+          const [overviewRes, identityRes] = await Promise.all([
+            fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`)),
+            fetch(apiUrl(`/api/firms/${firmIdParam}/identity-workspace`)),
+          ]);
+          if (overviewRes.ok) setProvisioningOverview(await overviewRes.json());
+          if (identityRes.ok) setIdentityWorkspace(await identityRes.json());
         } catch {}
       }
 
@@ -532,6 +568,7 @@ function AdminContent() {
   const connectedServiceCount = provisioningOverview?.summary.connected ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
   const configuredServiceCount = provisioningOverview?.summary.configured ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
   const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
+  const identityEntry = identityWorkspace?.services?.[activeTab];
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
@@ -588,6 +625,47 @@ function AdminContent() {
           </div>
           <p className="mt-3 text-sm text-slate-600">{activeSvc.accountModel}</p>
           {catalogEntry.note ? <p className="mt-2 text-sm text-slate-500">{catalogEntry.note}</p> : null}
+        </div>
+      ) : null}
+
+      {identityWorkspace ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Firm Identity Workspace</p>
+                <p className="mt-1 text-sm text-slate-600">This is the OpenFrame-style model Maxed should own: one canonical firm identity, with bootstrap admins only where upstream setup requires it.</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{identityWorkspace.canonicalIdentity.bootstrapRoleLabel}</p>
+                  <p className="mt-2 text-sm text-slate-700">Used only for first-run setup or user provisioning in services that need an owner/admin first.</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{identityWorkspace.canonicalIdentity.cpaRoleLabel}</p>
+                  <p className="mt-2 text-sm font-medium text-slate-900">{identityWorkspace.canonicalIdentity.canonicalEmail}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {identityWorkspace.canonicalIdentity.primaryMember
+                      ? `${identityWorkspace.canonicalIdentity.primaryMember.name} · ${identityWorkspace.canonicalIdentity.primaryMember.role}`
+                      : 'No dedicated firm team member found yet, so Maxed is using the firm email as the canonical identity.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 lg:w-[24rem]">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Universal Process</p>
+              <ol className="mt-3 space-y-2 text-sm text-slate-700">
+                {identityWorkspace.universalProcess.map((step, index) => (
+                  <li key={step} className="flex gap-3">
+                    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -763,6 +841,21 @@ function AdminContent() {
           </div>
 
           <p className="mb-4 text-xs text-gray-500">{activeSvc.hint}</p>
+
+          {identityEntry ? (
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Identity Model</p>
+              <p className="mt-2 text-sm text-slate-700">{identityEntry.summary}</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className={identityEntry.bootstrapRequired ? 'badge-yellow' : 'badge-green'}>
+                  {identityEntry.bootstrapRequired ? 'Bootstrap admin required' : 'Direct firm user supported'}
+                </span>
+                <span className="badge-blue">
+                  Canonical user: {identityEntry.suggestedIdentifier || identityWorkspace?.canonicalIdentity.canonicalEmail || 'n/a'}
+                </span>
+              </div>
+            </div>
+          ) : null}
 
           {(activeSvc.signupNote || activeSvc.setupNote) ? (
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">

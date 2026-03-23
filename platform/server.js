@@ -976,6 +976,65 @@ function buildPublicServiceUrl(service, path = "") {
   return `${String(baseUrl).replace(/\/$/, "")}${path}`;
 }
 
+function getServiceIdentityShape(serviceKey) {
+  switch (serviceKey) {
+    case "invoiceninja":
+    case "kimai":
+    case "metabase":
+      return {
+        accountType: "bootstrap_admin_then_cpa_user",
+        bootstrapRequired: true,
+        summary: "Shared admin bootstraps the workspace, then creates a dedicated CPA user.",
+      };
+    case "mattermost":
+    case "bigcapital":
+    case "twenty":
+      return {
+        accountType: "direct_cpa_user_or_admin_create",
+        bootstrapRequired: false,
+        summary: "CPA user can usually sign up directly, or be created by an admin using the same email identity.",
+      };
+    case "n8n":
+      return {
+        accountType: "workspace_owner_plus_api_key",
+        bootstrapRequired: true,
+        summary: "Owner bootstraps the workspace, then Maxed stores the API key used for automation.",
+      };
+    default:
+      return {
+        accountType: "admin_managed_cpa_user",
+        bootstrapRequired: false,
+        summary: "Admin creates or confirms the CPA user, then Maxed stores the resulting credentials.",
+      };
+  }
+}
+
+function buildCanonicalIdentity(firm, teamMembers = []) {
+  const sortedMembers = [...teamMembers].sort((a, b) => {
+    if (a.role === "admin" && b.role !== "admin") return -1;
+    if (a.role !== "admin" && b.role === "admin") return 1;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+  const primaryMember = sortedMembers.find((member) => member.role !== "admin") || sortedMembers[0] || null;
+  const fallbackEmail = String(firm.email || "").trim().toLowerCase();
+  const primaryEmail = primaryMember?.email || fallbackEmail || `${slugifyName(firm.name)}@maxed.local`;
+
+  return {
+    primaryMember: primaryMember
+      ? {
+          id: primaryMember.id,
+          name: primaryMember.name,
+          email: primaryMember.email,
+          role: primaryMember.role,
+        }
+      : null,
+    canonicalEmail: primaryEmail,
+    canonicalUsername: primaryEmail.split("@")[0] || slugifyName(firm.name) || "firm",
+    bootstrapRoleLabel: "Platform bootstrap admin",
+    cpaRoleLabel: primaryMember?.role === "admin" ? "Firm admin user" : "Primary CPA user",
+  };
+}
+
 function normalizeBridgeTarget(target) {
   if (typeof target !== "string" || !target.trim()) return "/";
   if (/^https?:\/\//i.test(target)) return "/";
@@ -2446,33 +2505,106 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
   }
 });
 
+app.get("/api/firms/:firmId/identity-workspace", async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const firm = await prisma.firm.findUnique({
+      where: { id: firmId },
+      include: {
+        teamMembers: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!firm) return res.status(404).json({ error: "Firm not found" });
+
+    const identity = buildCanonicalIdentity(firm, firm.teamMembers || []);
+    const services = {};
+
+    for (const service of Object.values(SERVICE_CATALOG)) {
+      const cred = await getServiceCredential(firmId, service.key);
+      const shape = getServiceIdentityShape(service.key);
+      services[service.key] = {
+        key: service.key,
+        name: service.name,
+        accountType: shape.accountType,
+        bootstrapRequired: shape.bootstrapRequired,
+        summary: shape.summary,
+        recommendedWorkspace: buildPublicServiceUrl(
+          service.key,
+          service.setupPath || service.adminPath || "",
+        ),
+        suggestedIdentifier:
+          service.key === "n8n"
+            ? "API key stored in Maxed"
+            : identity.canonicalEmail,
+        credentialsSaved: !!cred?.token || !!cred?.username || !!cred?.password,
+      };
+    }
+
+    res.json({
+      firm: {
+        id: firm.id,
+        name: firm.name,
+        email: firm.email,
+      },
+      canonicalIdentity: identity,
+      universalProcess: [
+        "Use one bootstrap admin only when a service needs first-run setup.",
+        "Create or confirm one canonical CPA user identity for the firm across services.",
+        "Store that service login or API key in Maxed.",
+        "Verify the service turns green before handoff.",
+      ],
+      services,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/firms/:firmId/provisioning/prepare/:service", async (req, res) => {
   try {
     const { firmId, service } = req.params;
     const firm = await prisma.firm.findUnique({
       where: { id: firmId },
-      select: { id: true, name: true, email: true },
+      include: {
+        teamMembers: {
+          orderBy: { createdAt: "asc" },
+          select: { id: true, name: true, email: true, role: true, createdAt: true },
+        },
+      },
     });
 
     if (!firm) return res.status(404).json({ error: "Firm not found" });
     if (!SERVICE_CATALOG[service]) return res.status(404).json({ error: "Service not supported" });
 
-    const baseEmail = String(firm.email || "").trim().toLowerCase();
+    const identity = buildCanonicalIdentity(firm, firm.teamMembers || []);
+    const baseEmail = String(identity.canonicalEmail || firm.email || "").trim().toLowerCase();
     const emailParts = baseEmail.includes("@") ? baseEmail.split("@") : [slugifyName(firm.name), "maxed.local"];
     const localPart = emailParts[0] || slugifyName(firm.name) || "firm";
     const domainPart = emailParts[1] || "maxed.local";
     const slug = slugifyName(firm.name) || "firm";
 
     const defaults = {
-      username: `${localPart}+${service}@${domainPart}`,
+      username: baseEmail || `${localPart}@${domainPart}`,
       password: generateStrongPassword(),
       token: "",
       metadata: "",
     };
 
     if (service === "mattermost") {
-      defaults.username = `${slug}-${service}`.replace(/[^a-z0-9-_]/g, "").slice(0, 22) || `${slug}chat`;
+      defaults.metadata = baseEmail || "";
     }
+
+    if (service === "n8n") defaults.username = "";
 
     if (service === "bigcapital") {
       defaults.metadata = slug;
@@ -2489,6 +2621,12 @@ app.post("/api/firms/:firmId/provisioning/prepare/:service", async (req, res) =>
     res.json({
       firmId,
       service,
+      canonicalIdentity: {
+        email: identity.canonicalEmail,
+        memberId: identity.primaryMember?.id || null,
+        memberName: identity.primaryMember?.name || null,
+        role: identity.cpaRoleLabel,
+      },
       suggested: defaults,
       note: SERVICE_CATALOG[service].note,
     });
