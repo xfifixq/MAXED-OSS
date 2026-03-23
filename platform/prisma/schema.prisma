@@ -21,6 +21,9 @@ model Firm {
   workflows          Workflow[]
   serviceCredentials ServiceCredential[]
   serviceAccounts    FirmServiceAccount[]
+  platformSessions   PlatformSession[]
+  provisioningRuns   ServiceProvisioningRun[]
+  brokerSessions     ServiceBrokerSession[]
 }
 
 model Client {
@@ -57,6 +60,8 @@ model TeamMember {
   passwordHash String?
   createdAt    DateTime @default(now())
   serviceAccounts FirmServiceAccount[]
+  platformSessions PlatformSession[]
+  provisioningRuns ServiceProvisioningRun[] @relation("ProvisioningRequestedBy")
 }
 
 model Document {
@@ -156,4 +161,59 @@ model FirmServiceAccount {
   updatedAt    DateTime    @updatedAt
 
   @@unique([firmId, service, role])
+}
+
+model PlatformSession {
+  id            String     @id @default(uuid())
+  tokenHash     String     @unique
+  teamMemberId  String
+  teamMember    TeamMember @relation(fields: [teamMemberId], references: [id])
+  firmId        String
+  firm          Firm       @relation(fields: [firmId], references: [id])
+  role          String
+  isPlatformAdmin Boolean  @default(false)
+  expiresAt     DateTime
+  lastSeenAt    DateTime?
+  createdAt     DateTime   @default(now())
+  brokerSessions ServiceBrokerSession[]
+
+  @@index([teamMemberId])
+  @@index([firmId])
+}
+
+model ServiceProvisioningRun {
+  id               String      @id @default(uuid())
+  firmId           String
+  firm             Firm        @relation(fields: [firmId], references: [id])
+  service          String
+  mode             String
+  status           String      @default("planned")
+  requestedById    String?
+  requestedBy      TeamMember? @relation("ProvisioningRequestedBy", fields: [requestedById], references: [id])
+  summary          String?
+  outputJson       String?
+  errorMessage     String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([firmId, service])
+}
+
+model ServiceBrokerSession {
+  id                String           @id @default(uuid())
+  firmId            String
+  firm              Firm             @relation(fields: [firmId], references: [id])
+  service           String
+  mode              String
+  platformSessionId String?
+  platformSession   PlatformSession? @relation(fields: [platformSessionId], references: [id])
+  targetPath        String?
+  state             String           @default("created")
+  payloadJson       String?
+  expiresAt         DateTime
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([firmId, service])
+  @@index([platformSessionId])
 }

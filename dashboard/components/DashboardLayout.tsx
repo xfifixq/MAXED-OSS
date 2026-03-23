@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { SessionProvider, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
-import { setFirmId } from '@/lib/api';
+import { setFirmId, setPlatformSessionToken } from '@/lib/api';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
@@ -11,7 +11,9 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
   useEffect(() => {
     const firmId = (session?.user as any)?.firmId;
+    const platformSessionToken = (session?.user as any)?.platformSessionToken;
     if (firmId) setFirmId(firmId);
+    if (platformSessionToken) setPlatformSessionToken(platformSessionToken);
   }, [session]);
   return <>{children}</>;
 }

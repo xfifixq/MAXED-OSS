@@ -4,10 +4,13 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { PrismaClient } = require("@prisma/client");
+const crypto = require("crypto");
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 4000;
+const PLATFORM_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const BROKER_SESSION_TTL_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Production Security
@@ -55,9 +58,15 @@ app.get("/api/supabase/status", (_req, res) => {
 // ---------------------------------------------------------------------------
 const API_KEY = process.env.MAXED_API_KEY || "";
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   // Skip auth in development if no key is configured
   if (!API_KEY) return next();
+
+  const platformSession = await resolvePlatformSessionFromRequest(req);
+  if (platformSession) {
+    req.platformSession = platformSession;
+    return next();
+  }
 
   const key =
     req.headers["x-api-key"] ||
@@ -91,6 +100,71 @@ const bcryptAvailable = (() => {
   try { require("bcryptjs"); return true; } catch { return false; }
 })();
 
+function generateOpaqueToken(bytes = 32) {
+  return crypto.randomBytes(bytes).toString("hex");
+}
+
+function hashOpaqueToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function isPlatformAdminEmail(email) {
+  return email === "admin@maxed.dev" || email === "admin@maxed.life";
+}
+
+async function issuePlatformSession(member) {
+  const rawToken = generateOpaqueToken(32);
+  const tokenHash = hashOpaqueToken(rawToken);
+  const session = await prisma.platformSession.create({
+    data: {
+      tokenHash,
+      teamMemberId: member.id,
+      firmId: member.firmId,
+      role: member.role,
+      isPlatformAdmin: isPlatformAdminEmail(member.email),
+      expiresAt: new Date(Date.now() + PLATFORM_SESSION_TTL_MS),
+    },
+  });
+
+  return {
+    rawToken,
+    session,
+  };
+}
+
+async function resolvePlatformSession(rawToken) {
+  if (!rawToken) return null;
+  const tokenHash = hashOpaqueToken(rawToken);
+  const session = await prisma.platformSession.findUnique({
+    where: { tokenHash },
+    include: {
+      teamMember: {
+        include: { firm: true },
+      },
+    },
+  });
+
+  if (!session) return null;
+  if (new Date(session.expiresAt).getTime() <= Date.now()) return null;
+
+  await prisma.platformSession.update({
+    where: { id: session.id },
+    data: { lastSeenAt: new Date() },
+  }).catch(() => {});
+
+  return session;
+}
+
+async function resolvePlatformSessionFromRequest(req) {
+  const headerToken =
+    req.headers["x-maxed-session"] ||
+    req.headers["x-platform-session"] ||
+    req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+
+  if (!headerToken) return null;
+  return resolvePlatformSession(headerToken);
+}
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -116,6 +190,8 @@ app.post("/api/auth/login", async (req, res) => {
       }
     }
 
+    const { rawToken, session } = await issuePlatformSession(member);
+
     res.json({
       id: member.id,
       email: member.email,
@@ -123,9 +199,58 @@ app.post("/api/auth/login", async (req, res) => {
       role: member.role,
       firmId: member.firmId,
       firmName: member.firm.name,
+      isPlatformAdmin: isPlatformAdminEmail(member.email),
+      platformSessionToken: rawToken,
+      platformSessionExpiresAt: session.expiresAt,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/auth/session", async (req, res) => {
+  try {
+    const session = await resolvePlatformSessionFromRequest(req);
+    if (!session) return res.status(401).json({ error: "Platform session invalid" });
+
+    return res.json({
+      sessionId: session.id,
+      firmId: session.firmId,
+      teamMemberId: session.teamMemberId,
+      role: session.role,
+      isPlatformAdmin: session.isPlatformAdmin,
+      expiresAt: session.expiresAt,
+      user: {
+        id: session.teamMember.id,
+        name: session.teamMember.name,
+        email: session.teamMember.email,
+        role: session.teamMember.role,
+      },
+      firm: {
+        id: session.teamMember.firm.id,
+        name: session.teamMember.firm.name,
+        email: session.teamMember.firm.email,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const rawToken =
+      req.headers["x-maxed-session"] ||
+      req.headers["x-platform-session"] ||
+      req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+    if (!rawToken) return res.json({ ok: true });
+
+    await prisma.platformSession.deleteMany({
+      where: { tokenHash: hashOpaqueToken(rawToken) },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -1025,6 +1150,63 @@ const SERVICE_ACCESS_CAPABILITIES = {
   },
 };
 
+const SERVICE_PROVISIONING_ADAPTERS = {
+  paperless: {
+    key: "paperless",
+    automatic: true,
+    strategy: "maxed_managed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  docuseal: {
+    key: "docuseal",
+    automatic: true,
+    strategy: "maxed_managed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  invoiceninja: {
+    key: "invoiceninja",
+    automatic: true,
+    strategy: "bootstrap_then_maxed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  n8n: {
+    key: "n8n",
+    automatic: true,
+    strategy: "owner_then_api_key_seed",
+    canBrokerBrowserSession: false,
+  },
+  kimai: {
+    key: "kimai",
+    automatic: true,
+    strategy: "bootstrap_then_maxed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  bigcapital: {
+    key: "bigcapital",
+    automatic: true,
+    strategy: "workspace_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  twenty: {
+    key: "twenty",
+    automatic: true,
+    strategy: "workspace_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  metabase: {
+    key: "metabase",
+    automatic: true,
+    strategy: "bootstrap_then_maxed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+  mattermost: {
+    key: "mattermost",
+    automatic: true,
+    strategy: "bootstrap_then_maxed_identity_seed",
+    canBrokerBrowserSession: false,
+  },
+};
+
 function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
@@ -1100,6 +1282,27 @@ function buildCanonicalIdentity(firm, teamMembers = []) {
   };
 }
 
+function buildSuggestedServiceCredential(firm, identity, service) {
+  const baseEmail = String(identity.canonicalEmail || firm.email || "").trim().toLowerCase();
+  const emailParts = baseEmail.includes("@") ? baseEmail.split("@") : [slugifyName(firm.name), "maxed.local"];
+  const localPart = emailParts[0] || slugifyName(firm.name) || "firm";
+  const domainPart = emailParts[1] || "maxed.local";
+  const slug = slugifyName(firm.name) || "firm";
+
+  const defaults = {
+    username: baseEmail || `${localPart}@${domainPart}`,
+    password: generateStrongPassword(),
+    token: "",
+    metadata: "",
+  };
+
+  if (service === "mattermost") defaults.metadata = baseEmail || "";
+  if (service === "bigcapital") defaults.metadata = slug;
+  if (service === "n8n") defaults.username = baseEmail || `${slug}@${domainPart}`;
+
+  return defaults;
+}
+
 async function ensureFirmServiceAccountPlan(firmId) {
   const firm = await prisma.firm.findUnique({
     where: { id: firmId },
@@ -1171,6 +1374,108 @@ async function ensureFirmServiceAccountPlan(firmId) {
   }
 
   return { firm, identity, plan };
+}
+
+async function executeProvisioningRun({ firmId, service, requestedById = null }) {
+  const planned = await ensureFirmServiceAccountPlan(firmId);
+  if (!planned?.firm) {
+    const error = new Error("Firm not found");
+    error.status = 404;
+    throw error;
+  }
+  if (!SERVICE_CATALOG[service]) {
+    const error = new Error("Service not supported");
+    error.status = 404;
+    throw error;
+  }
+
+  const adapter = SERVICE_PROVISIONING_ADAPTERS[service] || {
+    automatic: false,
+    strategy: "manual",
+    canBrokerBrowserSession: false,
+  };
+  const suggestion = buildSuggestedServiceCredential(planned.firm, planned.identity, service);
+  const accounts = planned.plan.filter((entry) => entry.service === service);
+
+  const run = await prisma.serviceProvisioningRun.create({
+    data: {
+      firmId,
+      service,
+      mode: adapter.strategy,
+      status: "running",
+      requestedById,
+      summary: `Preparing ${service} for Maxed-managed access.`,
+    },
+  });
+
+  try {
+    const existing = await prisma.serviceCredential.findUnique({
+      where: { firmId_service: { firmId, service } },
+    });
+    const merged = mergeCredentialUpdate(existing, {
+      username: suggestion.username,
+      password: suggestion.password,
+      token: existing?.token ?? "",
+      metadata: suggestion.metadata,
+    });
+
+    const credential = await prisma.serviceCredential.upsert({
+      where: { firmId_service: { firmId, service } },
+      create: { firmId, service, ...merged },
+      update: merged,
+    });
+
+    credentialCache.delete(`${firmId}:${service}`);
+
+    await Promise.all(accounts.map((account) =>
+      prisma.firmServiceAccount.update({
+        where: {
+          firmId_service_role: {
+            firmId,
+            service,
+            role: account.role,
+          },
+        },
+        data: {
+          identifier: account.role === "firm_user" ? suggestion.username || account.identifier : account.identifier,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
+        },
+      })
+    ));
+
+    const output = {
+      adapter,
+      credentialSeeded: {
+        username: credential.username,
+        metadata: credential.metadata,
+        tokenPresent: !!credential.token,
+      },
+      serviceAccounts: accounts.map((account) => ({
+        role: account.role,
+        status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
+      })),
+    };
+
+    const completed = await prisma.serviceProvisioningRun.update({
+      where: { id: run.id },
+      data: {
+        status: "completed",
+        summary: `Maxed seeded service access for ${service}.`,
+        outputJson: JSON.stringify(output),
+      },
+    });
+
+    return { run: completed, output };
+  } catch (err) {
+    await prisma.serviceProvisioningRun.update({
+      where: { id: run.id },
+      data: {
+        status: "failed",
+        errorMessage: err.message || "Provisioning failed",
+      },
+    }).catch(() => {});
+    throw err;
+  }
 }
 
 function normalizeBridgeTarget(target) {
@@ -2205,7 +2510,6 @@ app.delete("/api/firms/:firmId/team/:memberId", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Password Reset — request + confirm flow
 // ---------------------------------------------------------------------------
-const crypto = require("crypto");
 const resetTokens = new Map(); // In-memory store: token -> { email, expires }
 
 app.post("/api/auth/forgot-password", async (req, res) => {
@@ -2600,6 +2904,7 @@ app.get("/api/services/catalog", (_req, res) => {
       ...service,
       defaultUrl: PUBLIC_SERVICES[service.key] || null,
       accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
+      provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
     })),
   );
 });
@@ -2636,6 +2941,7 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
         health: healthState,
         source: hasFirmCred ? "firm" : "none",
         accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
+        provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
         launch: {
           service: buildPublicServiceUrl(service.key),
           setup: buildPublicServiceUrl(service.key, service.setupPath || ""),
@@ -2741,6 +3047,34 @@ app.get("/api/firms/:firmId/service-accounts", async (req, res) => {
   }
 });
 
+app.get("/api/firms/:firmId/provisioning/runs", async (req, res) => {
+  try {
+    const runs = await prisma.serviceProvisioningRun.findMany({
+      where: { firmId: req.params.firmId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    res.json(runs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/provisioning/:service/execute", async (req, res) => {
+  try {
+    const platformSession = await resolvePlatformSessionFromRequest(req);
+    const requestedById = platformSession?.teamMemberId || null;
+    const result = await executeProvisioningRun({
+      firmId: req.params.firmId,
+      service: req.params.service,
+      requestedById,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.get("/api/firms/:firmId/access-policy", async (req, res) => {
   try {
     const { firmId } = req.params;
@@ -2765,6 +3099,7 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
         configured,
         bootstrapRequired: getServiceIdentityShape(service.key).bootstrapRequired,
         browserSessionBroker: accessCapability.browserSessionBroker,
+        provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
       };
     }
 
@@ -2776,6 +3111,60 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
       upstreamAccess: "platform_admin_setup_only",
       note: "CPAs should work from Maxed-native modules first. Raw upstream app access is reserved for bootstrap, provisioning, and exception handling.",
       services: policy,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/broker-sessions", async (req, res) => {
+  try {
+    const sessions = await prisma.serviceBrokerSession.findMany({
+      where: { firmId: req.params.firmId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    res.json(sessions);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/broker/:service/session", async (req, res) => {
+  try {
+    const { firmId, service } = req.params;
+    const targetPath = normalizeBridgeTarget(req.body?.targetPath || req.body?.target || "");
+    const accessCapability = SERVICE_ACCESS_CAPABILITIES[service];
+    if (!accessCapability) return res.status(404).json({ error: "Service not supported" });
+
+    const platformSession = await resolvePlatformSessionFromRequest(req);
+    const brokerSession = await prisma.serviceBrokerSession.create({
+      data: {
+        firmId,
+        service,
+        mode: accessCapability.browserSessionBroker ? "browser_broker" : "maxed_workspace_redirect",
+        platformSessionId: platformSession?.id || null,
+        targetPath,
+        state: accessCapability.browserSessionBroker ? "ready" : "fallback_required",
+        payloadJson: JSON.stringify({
+          workspaceUrl: getMaxedWorkspaceUrl(service),
+          adminUrl: buildPublicServiceUrl(
+            service,
+            SERVICE_CATALOG[service]?.setupPath || SERVICE_CATALOG[service]?.adminPath || "",
+          ),
+          accessCapability,
+        }),
+        expiresAt: new Date(Date.now() + BROKER_SESSION_TTL_MS),
+      },
+    });
+
+    res.json({
+      id: brokerSession.id,
+      service,
+      mode: brokerSession.mode,
+      state: brokerSession.state,
+      workspaceUrl: getMaxedWorkspaceUrl(service),
+      browserSessionBroker: accessCapability.browserSessionBroker,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2828,36 +3217,7 @@ app.post("/api/firms/:firmId/provisioning/prepare/:service", async (req, res) =>
     if (!SERVICE_CATALOG[service]) return res.status(404).json({ error: "Service not supported" });
 
     const identity = buildCanonicalIdentity(firm, firm.teamMembers || []);
-    const baseEmail = String(identity.canonicalEmail || firm.email || "").trim().toLowerCase();
-    const emailParts = baseEmail.includes("@") ? baseEmail.split("@") : [slugifyName(firm.name), "maxed.local"];
-    const localPart = emailParts[0] || slugifyName(firm.name) || "firm";
-    const domainPart = emailParts[1] || "maxed.local";
-    const slug = slugifyName(firm.name) || "firm";
-
-    const defaults = {
-      username: baseEmail || `${localPart}@${domainPart}`,
-      password: generateStrongPassword(),
-      token: "",
-      metadata: "",
-    };
-
-    if (service === "mattermost") {
-      defaults.metadata = baseEmail || "";
-    }
-
-    if (service === "n8n") defaults.username = "";
-
-    if (service === "bigcapital") {
-      defaults.metadata = slug;
-    }
-
-    if (service === "n8n") {
-      defaults.username = baseEmail || `${slug}@${domainPart}`;
-    }
-
-    if (service === "kimai" || service === "metabase" || service === "invoiceninja" || service === "docuseal" || service === "paperless" || service === "twenty") {
-      defaults.username = baseEmail || `${localPart}@${domainPart}`;
-    }
+    const defaults = buildSuggestedServiceCredential(firm, identity, service);
 
     res.json({
       firmId,

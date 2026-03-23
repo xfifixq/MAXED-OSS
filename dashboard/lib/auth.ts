@@ -35,7 +35,9 @@ export const authOptions: NextAuthOptions = {
               role: user.role,
               firmId: user.firmId,
               firmName: user.firmName,
-              isPlatformAdmin: user.email === 'admin@maxed.dev' || user.email === 'admin@maxed.life',
+              isPlatformAdmin: user.isPlatformAdmin ?? (user.email === 'admin@maxed.dev' || user.email === 'admin@maxed.life'),
+              platformSessionToken: user.platformSessionToken,
+              platformSessionExpiresAt: user.platformSessionExpiresAt,
             };
           }
         } catch {
@@ -73,6 +75,8 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role;
         token.firmName = (user as any).firmName;
         token.isPlatformAdmin = (user as any).isPlatformAdmin;
+        token.platformSessionToken = (user as any).platformSessionToken;
+        token.platformSessionExpiresAt = (user as any).platformSessionExpiresAt;
       }
       return token;
     },
@@ -83,6 +87,8 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
         (session.user as any).firmName = token.firmName;
         (session.user as any).isPlatformAdmin = token.isPlatformAdmin;
+        (session.user as any).platformSessionToken = token.platformSessionToken;
+        (session.user as any).platformSessionExpiresAt = token.platformSessionExpiresAt;
       }
       return session;
     },
