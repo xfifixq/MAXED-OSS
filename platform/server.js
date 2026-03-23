@@ -2556,11 +2556,10 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
       const hasFirmCred = !!cred?.token || (!!cred?.username && !!cred?.password) || !!cred?.username;
-      const healthState = status[service.key]?.status === "connected"
-        ? "connected"
-        : hasFirmCred
-          ? "degraded"
-          : "disconnected";
+      const upstreamReachable = status[service.key]?.status === "connected";
+      const healthState = hasFirmCred
+        ? (upstreamReachable ? "connected" : "degraded")
+        : "disconnected";
 
       results[service.key] = {
         ...service,
