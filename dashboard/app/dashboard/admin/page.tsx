@@ -721,6 +721,15 @@ function AdminContent() {
   const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
   const identityEntry = identityWorkspace?.services?.[activeTab];
   const activeServiceAccounts = serviceAccounts.filter((account) => account.service === activeTab);
+  const readyForHandoff = activeStatus?.health === 'connected' && isConfigured;
+
+  useEffect(() => {
+    if (!useEmbeddedFlow) {
+      setIframeVisible(false);
+      return;
+    }
+    setIframeVisible(!readyForHandoff);
+  }, [activeTab, readyForHandoff, useEmbeddedFlow]);
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
@@ -758,7 +767,7 @@ function AdminContent() {
         </Link>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Service Setup: {firm?.name || 'Unknown Firm'}</h1>
-          <p className="text-sm text-gray-500">Use one workflow for every service: open the recommended setup workspace, create or confirm the firm user, save credentials in Maxed, then verify the connection.</p>
+          <p className="text-sm text-gray-500">Maxed-first onboarding: provision the firm from Maxed, use upstream apps only for bootstrap or exceptions, and keep CPA work inside Maxed-native workspaces.</p>
         </div>
         <div className="ml-auto">
           <button
@@ -897,7 +906,7 @@ function AdminContent() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Service Setup Board</p>
-              <p className="mt-1 text-sm text-slate-500">Every service follows the same four-step setup process.</p>
+              <p className="mt-1 text-sm text-slate-500">Provision the firm once from Maxed, then use service-level actions only for exceptions.</p>
             </div>
             <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
               {connectedServiceCount}/{SERVICE_TABS.length} services ready
@@ -973,24 +982,50 @@ function AdminContent() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
+          {readyForHandoff ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-green-700">Maxed-First Handoff</p>
+                  <p className="mt-1 text-sm text-green-800">
+                    {activeSvc.name} is provisioned and healthy. CPA work should stay in Maxed. Use upstream access only for admin exceptions.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <a href={maxedWorkspaceUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                    Open Maxed workspace
+                  </a>
+                  <button
+                    onClick={() => setIframeVisible((current) => !current)}
+                    className="btn-secondary text-sm"
+                  >
+                    {iframeVisible ? 'Hide admin surface' : 'Show admin surface'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs text-gray-400">
-                    Admin setup surface: <code className="rounded bg-gray-100 px-1">{adminSetupUrl}</code>
+                    Admin exception surface: <code className="rounded bg-gray-100 px-1">{adminSetupUrl}</code>
                   </span>
                   <button
                     onClick={() => setIframeVisible((current) => !current)}
                     className="text-xs font-medium text-gray-500 hover:text-gray-700"
                   >
-                    {iframeVisible ? 'Hide embed' : 'Show embed'}
+                    {iframeVisible ? 'Hide admin surface' : 'Show admin surface'}
                   </button>
                 </div>
                 <p className="text-xs text-gray-500">
                   {!useEmbeddedFlow
                     ? 'This service should be bootstrapped in a dedicated admin tab. CPA handoff remains in Maxed.'
-                    : 'Use this embedded admin surface only for setup. CPA handoff remains in Maxed-native workspaces.'}
+                    : readyForHandoff
+                      ? 'This embedded surface is now exception-only. Normal CPA work should stay in Maxed.'
+                      : 'Use this embedded admin surface only for setup. CPA handoff remains in Maxed-native workspaces.'}
                 </p>
               </div>
 
@@ -999,7 +1034,7 @@ function AdminContent() {
                   Open Maxed workspace
                 </a>
                 <a href={adminSetupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                  Open admin setup
+                  Open admin exception surface
                 </a>
               </div>
             </div>
@@ -1017,7 +1052,9 @@ function AdminContent() {
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
               {!useEmbeddedFlow
                 ? 'This service should be bootstrapped in a dedicated admin tab. Open the admin setup surface above, complete setup there, then keep CPA handoff inside Maxed.'
-                : 'Embedded admin view hidden. Open the admin setup surface above and follow the same four-step process shown on the right.'}
+                : readyForHandoff
+                  ? 'Admin surface hidden because this service is already ready. Keep CPA work in Maxed unless you need an exception/admin task.'
+                  : 'Embedded admin view hidden. Open the admin exception surface above and follow the setup process on the right.'}
             </div>
           )}
         </div>
@@ -1189,7 +1226,11 @@ function AdminContent() {
           </div>
 
           {message ? (
-            <p className={`mt-3 text-xs ${message === 'Saved!' ? 'text-green-600' : 'text-red-600'}`}>{message}</p>
+            <p className={`mt-3 text-xs ${
+              message === 'Saved!' || message.includes('provisioned') || message.includes('Provisioned')
+                ? 'text-green-600'
+                : 'text-red-600'
+            }`}>{message}</p>
           ) : null}
 
           <button
@@ -1217,7 +1258,9 @@ function AdminContent() {
           </button>
 
           {isConfigured ? (
-            <p className="mt-2 text-center text-xs text-green-600">Credentials saved for this service</p>
+            <p className="mt-2 text-center text-xs text-green-600">
+              {readyForHandoff ? 'Provisioned and ready for Maxed-first CPA handoff' : 'Credentials saved for this service'}
+            </p>
           ) : null}
         </div>
       </div>
