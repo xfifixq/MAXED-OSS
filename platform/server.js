@@ -359,6 +359,11 @@ app.post("/api/register", async (req, res) => {
       return { firm, member, portalCredential };
     });
 
+    const provisioning = await provisionFirmServices({
+      firmId: result.firm.id,
+      requestedById: result.member.id,
+    });
+
     res.status(201).json({
       firmId: result.firm.id,
       firmName: result.firm.name,
@@ -366,6 +371,7 @@ app.post("/api/register", async (req, res) => {
       email: result.member.email,
       portalAccessCode: result.portalCredential.token,
       portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
+      provisioning,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -382,10 +388,15 @@ app.post("/api/firms", async (req, res) => {
       const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
       return { firm, portalCredential };
     });
+    const provisioning = await provisionFirmServices({
+      firmId: result.firm.id,
+      requestedById: null,
+    });
     res.status(201).json({
       ...result.firm,
       portalAccessCode: result.portalCredential.token,
       portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
+      provisioning,
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1548,6 +1559,39 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
     }).catch(() => {});
     throw err;
   }
+}
+
+async function provisionFirmServices({ firmId, requestedById = null }) {
+  const results = {};
+
+  for (const service of Object.keys(SERVICE_CATALOG)) {
+    try {
+      const result = await executeProvisioningRun({
+        firmId,
+        service,
+        requestedById,
+      });
+      results[service] = {
+        ok: true,
+        runId: result.run.id,
+        status: result.run.status,
+        output: result.output,
+      };
+    } catch (err) {
+      results[service] = {
+        ok: false,
+        status: err.status || 500,
+        error: err.message,
+      };
+    }
+  }
+
+  return {
+    total: Object.keys(results).length,
+    succeeded: Object.values(results).filter((entry) => entry.ok).length,
+    failed: Object.values(results).filter((entry) => !entry.ok).length,
+    results,
+  };
 }
 
 async function provisionWorkspaceManagedService({ firmId, service, identity, suggestion, accounts }) {
@@ -3638,38 +3682,19 @@ app.post("/api/firms/:firmId/provisioning/execute-all", async (req, res) => {
   try {
     const platformSession = await resolvePlatformSessionFromRequest(req);
     const requestedById = platformSession?.teamMemberId || null;
-    const results = {};
-
-    for (const service of Object.keys(SERVICE_CATALOG)) {
-      try {
-        const result = await executeProvisioningRun({
-          firmId: req.params.firmId,
-          service,
-          requestedById,
-        });
-        results[service] = {
-          ok: true,
-          runId: result.run.id,
-          status: result.run.status,
-          output: result.output,
-        };
-      } catch (err) {
-        results[service] = {
-          ok: false,
-          status: err.status || 500,
-          error: err.message,
-        };
-      }
-    }
+    const provisioning = await provisionFirmServices({
+      firmId: req.params.firmId,
+      requestedById,
+    });
 
     res.json({
       firmId: req.params.firmId,
       summary: {
-        total: Object.keys(results).length,
-        succeeded: Object.values(results).filter((entry) => entry.ok).length,
-        failed: Object.values(results).filter((entry) => !entry.ok).length,
+        total: provisioning.total,
+        succeeded: provisioning.succeeded,
+        failed: provisioning.failed,
       },
-      results,
+      results: provisioning.results,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
