@@ -338,6 +338,25 @@ type AccessPolicy = {
   }>;
 };
 
+type ServiceAccountRecord = {
+  id: string;
+  firmId: string;
+  teamMemberId: string | null;
+  service: string;
+  role: string;
+  identifier: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  teamMember?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  } | null;
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -376,6 +395,9 @@ function AdminContent() {
   const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
   const [identityWorkspace, setIdentityWorkspace] = useState<IdentityWorkspace | null>(null);
   const [accessPolicy, setAccessPolicy] = useState<AccessPolicy | null>(null);
+  const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountRecord[]>([]);
+  const [accountForm, setAccountForm] = useState<Record<string, { identifier: string; status: string }>>({});
+  const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -387,6 +409,26 @@ function AdminContent() {
         credMap[credential.service] = credential;
       });
       setCredentials(credMap);
+    } catch {}
+  }, []);
+
+  const fetchServiceAccounts = useCallback(async (firmId: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/firms/${firmId}/service-accounts`));
+      if (!res.ok) return;
+      const data = (await res.json()) as ServiceAccountRecord[];
+      setServiceAccounts(data);
+      setAccountForm(
+        Object.fromEntries(
+          data.map((account) => [
+            account.id,
+            {
+              identifier: account.identifier || '',
+              status: account.status || 'planned',
+            },
+          ]),
+        ),
+      );
     } catch {}
   }, []);
 
@@ -410,6 +452,7 @@ function AdminContent() {
           if (res.ok) setFirm(await res.json());
         } catch {}
         await fetchCredentials(firmIdParam);
+        await fetchServiceAccounts(firmIdParam);
         try {
           const [overviewRes, identityRes, accessRes] = await Promise.all([
             fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`)),
@@ -426,7 +469,7 @@ function AdminContent() {
     }
 
     init();
-  }, [fetchCredentials, firmIdParam]);
+  }, [fetchCredentials, fetchServiceAccounts, firmIdParam]);
 
   const fetchServiceStatus = useCallback(async (firmId: string) => {
     try {
@@ -543,6 +586,39 @@ function AdminContent() {
     }
   };
 
+  const saveServiceAccount = async (account: ServiceAccountRecord) => {
+    if (!firmIdParam) return;
+    const draft = accountForm[account.id];
+    if (!draft) return;
+
+    setSavingAccountId(account.id);
+    setMessage('');
+
+    try {
+      const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/service-accounts/${account.service}/${account.role}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: draft.identifier,
+          status: draft.status,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || 'Unable to save service account.');
+        return;
+      }
+
+      setMessage('Saved!');
+      await fetchServiceAccounts(firmIdParam);
+    } catch {
+      setMessage('Unable to save service account.');
+    } finally {
+      setSavingAccountId(null);
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="mx-auto max-w-4xl">
@@ -599,6 +675,7 @@ function AdminContent() {
   const configuredServiceCount = provisioningOverview?.summary.configured ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
   const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
   const identityEntry = identityWorkspace?.services?.[activeTab];
+  const activeServiceAccounts = serviceAccounts.filter((account) => account.service === activeTab);
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
@@ -917,18 +994,68 @@ function AdminContent() {
                   Canonical user: {identityEntry.suggestedIdentifier || identityWorkspace?.canonicalIdentity.canonicalEmail || 'n/a'}
                 </span>
               </div>
-              {identityEntry.plannedAccounts?.length ? (
+              {activeServiceAccounts.length ? (
                 <div className="mt-4 space-y-2">
-                  {identityEntry.plannedAccounts.map((account) => (
+                  {activeServiceAccounts.map((account) => (
                     <div key={account.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-slate-900">
                           {account.role === 'bootstrap_admin' ? 'Bootstrap admin' : 'Canonical CPA user'}
                         </p>
-                        <span className="badge-blue">{account.status}</span>
+                        <span className="badge-blue">{accountForm[account.id]?.status || account.status}</span>
                       </div>
-                      <p className="mt-1 text-sm text-slate-700">{account.identifier}</p>
-                      {account.notes ? <p className="mt-1 text-xs text-slate-500">{account.notes}</p> : null}
+                      <div className="mt-3 grid gap-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-500">Identifier</label>
+                          <input
+                            className="input text-sm"
+                            value={accountForm[account.id]?.identifier || ''}
+                            onChange={(event) =>
+                              setAccountForm((current) => ({
+                                ...current,
+                                [account.id]: {
+                                  ...(current[account.id] || { identifier: '', status: account.status }),
+                                  identifier: event.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-500">Status</label>
+                          <select
+                            className="input text-sm"
+                            value={accountForm[account.id]?.status || account.status}
+                            onChange={(event) =>
+                              setAccountForm((current) => ({
+                                ...current,
+                                [account.id]: {
+                                  ...(current[account.id] || { identifier: account.identifier, status: account.status }),
+                                  status: event.target.value,
+                                },
+                              }))
+                            }
+                          >
+                            <option value="planned">Planned</option>
+                            <option value="bootstrap_pending">Bootstrap pending</option>
+                            <option value="provisioned">Provisioned</option>
+                            <option value="verified">Verified</option>
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => saveServiceAccount(account)}
+                          disabled={savingAccountId === account.id}
+                          className="btn-secondary text-sm disabled:opacity-50"
+                        >
+                          {savingAccountId === account.id ? 'Saving...' : 'Save service account'}
+                        </button>
+                      </div>
+                      {account.teamMember ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Linked team member: {account.teamMember.name} · {account.teamMember.email}
+                        </p>
+                      ) : null}
+                      {account.notes ? <p className="mt-2 text-xs text-slate-500">{account.notes}</p> : null}
                     </div>
                   ))}
                 </div>
