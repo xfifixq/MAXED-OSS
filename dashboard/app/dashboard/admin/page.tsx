@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, bridgeUrl } from '@/lib/api';
 
 type ServiceField = 'username' | 'password' | 'token' | 'metadata';
 type SetupMode = 'manual' | 'signup';
@@ -578,6 +578,7 @@ function AdminContent() {
   const useEmbeddedFlow = activeSvc.embedPreferred !== false;
   const recommendedUrl = buildRecommendedUrl(activeSvc, baseUrl);
   const iframeUrl = recommendedUrl;
+  const brokeredUrl = bridgeUrl(activeSvc.key, activeSvc.recommendedPath || activeSvc.setupPath || activeSvc.adminPath || '');
   const isConfigured = Boolean(
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
@@ -860,8 +861,8 @@ function AdminContent() {
                 <a href={recommendedUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
                   Open setup workspace
                 </a>
-                <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                  Open service home
+                <a href={brokeredUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                  Open brokered handoff
                 </a>
               </div>
             </div>
