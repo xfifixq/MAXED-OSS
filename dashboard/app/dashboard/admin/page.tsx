@@ -254,6 +254,8 @@ type ServiceCatalogEntry = {
   provisioningMode: string;
   controlPlaneManaged: boolean;
   core: boolean;
+  isolationTier?: string;
+  isolationNote?: string;
   preferredAction: string;
   setupPath?: string;
   adminPath?: string;
@@ -282,6 +284,8 @@ type ProvisioningOverview = {
       cpaMode: string;
       adminMode: string;
     } | null;
+    isolationTier?: string;
+    isolationNote?: string;
   }>;
   summary: {
     connected: number;
@@ -346,6 +350,8 @@ type AccessPolicy = {
     configured: boolean;
     bootstrapRequired: boolean;
     browserSessionBroker: boolean;
+    isolationTier?: string;
+    isolationNote?: string;
   }>;
 };
 
@@ -383,6 +389,40 @@ function buildRecommendedUrl(service: ServiceTab, baseUrl: string) {
       || service.loginPath
       || '',
   );
+}
+
+function isolationTone(tier?: string) {
+  switch (tier) {
+    case 'workspace_scoped':
+      return 'bg-green-100 text-green-700';
+    case 'firm_credentials':
+      return 'bg-blue-100 text-blue-700';
+    case 'shared_instance_team_scoped':
+      return 'bg-amber-100 text-amber-700';
+    case 'shared_instance_admin_managed':
+      return 'bg-orange-100 text-orange-700';
+    case 'admin_backend_only':
+      return 'bg-slate-200 text-slate-700';
+    default:
+      return 'bg-gray-100 text-gray-600';
+  }
+}
+
+function isolationLabel(tier?: string) {
+  switch (tier) {
+    case 'workspace_scoped':
+      return 'Workspace-scoped';
+    case 'firm_credentials':
+      return 'Firm credentials';
+    case 'shared_instance_team_scoped':
+      return 'Team-scoped shared';
+    case 'shared_instance_admin_managed':
+      return 'Shared instance';
+    case 'admin_backend_only':
+      return 'Backend only';
+    default:
+      return 'Unclassified';
+  }
 }
 
 function AdminContent() {
@@ -866,12 +906,20 @@ function AdminContent() {
               <div key={service.key} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-slate-900">{service.name}</p>
-                  <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
-                    {service.configured ? 'Mapped' : 'Pending'}
-                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className={isolationTone(service.isolationTier)}>
+                      {isolationLabel(service.isolationTier)}
+                    </span>
+                    <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
+                      {service.configured ? 'Mapped' : 'Pending'}
+                    </span>
+                  </div>
                 </div>
                 <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">CPA workspace</p>
                 <p className="mt-1 text-sm text-slate-700">{service.workspacePath}</p>
+                {service.isolationNote ? (
+                  <p className="mt-2 text-xs text-slate-500">{service.isolationNote}</p>
+                ) : null}
                 <p className="mt-2 text-xs text-slate-500">
                   {service.bootstrapRequired ? 'Bootstrap admin required before CPA handoff.' : 'Direct Maxed-first access model.'}
                 </p>
@@ -1091,7 +1139,16 @@ function AdminContent() {
             {statusLabel(activeStatus?.health)}
           </div>
 
+          {catalogEntry?.isolationTier ? (
+            <div className={`mb-4 inline-flex rounded-full px-3 py-1 text-xs font-medium ${isolationTone(catalogEntry.isolationTier)}`}>
+              {isolationLabel(catalogEntry.isolationTier)}
+            </div>
+          ) : null}
+
           <p className="mb-4 text-xs text-gray-500">{activeSvc.hint}</p>
+          {catalogEntry?.isolationNote ? (
+            <p className="mb-4 text-xs text-gray-500">{catalogEntry.isolationNote}</p>
+          ) : null}
 
           {identityEntry ? (
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
