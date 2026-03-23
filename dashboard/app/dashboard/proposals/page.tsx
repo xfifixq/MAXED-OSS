@@ -149,9 +149,9 @@ export default function ProposalsPage() {
   return (
     <WorkspaceShell
       service="docuseal"
-      eyebrow="Native Proposals"
+      eyebrow="Maxed Proposals"
       title="Maxed Sign"
-      description="Send engagement letters and proposal packets from a native Maxed workspace backed by DocuSeal templates and submission APIs."
+      description="Send engagement letters and proposal packets from the Maxed proposals workspace."
       actions={
         <button onClick={loadProposals} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh proposals
@@ -173,7 +173,7 @@ export default function ProposalsPage() {
           {loading ? (
             <WorkspaceSkeleton rows={4} />
           ) : templates.length === 0 || clients.length === 0 ? (
-            <WorkspaceEmpty title="Missing templates or clients" message="Add DocuSeal templates and at least one client record before sending a proposal." />
+            <WorkspaceEmpty title="Missing templates or clients" message="Add proposal templates and at least one client record before sending a proposal." />
           ) : (
             <div className="space-y-4">
               {selectedClient ? (
@@ -243,7 +243,7 @@ export default function ProposalsPage() {
 
         <WorkspacePanel
           title="Template library"
-          description="DocuSeal templates exposed as Maxed-native cards."
+          description="Reusable proposal templates exposed as Maxed cards."
           action={
             <input
               value={templateSearch}
@@ -256,7 +256,7 @@ export default function ProposalsPage() {
           {loading ? (
             <WorkspaceSkeleton rows={4} />
           ) : filteredTemplates.length === 0 ? (
-            <WorkspaceEmpty title="No templates found" message="Create or import DocuSeal templates and they will appear here." />
+            <WorkspaceEmpty title="No templates found" message="Create or import proposal templates and they will appear here." />
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {filteredTemplates.map((template) => (

@@ -163,9 +163,9 @@ export default function ChatPage() {
   return (
     <WorkspaceShell
       service="mattermost"
-      eyebrow="Native Team Chat"
+      eyebrow="Maxed Team Chat"
       title="Maxed Team Chat"
-      description="Mattermost-backed team collaboration for a CPA firm. Browse teams and channels, create new channels, and post messages from the Maxed shell."
+      description="A team collaboration workspace for the firm. Browse channels, create new channels, and post messages from inside Maxed."
       actions={
         <button onClick={loadWorkspace} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh chat

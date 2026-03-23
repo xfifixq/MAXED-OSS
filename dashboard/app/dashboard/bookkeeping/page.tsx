@@ -175,9 +175,9 @@ export default function BookkeepingPage() {
   return (
     <WorkspaceShell
       service="bigcapital"
-      eyebrow="Native Ledger"
+      eyebrow="Maxed Ledger"
       title="Maxed Ledger"
-      description="A deeper bookkeeping workspace for CPA review. Search recent ledger activity, inspect chart of accounts slices, and work from balance sheet and P&L detail without bouncing straight into Bigcapital."
+      description="A bookkeeping workspace for CPA review. Search recent ledger activity, inspect chart of accounts slices, and work from balance sheet and P&L detail inside Maxed."
       actions={
         <button onClick={loadLedger} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh ledger

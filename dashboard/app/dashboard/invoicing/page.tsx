@@ -224,9 +224,9 @@ export default function InvoicingPage() {
   return (
     <WorkspaceShell
       service="invoiceninja"
-      eyebrow="Native Billing"
+      eyebrow="Maxed Billing"
       title="Maxed Billing"
-      description="Invoice Ninja-backed billing for CPA work. Issue invoices from firm clients, track the live receivables queue, and record payments without dropping users into the raw billing app."
+      description="A billing workspace for CPA work. Issue invoices from firm clients, track the receivables queue, and record payments inside Maxed."
       actions={
         <button onClick={loadBilling} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh billing
@@ -235,7 +235,7 @@ export default function InvoicingPage() {
       metrics={
         <>
           <WorkspaceMetric label="Outstanding" value={loading ? '--' : formatCurrency(totals.outstanding)} detail={`${remoteInvoices.filter((invoice) => invoice.balanceDue > 0).length} open invoices`} />
-          <WorkspaceMetric label="Billed" value={loading ? '--' : formatCurrency(totals.billed)} detail="Invoice Ninja invoice volume" />
+          <WorkspaceMetric label="Billed" value={loading ? '--' : formatCurrency(totals.billed)} detail="Invoice volume" />
           <WorkspaceMetric label="Collected" value={loading ? '--' : formatCurrency(totals.collected)} detail="Recorded payments" />
           <WorkspaceMetric label="Overdue" value={loading ? '--' : String(totals.overdue)} detail="Invoices past due" />
         </>
@@ -376,7 +376,7 @@ export default function InvoicingPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-        <WorkspacePanel title="Live invoice queue" description="The current Invoice Ninja invoice register, surfaced in Maxed.">
+        <WorkspacePanel title="Live invoice queue" description="The current invoice register surfaced in Maxed.">
           {loading ? (
             <WorkspaceSkeleton rows={6} />
           ) : remoteInvoices.length === 0 ? (

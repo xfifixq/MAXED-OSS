@@ -81,9 +81,9 @@ export default function WorkflowsPage() {
   return (
     <WorkspaceShell
       service="n8n"
-      eyebrow="Native Automations"
+      eyebrow="Maxed Automations"
       title="Maxed Automations"
-      description="Monitor firm automations, recent execution health, and activation state from a native workflow console instead of switching into the n8n editor."
+      description="Monitor firm automations, recent execution health, and activation state from the Maxed workflow console."
       actions={
         <button onClick={loadWorkflows} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh runs
@@ -101,7 +101,7 @@ export default function WorkflowsPage() {
       {error ? <WorkspaceError message={error} onRetry={loadWorkflows} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
-        <WorkspacePanel title="Workflow inventory" description="Toggle automations without opening the n8n editor.">
+        <WorkspacePanel title="Workflow inventory" description="Toggle automations without leaving Maxed.">
           {loading ? (
             <WorkspaceSkeleton rows={5} />
           ) : workflows.length === 0 ? (

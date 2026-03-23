@@ -156,7 +156,7 @@ export default function ReportingPage() {
   return (
     <WorkspaceShell
       service="metabase"
-      eyebrow="Native Analytics"
+      eyebrow="Maxed Analytics"
       title="Maxed Analytics"
       description="A fuller reporting hub for CPA review. Work from firm KPIs, accounting signals, dashboard inventory, and question libraries without leaving the Maxed shell."
       actions={
@@ -168,7 +168,7 @@ export default function ReportingPage() {
         <>
           <WorkspaceMetric label="Managed revenue" value={loading ? '--' : formatCurrency(stats.totalRevenue || 0)} detail={`${stats.totalClients || 0} active clients`} />
           <WorkspaceMetric label="Pending invoices" value={loading ? '--' : String(stats.pendingInvoices || 0)} detail="Outstanding follow-up" />
-          <WorkspaceMetric label="Saved dashboards" value={loading ? '--' : String(dashboards.length)} detail="Metabase catalog surfaced in Maxed" />
+          <WorkspaceMetric label="Saved dashboards" value={loading ? '--' : String(dashboards.length)} detail="Analytics catalog surfaced in Maxed" />
           <WorkspaceMetric label="Net income" value={loading ? '--' : formatCurrency(totals.netIncome)} detail={`Assets ${formatCurrency(totals.assets)}`} />
         </>
       }
@@ -196,7 +196,7 @@ export default function ReportingPage() {
 
         <WorkspacePanel
           title="Dashboard catalog"
-          description="Search and select saved Metabase dashboards without leaving Maxed."
+          description="Search and select saved dashboards without leaving Maxed."
           action={
             <input
               value={dashboardSearch}

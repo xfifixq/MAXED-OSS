@@ -185,9 +185,9 @@ export default function TimeTrackingPage() {
   return (
     <WorkspaceShell
       service="kimai"
-      eyebrow="Native Time Tracking"
+      eyebrow="Maxed Time Tracking"
       title="Maxed Time"
-      description="Kimai-backed time tracking for CPA delivery teams. Log time, review recent entries, and create the core customer, project, and activity records needed to keep work moving."
+      description="A time tracking workspace for CPA delivery teams. Log time, review recent entries, and create the core customer, project, and activity records needed to keep work moving."
       actions={
         <button onClick={loadTimesheets} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
           Refresh time
@@ -195,17 +195,17 @@ export default function TimeTrackingPage() {
       }
       metrics={
         <>
-          <WorkspaceMetric label="Tracked time" value={loading ? '--' : formatDurationMinutes(totalMinutes)} detail="Recent Kimai entries" />
+          <WorkspaceMetric label="Tracked time" value={loading ? '--' : formatDurationMinutes(totalMinutes)} detail="Recent time entries" />
           <WorkspaceMetric label="Entries" value={loading ? '--' : String(timesheets.length)} detail="Returned in the current feed" />
           <WorkspaceMetric label="Projects" value={loading ? '--' : String(projects.length)} detail="Available for logging" />
-          <WorkspaceMetric label="Customers" value={loading ? '--' : String(customers.length)} detail="Kimai customer records" />
+          <WorkspaceMetric label="Customers" value={loading ? '--' : String(customers.length)} detail="Customer records available for tracking" />
         </>
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadTimesheets} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.88fr,1.12fr]">
-        <WorkspacePanel title="Log time" description="Create a native entry that posts directly into Kimai.">
+        <WorkspacePanel title="Log time" description="Create a time entry directly from Maxed.">
           {loading ? (
             <WorkspaceSkeleton rows={4} />
           ) : projects.length === 0 || activities.length === 0 ? (

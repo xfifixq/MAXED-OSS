@@ -165,9 +165,9 @@ export default function CRMPage() {
   return (
     <WorkspaceShell
       service="twenty"
-      eyebrow="Native CRM"
+      eyebrow="Maxed CRM"
       title="Maxed CRM"
-      description="A relationship workspace that combines the Maxed client record with live Twenty CRM companies and contacts. Pipeline, firm client context, and CRM object creation now live in one place."
+      description="A relationship workspace that combines the Maxed client record with live company and contact data. Pipeline, firm client context, and CRM object creation now live in one place."
       actions={
         <>
           <button onClick={loadCRM} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
@@ -182,8 +182,8 @@ export default function CRMPage() {
         <>
           <WorkspaceMetric label="Clients" value={loading ? '--' : String(clients.length)} detail="Tracked in Maxed" />
           <WorkspaceMetric label="Portfolio value" value={loading ? '--' : formatCurrency(totalRevenue)} detail="Declared annual revenue" />
-          <WorkspaceMetric label="CRM companies" value={loading ? '--' : String(companies.length)} detail="Live Twenty company records" />
-          <WorkspaceMetric label="CRM people" value={loading ? '--' : String(people.length)} detail="Live Twenty contacts" />
+          <WorkspaceMetric label="CRM companies" value={loading ? '--' : String(companies.length)} detail="Live company records" />
+          <WorkspaceMetric label="CRM people" value={loading ? '--' : String(people.length)} detail="Live contact records" />
         </>
       }
     >
@@ -193,7 +193,7 @@ export default function CRMPage() {
         {loading ? (
           <WorkspaceSkeleton rows={6} />
         ) : clients.length === 0 ? (
-          <WorkspaceEmpty title="No relationships yet" message="Create your first client to start building a native Maxed pipeline." />
+          <WorkspaceEmpty title="No relationships yet" message="Create your first client to start building the Maxed relationship pipeline." />
         ) : (
           <div className="grid gap-4 xl:grid-cols-4">
             {pipeline.map((bucket) => (
@@ -234,7 +234,7 @@ export default function CRMPage() {
       </WorkspacePanel>
 
       <div className="grid gap-6 xl:grid-cols-[0.9fr,1.1fr]">
-        <WorkspacePanel title="Create CRM records" description="Create Twenty company and contact records from inside Maxed.">
+        <WorkspacePanel title="Create CRM records" description="Create company and contact records from inside Maxed.">
           {loading ? (
             <WorkspaceSkeleton rows={5} />
           ) : (
@@ -319,11 +319,11 @@ export default function CRMPage() {
         </WorkspacePanel>
 
         <div className="space-y-6">
-          <WorkspacePanel title="CRM companies" description="Live Twenty company records surfaced in Maxed.">
+          <WorkspacePanel title="CRM companies" description="Live company records surfaced in Maxed.">
             {loading ? (
               <WorkspaceSkeleton rows={4} />
             ) : companies.length === 0 ? (
-              <WorkspaceEmpty title="No CRM companies yet" message="Create a company above or connect the Twenty workspace first." />
+              <WorkspaceEmpty title="No CRM companies yet" message="Create a company above or connect the CRM layer first." />
             ) : (
               <div className="space-y-3">
                 {companies.slice(0, 10).map((company) => (
@@ -337,11 +337,11 @@ export default function CRMPage() {
             )}
           </WorkspacePanel>
 
-          <WorkspacePanel title="CRM contacts" description="Live Twenty people records for current firm relationships.">
+          <WorkspacePanel title="CRM contacts" description="Live contact records for current firm relationships.">
             {loading ? (
               <WorkspaceSkeleton rows={4} />
             ) : people.length === 0 ? (
-              <WorkspaceEmpty title="No CRM contacts yet" message="Create a contact above or sync people into the Twenty workspace." />
+              <WorkspaceEmpty title="No CRM contacts yet" message="Create a contact above or sync people into the CRM layer." />
             ) : (
               <div className="space-y-3">
                 {people.slice(0, 10).map((person) => (

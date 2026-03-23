@@ -324,9 +324,9 @@ export default function DocumentsPage() {
   return (
     <WorkspaceShell
       service="paperless"
-      eyebrow="Native Documents"
+      eyebrow="Maxed Documents"
       title="Maxed Docs"
-      description="A working Paperless-backed review workspace for CPA teams. Browse the vault, filter by metadata, edit document classification, preview documents, upload intake, and open synced client records without leaving Maxed."
+      description="A document review workspace for CPA teams. Browse the vault, filter by metadata, edit classification, preview documents, upload intake, and open synced client records inside Maxed."
       actions={
         <>
           <button onClick={loadDocuments} className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15">
@@ -393,7 +393,7 @@ export default function DocumentsPage() {
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-5">
               <p className="font-medium text-slate-900">Drop files into Maxed</p>
               <p className="mt-1 text-sm text-slate-500">
-                Uploads create a native Maxed client record first, then attempt a Paperless sync in the background.
+                Uploads create a Maxed client record first, then sync supporting files into the document system in the background.
               </p>
               <button onClick={() => fileInputRef.current?.click()} className="btn-primary mt-4">
                 Choose files
