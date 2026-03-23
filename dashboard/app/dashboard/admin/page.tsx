@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apiUrl, bridgeUrl } from '@/lib/api';
+import { apiUrl } from '@/lib/api';
 
 type ServiceField = 'username' | 'password' | 'token' | 'metadata';
 type SetupMode = 'manual' | 'signup';
@@ -259,6 +259,11 @@ type ServiceCatalogEntry = {
   adminPath?: string;
   note?: string;
   defaultUrl?: string | null;
+  accessCapability?: {
+    browserSessionBroker: boolean;
+    cpaMode: string;
+    adminMode: string;
+  } | null;
 };
 
 type ProvisioningOverview = {
@@ -272,6 +277,11 @@ type ProvisioningOverview = {
       setup?: string | null;
       admin?: string | null;
     };
+    accessCapability?: {
+      browserSessionBroker: boolean;
+      cpaMode: string;
+      adminMode: string;
+    } | null;
   }>;
   summary: {
     connected: number;
@@ -335,6 +345,7 @@ type AccessPolicy = {
     upstreamAccessMode: string;
     configured: boolean;
     bootstrapRequired: boolean;
+    browserSessionBroker: boolean;
   }>;
 };
 
@@ -390,7 +401,6 @@ function AdminContent() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [iframeVisible, setIframeVisible] = useState(true);
-  const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
   const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
   const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
   const [identityWorkspace, setIdentityWorkspace] = useState<IdentityWorkspace | null>(null);
@@ -470,45 +480,6 @@ function AdminContent() {
 
     init();
   }, [fetchCredentials, fetchServiceAccounts, firmIdParam]);
-
-  const fetchServiceStatus = useCallback(async (firmId: string) => {
-    try {
-      const [statusRes, diagnoseRes] = await Promise.all([
-        fetch(apiUrl('/api/services/status')),
-        fetch(apiUrl('/api/services/diagnose'), {
-          headers: { 'X-Firm-Id': firmId },
-        }),
-      ]);
-
-      const statusJson = statusRes.ok ? await statusRes.json() : {};
-      const diagnoseJson = diagnoseRes.ok ? await diagnoseRes.json() : {};
-
-      const nextStatus = SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>((acc, service) => {
-        const configured = Boolean(diagnoseJson?.[service.key]?.configured);
-        let health: ServiceHealth = 'unknown';
-
-        if (!configured) {
-          health = 'disconnected';
-        } else if (statusJson?.[service.key]?.status === 'connected') {
-          health = 'connected';
-        } else if (statusJson?.[service.key]?.status === 'unavailable') {
-          health = 'degraded';
-        }
-
-        acc[service.key] = { configured, health };
-        return acc;
-      }, {});
-
-      setServiceStatus(nextStatus);
-    } catch {
-      setServiceStatus({});
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!firmIdParam) return;
-    fetchServiceStatus(firmIdParam);
-  }, [fetchServiceStatus, firmIdParam]);
 
   useEffect(() => {
     const credential = credentials[activeTab];
@@ -654,25 +625,39 @@ function AdminContent() {
   const useEmbeddedFlow = activeSvc.embedPreferred !== false;
   const recommendedUrl = buildRecommendedUrl(activeSvc, baseUrl);
   const iframeUrl = recommendedUrl;
-  const brokeredUrl = bridgeUrl(activeSvc.key, activeSvc.recommendedPath || activeSvc.setupPath || activeSvc.adminPath || '');
+  const maxedWorkspacePath = accessPolicy?.services?.[activeTab]?.workspacePath || '/dashboard';
+  const maxedWorkspaceUrl = `https://app.maxed.life${maxedWorkspacePath}`;
+  const adminSetupUrl = recommendedUrl;
   const isConfigured = Boolean(
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
   );
+  const serviceStatus = useMemo(() => SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>(
+    (acc, service) => {
+      const overview = provisioningOverview?.services?.[service.key];
+      const credential = credentials[service.key];
+      const configured = overview?.configured ?? Boolean(
+        credential && (credential.token || credential.username || credential.password),
+      );
+      const health = overview?.health ?? (configured ? 'unknown' : 'disconnected');
+      acc[service.key] = { configured, health };
+      return acc;
+    },
+    {},
+  ), [credentials, provisioningOverview]);
   const activeStatus = serviceStatus[activeTab];
-  const readinessSummary = SERVICE_TABS.reduce(
+  const readinessSummary = Object.values(serviceStatus).reduce(
     (summary, service) => {
-      const entry = serviceStatus[service.key];
-      if (!entry || entry.health === 'unknown') summary.unknown += 1;
-      else if (entry.health === 'connected') summary.connected += 1;
-      else if (entry.health === 'degraded') summary.degraded += 1;
+      if (!service || service.health === 'unknown') summary.unknown += 1;
+      else if (service.health === 'connected') summary.connected += 1;
+      else if (service.health === 'degraded') summary.degraded += 1;
       else summary.disconnected += 1;
       return summary;
     },
     { connected: 0, degraded: 0, disconnected: 0, unknown: 0 },
   );
-  const connectedServiceCount = provisioningOverview?.summary.connected ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
-  const configuredServiceCount = provisioningOverview?.summary.configured ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
+  const connectedServiceCount = provisioningOverview?.summary.connected ?? Object.values(serviceStatus).filter((service) => service.health === 'connected').length;
+  const configuredServiceCount = provisioningOverview?.summary.configured ?? Object.values(serviceStatus).filter((service) => service.configured).length;
   const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
   const identityEntry = identityWorkspace?.services?.[activeTab];
   const activeServiceAccounts = serviceAccounts.filter((account) => account.service === activeTab);
@@ -787,6 +772,9 @@ function AdminContent() {
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 lg:w-[26rem]">
               <p className="text-sm text-slate-700">{accessPolicy.note}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                True browser-session brokering is only shown once Maxed actually supports it. Until then, CPA handoff stays in Maxed-native workspaces.
+              </p>
             </div>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -802,6 +790,9 @@ function AdminContent() {
                 <p className="mt-1 text-sm text-slate-700">{service.workspacePath}</p>
                 <p className="mt-2 text-xs text-slate-500">
                   {service.bootstrapRequired ? 'Bootstrap admin required before CPA handoff.' : 'Direct Maxed-first access model.'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {service.browserSessionBroker ? 'Brokered browser session available.' : 'No brokered browser session yet; Maxed remains the CPA-facing surface.'}
                 </p>
               </div>
             ))}
@@ -866,8 +857,8 @@ function AdminContent() {
                     <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
                       {service.configured ? 'Credentials saved' : 'Credentials missing'}
                     </span>
-                    <span className={service.launch?.setup ? 'badge-blue' : 'badge'}>
-                      {service.launch?.setup ? 'Setup available' : 'No setup route'}
+                    <span className="badge-blue">
+                      {service.accessCapability?.browserSessionBroker ? 'Brokered session' : 'Maxed-native CPA access'}
                     </span>
                   </div>
                 </button>
@@ -918,7 +909,7 @@ function AdminContent() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs text-gray-400">
-                    Recommended workspace: <code className="rounded bg-gray-100 px-1">{recommendedUrl}</code>
+                    Admin setup surface: <code className="rounded bg-gray-100 px-1">{adminSetupUrl}</code>
                   </span>
                   <button
                     onClick={() => setIframeVisible((current) => !current)}
@@ -929,17 +920,17 @@ function AdminContent() {
                 </div>
                 <p className="text-xs text-gray-500">
                   {!useEmbeddedFlow
-                    ? 'This service is easier to manage in a dedicated tab. Open the recommended workspace, create or confirm the CPA user there, then save the credentials in Maxed.'
-                    : 'Use the same process here as every other service: open the recommended workspace, create or confirm the CPA user, then save the credentials in Maxed.'}
+                    ? 'This service should be bootstrapped in a dedicated admin tab. CPA handoff remains in Maxed.'
+                    : 'Use this embedded admin surface only for setup. CPA handoff remains in Maxed-native workspaces.'}
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <a href={recommendedUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
-                  Open setup workspace
+                <a href={maxedWorkspaceUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                  Open Maxed workspace
                 </a>
-                <a href={brokeredUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                  Open brokered handoff
+                <a href={adminSetupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                  Open admin setup
                 </a>
               </div>
             </div>
@@ -956,8 +947,8 @@ function AdminContent() {
           ) : (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
               {!useEmbeddedFlow
-                ? 'This service should be set up in a dedicated tab instead of the embedded page. Open the setup workspace above, create or confirm the CPA user, then save the resulting credentials here.'
-                : 'Embedded view hidden. Open the setup workspace above and follow the same four-step process shown on the right.'}
+                ? 'This service should be bootstrapped in a dedicated admin tab. Open the admin setup surface above, complete setup there, then keep CPA handoff inside Maxed.'
+                : 'Embedded admin view hidden. Open the admin setup surface above and follow the same four-step process shown on the right.'}
             </div>
           )}
         </div>
@@ -1071,7 +1062,7 @@ function AdminContent() {
 
           {!useEmbeddedFlow ? (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              This service is not supposed to be created from the embedded login page. Use the launch buttons above to either complete the first-install setup flow or open the upstream admin area to create or invite the user.
+              This service does not have a Maxed-brokered browser session yet. Use the admin setup surface to provision it, then keep CPA work inside Maxed.
             </div>
           ) : null}
 
