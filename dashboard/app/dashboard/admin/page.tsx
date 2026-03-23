@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -632,7 +632,7 @@ function AdminContent() {
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
   );
-  const serviceStatus = useMemo(() => SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>(
+  const serviceStatus = SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>(
     (acc, service) => {
       const overview = provisioningOverview?.services?.[service.key];
       const credential = credentials[service.key];
@@ -644,7 +644,7 @@ function AdminContent() {
       return acc;
     },
     {},
-  ), [credentials, provisioningOverview]);
+  );
   const activeStatus = serviceStatus[activeTab];
   const readinessSummary = Object.values(serviceStatus).reduce(
     (summary, service) => {
