@@ -17,6 +17,7 @@ interface ServiceTab {
   registerPath?: string;
   adminPath?: string;
   setupPath?: string;
+  recommendedPath?: string;
   embedPreferred?: boolean;
   setupMode: SetupMode;
   signupNote?: string;
@@ -24,6 +25,7 @@ interface ServiceTab {
   fields: ServiceField[];
   labels: Record<ServiceField, string>;
   hint: string;
+  accountModel: string;
   checklist: string[];
 }
 
@@ -34,14 +36,16 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://docs.maxed.life',
     loginPath: '',
     adminPath: '',
+    recommendedPath: '',
     embedPreferred: true,
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email or Username', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Create or confirm the firm user in Paperless, then save the login and API token here.',
+    accountModel: 'Admin creates or confirms the firm user, then Maxed stores the credentials.',
     checklist: [
-      'Sign in with the admin dev account.',
-      'Create the CPA user manually in Paperless if it does not exist yet.',
+      'Sign in with the service admin account.',
+      'Create or confirm the CPA user in Paperless.',
       'Generate an API token for that user in the Paperless admin area.',
       'Save the username, password, and token back into Maxed.',
     ],
@@ -52,14 +56,16 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://sign.maxed.life',
     loginPath: '',
     adminPath: '',
+    recommendedPath: '',
     embedPreferred: true,
     setupMode: 'manual',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'DocuSeal account creation is admin-led for Maxed onboarding. Save the login and API token after provisioning.',
+    accountModel: 'Admin creates or confirms the firm user, then Maxed stores the credentials.',
     checklist: [
-      'Sign in with the admin account.',
-      'Create the CPA user if needed.',
+      'Sign in with the service admin account.',
+      'Create or confirm the CPA user.',
       'Open the API settings for that user and generate a token.',
       'Save the email, password, and API token here.',
     ],
@@ -71,16 +77,18 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/#/login',
     adminPath: '/#/settings/user_management',
     setupPath: '/setup',
+    recommendedPath: '/#/settings/user_management',
     embedPreferred: false,
     setupMode: 'manual',
     setupNote: 'Invoice Ninja does not expose staff self-signup here. If the instance is not initialized yet, use the initial setup flow first. After that, create CPA staff users from User Management.',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Provision the CPA user inside Invoice Ninja, then save the user login and API token.',
+    accountModel: 'Invoice Ninja runs from a shared admin account first, then each CPA gets a staff user.',
     checklist: [
-      'If this is a fresh instance, complete the initial setup flow first to create the first admin account.',
+      'If the instance is fresh, finish Invoice Ninja setup first.',
       'Sign in with the admin account.',
-      'Create the CPA staff user from Invoice Ninja user management.',
+      'Create or confirm the CPA staff user from User Management.',
       'Create an API token for that user under account or API token settings.',
       'Save the email, password, and API token in Maxed.',
     ],
@@ -92,14 +100,16 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '',
     registerPath: '/setup',
     adminPath: '',
+    recommendedPath: '/setup',
     embedPreferred: true,
     setupMode: 'signup',
     fields: ['token'],
     labels: { username: 'Username', password: 'Password', token: 'API Key', metadata: 'Metadata' },
     hint: 'Complete the n8n owner setup flow if needed, then store the API key used for this firm workspace.',
+    accountModel: 'Fresh instances create an owner first; after that Maxed stores the workspace API key.',
     checklist: [
-      'If this is a fresh instance, complete the n8n in-app owner setup flow first.',
-      'Sign in to n8n with the admin account.',
+      'If this is a fresh instance, complete the owner setup flow.',
+      'Sign in with the owner account.',
       'Create or copy the API key for the workspace.',
       'Save the API key into Maxed.',
     ],
@@ -110,16 +120,18 @@ const SERVICE_TABS: ServiceTab[] = [
     defaultUrl: 'https://time.maxed.life',
     loginPath: '',
     adminPath: '/en/admin/user/',
+    recommendedPath: '/en/admin/user/',
     embedPreferred: false,
     setupMode: 'manual',
     setupNote: 'Kimai can create the first user either from the login/register screen or via the server command line. After the first super admin exists, create additional CPA users from Kimai administration.',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Create the Kimai user from the admin account and save the login plus API token.',
+    accountModel: 'Kimai uses one seeded admin first; that admin creates each CPA user.',
     checklist: [
       'If no Kimai admin exists yet, create the first super admin from the login/register screen or via the Kimai CLI command documented upstream.',
       'Sign in with the Kimai admin account.',
-      'Create the CPA user manually in Kimai administration.',
+      'Create or confirm the CPA user in Kimai administration.',
       'Open that user profile and generate an API token.',
       'Save the email, password, and token here.',
     ],
@@ -131,15 +143,17 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/auth/login',
     registerPath: '/auth/register',
     adminPath: '/admin/users',
+    recommendedPath: '/auth/register',
     embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Bigcapital exposes a direct register route, and Maxed now proxies its API correctly. If the firm signup page was buffering forever before, that was a platform routing problem rather than a user error.',
     fields: ['username', 'password', 'token', 'metadata'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Tenant ID' },
     hint: 'Create the firm organization, then save the workspace login, tenant ID, and API token.',
+    accountModel: 'Bigcapital can sign up directly or have users managed by an existing admin.',
     checklist: [
-      'Open the Bigcapital sign-up route to create the organization workspace.',
-      'If the firm already exists, sign in and create the CPA user from Bigcapital admin.',
+      'Open the recommended setup route to create or access the firm workspace.',
+      'If the firm already exists, create or confirm the CPA user from Bigcapital admin.',
       'Capture the tenant ID and API token for that workspace.',
       'Save the email, password, API token, and tenant ID in Maxed.',
     ],
@@ -151,15 +165,17 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '',
     registerPath: '/sign-up',
     adminPath: '',
+    recommendedPath: '/sign-up',
     embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Twenty supports direct signup, so this setup can stay on the create-account flow.',
     fields: ['username', 'password', 'token'],
     labels: { username: 'Email', password: 'Password', token: 'API Key', metadata: 'Metadata' },
     hint: 'Create the workspace user, then save the login and API key.',
+    accountModel: 'Each CPA can use direct signup, then Maxed stores the resulting login and API key.',
     checklist: [
       'Open the Twenty sign-up page.',
-      'Create the CPA workspace user.',
+      'Create or confirm the CPA workspace user.',
       'Generate or copy the API key for that user.',
       'Save the email, password, and API key in Maxed.',
     ],
@@ -171,16 +187,18 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/auth/login',
     adminPath: '/admin/people',
     setupPath: '/setup',
+    recommendedPath: '/admin/people',
     embedPreferred: false,
     setupMode: 'manual',
     setupNote: 'Metabase does not expose normal public self-signup. A fresh instance must complete the initial setup flow to create the first admin account; after that, invite CPA users from Admin > People.',
     fields: ['username', 'password'],
     labels: { username: 'Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Invite the CPA user in Metabase, then save the login here.',
+    accountModel: 'Metabase needs one admin first; that admin invites each CPA user.',
     checklist: [
       'If this Metabase instance is fresh, complete the initial setup flow first to create the first admin account.',
       'Sign in with the Metabase admin account.',
-      'Invite the CPA user from the People or Admin area.',
+      'Invite or confirm the CPA user from the People area.',
       'Have the invited user finish password setup, or reset the password manually if needed.',
       'Save the email and password in Maxed.',
     ],
@@ -192,15 +210,17 @@ const SERVICE_TABS: ServiceTab[] = [
     loginPath: '/login',
     registerPath: '/signup_email',
     adminPath: '/admin_console/user_management/users',
+    recommendedPath: '/signup_email',
     embedPreferred: true,
     setupMode: 'signup',
     signupNote: 'Mattermost email signup is now explicitly enabled in the container config. If you prefer controlled provisioning, you can still create the CPA user from the system admin account and then save those credentials here.',
     fields: ['username', 'password'],
     labels: { username: 'Username or Email', password: 'Password', token: 'API Token', metadata: 'Metadata' },
     hint: 'Create the CPA user in Mattermost, add the user to the right team or channels, then save the login used for that workspace.',
+    accountModel: 'Mattermost can use open signup or admin-created users; Maxed treats both the same after credentials are saved.',
     checklist: [
-      'Try the dedicated email signup route if you want self-service account creation.',
-      'If you are onboarding centrally, sign in as system admin and create the CPA user manually.',
+      'Open the recommended setup route to create or access the CPA user.',
+      'If you are onboarding centrally, sign in as system admin and create or confirm the user manually.',
       'Assign the user to the proper team and channels.',
       'Save the username or email and password back into Maxed.',
     ],
@@ -266,6 +286,18 @@ function buildServiceUrl(baseUrl: string, path = '') {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
+function buildRecommendedUrl(service: ServiceTab, baseUrl: string) {
+  return buildServiceUrl(
+    baseUrl,
+    service.recommendedPath
+      || service.registerPath
+      || service.setupPath
+      || service.adminPath
+      || service.loginPath
+      || '',
+  );
+}
+
 function AdminContent() {
   const { data: session } = useSession();
   const isAdmin = Boolean((session?.user as { isPlatformAdmin?: boolean } | undefined)?.isPlatformAdmin);
@@ -281,7 +313,6 @@ function AdminContent() {
   const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const [showRegister, setShowRegister] = useState(false);
   const [iframeVisible, setIframeVisible] = useState(true);
   const [serviceStatus, setServiceStatus] = useState<Record<string, ServiceStatusEntry>>({});
   const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
@@ -384,7 +415,6 @@ function AdminContent() {
     if (credential?.metadata) nextForm.metadata = credential.metadata;
 
     setCredForm(nextForm);
-    setShowRegister(service?.setupMode === 'signup');
     setIframeVisible(true);
     setMessage('');
   }, [activeTab, credentials]);
@@ -480,17 +510,9 @@ function AdminContent() {
   const overviewEntry = provisioningOverview?.services?.[activeTab];
   const catalogEntry = overviewEntry || serviceCatalog[activeTab];
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
-  const canRegister = activeSvc.setupMode === 'signup' && Boolean(activeSvc.registerPath);
-  const isManualProvision = activeSvc.setupMode === 'manual';
   const useEmbeddedFlow = activeSvc.embedPreferred !== false;
-  const loginUrl = buildServiceUrl(baseUrl, activeSvc.loginPath);
-  const registerUrl = activeSvc.registerPath ? buildServiceUrl(baseUrl, activeSvc.registerPath) : '';
-  const adminUrl = activeSvc.adminPath ? buildServiceUrl(baseUrl, activeSvc.adminPath) : baseUrl;
-  const setupUrl = activeSvc.setupPath ? buildServiceUrl(baseUrl, activeSvc.setupPath) : '';
-  const iframeUrl = buildServiceUrl(
-    baseUrl,
-    showRegister && activeSvc.registerPath ? activeSvc.registerPath : activeSvc.loginPath,
-  );
+  const recommendedUrl = buildRecommendedUrl(activeSvc, baseUrl);
+  const iframeUrl = recommendedUrl;
   const isConfigured = Boolean(
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
@@ -509,14 +531,14 @@ function AdminContent() {
   );
   const connectedServiceCount = provisioningOverview?.summary.connected ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.health === 'connected').length;
   const configuredServiceCount = provisioningOverview?.summary.configured ?? SERVICE_TABS.filter((service) => serviceStatus[service.key]?.configured).length;
-  const allConnected = connectedServiceCount === SERVICE_TABS.length;
+  const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
       case 'connected':
-        return 'Connected';
+        return 'Ready';
       case 'degraded':
-        return 'Configured';
+        return 'Saved, verify';
       case 'disconnected':
         return 'Needs setup';
       default:
@@ -547,7 +569,7 @@ function AdminContent() {
         </Link>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Service Setup: {firm?.name || 'Unknown Firm'}</h1>
-          <p className="text-sm text-gray-500">Provision each upstream account correctly, then save the credentials inside Maxed.</p>
+          <p className="text-sm text-gray-500">Use one workflow for every service: open the recommended setup workspace, create or confirm the firm user, save credentials in Maxed, then verify the connection.</p>
         </div>
       </div>
 
@@ -561,35 +583,34 @@ function AdminContent() {
               </p>
             </div>
             <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-              Next action: {catalogEntry.preferredAction.replace(/_/g, ' ')}
+              Unified process: open, create user, save credentials, verify
             </div>
           </div>
-          {catalogEntry.note ? <p className="mt-3 text-sm text-slate-600">{catalogEntry.note}</p> : null}
+          <p className="mt-3 text-sm text-slate-600">{activeSvc.accountModel}</p>
+          {catalogEntry.note ? <p className="mt-2 text-sm text-slate-500">{catalogEntry.note}</p> : null}
         </div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connected services</p>
-          <p className={`mt-2 text-lg font-semibold ${allConnected ? 'text-green-600' : 'text-amber-600'}`}>
-            {allConnected ? 'All services connected' : `${connectedServiceCount}/${SERVICE_TABS.length} services live`}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">{configuredServiceCount} configured in this firm workspace</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Services ready</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{connectedServiceCount}/{SERVICE_TABS.length}</p>
+          <p className="mt-1 text-sm text-slate-500">Verified and responding in this firm workspace</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Connected</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.connected}</p>
-          <p className="mt-1 text-sm text-slate-500">Healthy firm-scoped services</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Credentials saved</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{configuredServiceCount}</p>
+          <p className="mt-1 text-sm text-slate-500">Service accounts already stored in Maxed</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs attention</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.degraded + readinessSummary.disconnected}</p>
-          <p className="mt-1 text-sm text-slate-500">Configured or missing services</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs setup</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{needsSetupCount}</p>
+          <p className="mt-1 text-sm text-slate-500">Services without saved credentials yet</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Unknown</p>
-          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.unknown}</p>
-          <p className="mt-1 text-sm text-slate-500">Not yet diagnosed in this view</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs verification</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.degraded}</p>
+          <p className="mt-1 text-sm text-slate-500">Credentials exist, but the health check is not fully green yet</p>
         </div>
       </div>
 
@@ -597,29 +618,27 @@ function AdminContent() {
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Core Service Checklist</p>
-              <p className="mt-1 text-sm text-slate-500">Use this as the CPA handoff board for the firm.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Service Setup Board</p>
+              <p className="mt-1 text-sm text-slate-500">Every service follows the same four-step setup process.</p>
             </div>
             <div className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-              {provisioningOverview.summary.coreConnected}/{provisioningOverview.summary.coreTotal} core services connected
+              {connectedServiceCount}/{SERVICE_TABS.length} services ready
             </div>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {Object.values(provisioningOverview.services)
-              .filter((service) => service.core)
               .map((service) => (
                 <button
                   key={service.key}
                   onClick={() => {
                     setActiveTab(service.key);
-                    setShowRegister(service.setupMode === 'signup');
                   }}
                   className="rounded-2xl border border-slate-200 px-4 py-4 text-left transition hover:border-brand-200 hover:bg-brand-50/40"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold text-slate-900">{service.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{service.preferredAction.replace(/_/g, ' ')}</p>
+                      <p className="mt-1 text-xs text-slate-500">Open, create user, save credentials, verify</p>
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusTone(service.health)}`}>
                       {statusLabel(service.health)}
@@ -652,7 +671,6 @@ function AdminContent() {
               key={service.key}
               onClick={() => {
                 setActiveTab(service.key);
-                setShowRegister(service.setupMode === 'signup');
               }}
               className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 activeTab === service.key
@@ -682,24 +700,8 @@ function AdminContent() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs text-gray-400">
-                    {activeSvc.name} at <code className="rounded bg-gray-100 px-1">{useEmbeddedFlow ? iframeUrl : adminUrl}</code>
+                    Recommended workspace: <code className="rounded bg-gray-100 px-1">{recommendedUrl}</code>
                   </span>
-                  {canRegister && useEmbeddedFlow ? (
-                    <div className="overflow-hidden rounded-md border border-gray-200 text-xs">
-                      <button
-                        onClick={() => setShowRegister(true)}
-                        className={`px-2.5 py-1 font-medium transition-colors ${showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-                      >
-                        Sign Up
-                      </button>
-                      <button
-                        onClick={() => setShowRegister(false)}
-                        className={`px-2.5 py-1 font-medium transition-colors ${!showRegister ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-                      >
-                        Log In
-                      </button>
-                    </div>
-                  ) : null}
                   <button
                     onClick={() => setIframeVisible((current) => !current)}
                     className="text-xs font-medium text-gray-500 hover:text-gray-700"
@@ -709,42 +711,25 @@ function AdminContent() {
                 </div>
                 <p className="text-xs text-gray-500">
                   {!useEmbeddedFlow
-                    ? 'This service is admin-provisioned. Use the launch buttons to open the upstream admin area in a new tab, create the user there, then save the credentials in Maxed.'
-                    : 'If the embedded app blocks framing or is not the right place to provision users, use the external launch buttons and follow the setup checklist on the right.'}
+                    ? 'This service is easier to manage in a dedicated tab. Open the recommended workspace, create or confirm the CPA user there, then save the credentials in Maxed.'
+                    : 'Use the same process here as every other service: open the recommended workspace, create or confirm the CPA user, then save the credentials in Maxed.'}
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                  Open service
+                <a href={recommendedUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
+                  Open setup workspace
                 </a>
-                {!useEmbeddedFlow ? (
-                  <a href={overviewEntry?.launch?.admin || adminUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
-                    Open admin console
-                  </a>
-                ) : null}
-                {!useEmbeddedFlow && (overviewEntry?.launch?.setup || setupUrl) ? (
-                  <a href={overviewEntry?.launch?.setup || setupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                    Open initial setup
-                  </a>
-                ) : null}
-                {activeSvc.loginPath !== undefined ? (
-                  <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                    Open login
-                  </a>
-                ) : null}
-                {registerUrl ? (
-                  <a href={registerUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
-                    Open sign up
-                  </a>
-                ) : null}
+                <a href={baseUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                  Open service home
+                </a>
               </div>
             </div>
           </div>
 
           {iframeVisible && useEmbeddedFlow ? (
             <iframe
-              key={`${activeTab}-${showRegister}`}
+              key={activeTab}
               src={iframeUrl}
               className="w-full rounded-xl border border-gray-200 bg-white"
               style={{ minHeight: '70vh' }}
@@ -753,8 +738,8 @@ function AdminContent() {
           ) : (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
               {!useEmbeddedFlow
-                ? 'This service should be set up from a dedicated launch flow instead of the embedded login page. Use the launch buttons above for initial setup, admin user creation, or login, then save the resulting credentials here.'
-                : 'Embedded view hidden. Use the external launch buttons above and the setup checklist on the right to complete provisioning.'}
+                ? 'This service should be set up in a dedicated tab instead of the embedded page. Open the setup workspace above, create or confirm the CPA user, then save the resulting credentials here.'
+                : 'Embedded view hidden. Open the setup workspace above and follow the same four-step process shown on the right.'}
             </div>
           )}
         </div>
