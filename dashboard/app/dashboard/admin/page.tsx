@@ -309,6 +309,14 @@ type IdentityWorkspace = {
     recommendedWorkspace: string | null;
     suggestedIdentifier: string | null;
     credentialsSaved: boolean;
+    plannedAccounts: Array<{
+      id: string;
+      role: string;
+      identifier: string;
+      status: string;
+      notes: string | null;
+      teamMemberId: string | null;
+    }>;
   }>;
 };
 
@@ -854,6 +862,22 @@ function AdminContent() {
                   Canonical user: {identityEntry.suggestedIdentifier || identityWorkspace?.canonicalIdentity.canonicalEmail || 'n/a'}
                 </span>
               </div>
+              {identityEntry.plannedAccounts?.length ? (
+                <div className="mt-4 space-y-2">
+                  {identityEntry.plannedAccounts.map((account) => (
+                    <div key={account.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-slate-900">
+                          {account.role === 'bootstrap_admin' ? 'Bootstrap admin' : 'Canonical CPA user'}
+                        </p>
+                        <span className="badge-blue">{account.status}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-700">{account.identifier}</p>
+                      {account.notes ? <p className="mt-1 text-xs text-slate-500">{account.notes}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

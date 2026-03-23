@@ -1035,6 +1035,79 @@ function buildCanonicalIdentity(firm, teamMembers = []) {
   };
 }
 
+async function ensureFirmServiceAccountPlan(firmId) {
+  const firm = await prisma.firm.findUnique({
+    where: { id: firmId },
+    include: {
+      teamMembers: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, email: true, role: true, createdAt: true },
+      },
+    },
+  });
+
+  if (!firm) return null;
+
+  const identity = buildCanonicalIdentity(firm, firm.teamMembers || []);
+  const primaryMemberId = identity.primaryMember?.id || null;
+  const plan = [];
+
+  for (const service of Object.values(SERVICE_CATALOG)) {
+    const shape = getServiceIdentityShape(service.key);
+    const roles = shape.bootstrapRequired
+      ? [
+          {
+            role: "bootstrap_admin",
+            identifier: `bootstrap:${service.key}`,
+            teamMemberId: null,
+            notes: "Used only for first-run setup or user provisioning.",
+          },
+          {
+            role: "firm_user",
+            identifier: service.key === "n8n" ? "stored-api-key" : identity.canonicalEmail,
+            teamMemberId: primaryMemberId,
+            notes: "Canonical CPA-facing identity stored by Maxed.",
+          },
+        ]
+      : [
+          {
+            role: "firm_user",
+            identifier: service.key === "n8n" ? "stored-api-key" : identity.canonicalEmail,
+            teamMemberId: primaryMemberId,
+            notes: "Canonical CPA-facing identity stored by Maxed.",
+          },
+        ];
+
+    for (const entry of roles) {
+      const account = await prisma.firmServiceAccount.upsert({
+        where: {
+          firmId_service_role: {
+            firmId,
+            service: service.key,
+            role: entry.role,
+          },
+        },
+        update: {
+          identifier: entry.identifier,
+          teamMemberId: entry.teamMemberId,
+          notes: entry.notes,
+        },
+        create: {
+          firmId,
+          service: service.key,
+          role: entry.role,
+          identifier: entry.identifier,
+          teamMemberId: entry.teamMemberId,
+          notes: entry.notes,
+        },
+      });
+      plan.push(account);
+    }
+  }
+
+  return { firm, identity, plan };
+}
+
 function normalizeBridgeTarget(target) {
   if (typeof target !== "string" || !target.trim()) return "/";
   if (/^https?:\/\//i.test(target)) return "/";
@@ -2508,30 +2581,18 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
 app.get("/api/firms/:firmId/identity-workspace", async (req, res) => {
   try {
     const { firmId } = req.params;
-    const firm = await prisma.firm.findUnique({
-      where: { id: firmId },
-      include: {
-        teamMembers: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
+    const planned = await ensureFirmServiceAccountPlan(firmId);
+    const firm = planned?.firm || null;
 
     if (!firm) return res.status(404).json({ error: "Firm not found" });
 
-    const identity = buildCanonicalIdentity(firm, firm.teamMembers || []);
+    const identity = planned.identity;
     const services = {};
 
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
       const shape = getServiceIdentityShape(service.key);
+      const plannedAccounts = planned.plan.filter((entry) => entry.service === service.key);
       services[service.key] = {
         key: service.key,
         name: service.name,
@@ -2547,6 +2608,14 @@ app.get("/api/firms/:firmId/identity-workspace", async (req, res) => {
             ? "API key stored in Maxed"
             : identity.canonicalEmail,
         credentialsSaved: !!cred?.token || !!cred?.username || !!cred?.password,
+        plannedAccounts: plannedAccounts.map((entry) => ({
+          id: entry.id,
+          role: entry.role,
+          identifier: entry.identifier,
+          status: entry.status,
+          notes: entry.notes,
+          teamMemberId: entry.teamMemberId,
+        })),
       };
     }
 
@@ -2565,6 +2634,56 @@ app.get("/api/firms/:firmId/identity-workspace", async (req, res) => {
       ],
       services,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/service-accounts", async (req, res) => {
+  try {
+    const planned = await ensureFirmServiceAccountPlan(req.params.firmId);
+    if (!planned?.firm) return res.status(404).json({ error: "Firm not found" });
+
+    const accounts = await prisma.firmServiceAccount.findMany({
+      where: { firmId: req.params.firmId },
+      include: {
+        teamMember: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+      },
+      orderBy: [{ service: "asc" }, { role: "asc" }],
+    });
+
+    res.json(accounts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/firms/:firmId/service-accounts/:service/:role", async (req, res) => {
+  try {
+    const { firmId, service, role } = req.params;
+    const { identifier, status, notes, teamMemberId } = req.body || {};
+
+    const existing = await prisma.firmServiceAccount.findUnique({
+      where: { firmId_service_role: { firmId, service, role } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Service account plan not found" });
+    }
+
+    const updated = await prisma.firmServiceAccount.update({
+      where: { firmId_service_role: { firmId, service, role } },
+      data: {
+        identifier: typeof identifier === "string" && identifier.trim() ? identifier.trim() : existing.identifier,
+        status: typeof status === "string" && status.trim() ? status.trim() : existing.status,
+        notes: typeof notes === "string" ? notes : existing.notes,
+        teamMemberId: teamMemberId === null || teamMemberId === undefined ? existing.teamMemberId : teamMemberId,
+      },
+    });
+
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

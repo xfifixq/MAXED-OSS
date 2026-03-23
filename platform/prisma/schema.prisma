@@ -20,6 +20,7 @@ model Firm {
   teamMembers        TeamMember[]
   workflows          Workflow[]
   serviceCredentials ServiceCredential[]
+  serviceAccounts    FirmServiceAccount[]
 }
 
 model Client {
@@ -55,6 +56,7 @@ model TeamMember {
   kimaiUserId  String?
   passwordHash String?
   createdAt    DateTime @default(now())
+  serviceAccounts FirmServiceAccount[]
 }
 
 model Document {
@@ -137,4 +139,21 @@ model ServiceCredential {
   updatedAt   DateTime @updatedAt
 
   @@unique([firmId, service])
+}
+
+model FirmServiceAccount {
+  id           String      @id @default(uuid())
+  firmId       String
+  firm         Firm        @relation(fields: [firmId], references: [id])
+  teamMemberId String?
+  teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id])
+  service      String
+  role         String
+  identifier   String
+  status       String      @default("planned")
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([firmId, service, role])
 }
