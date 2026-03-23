@@ -176,6 +176,17 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { statuses, summary } = useServiceStatus();
+  const connectionItems: Array<[string, string]> = [
+    ['paperless', 'Docs'],
+    ['docuseal', 'Sign'],
+    ['invoiceninja', 'Billing'],
+    ['n8n', 'Flows'],
+    ['kimai', 'Time'],
+    ['bigcapital', 'Ledger'],
+    ['twenty', 'CRM'],
+    ['metabase', 'Analytics'],
+    ['mattermost', 'Chat'],
+  ];
 
   const allNavItems = isAdmin ? adminNavItems : navItems;
 
@@ -220,19 +231,11 @@ export default function Sidebar() {
                 Connections
               </p>
               <span className="text-[11px] text-[#8f95b2]">
-                {summary.connected} live
+                {summary.connected}/{connectionItems.length} ready
               </span>
             </div>
             <div className="space-y-2">
-              {[
-                ['paperless', 'Docs'],
-                ['invoiceninja', 'Billing'],
-                ['bigcapital', 'Ledger'],
-                ['docuseal', 'Sign'],
-                ['metabase', 'Analytics'],
-                ['n8n', 'Flows'],
-                ['mattermost', 'Chat'],
-              ].map(([key, label]) => {
+              {connectionItems.map(([key, label]) => {
                 const entry = statuses[key];
                 const dotClass =
                   entry?.health === 'connected'

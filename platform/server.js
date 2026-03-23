@@ -965,6 +965,18 @@ const SERVICE_CATALOG = {
   },
 };
 
+const SERVICE_WORKSPACE_PATHS = {
+  paperless: "/dashboard/documents",
+  docuseal: "/dashboard/proposals",
+  invoiceninja: "/dashboard/invoicing",
+  n8n: "/dashboard/workflows",
+  kimai: "/dashboard/time-tracking",
+  bigcapital: "/dashboard/bookkeeping",
+  twenty: "/dashboard/crm",
+  metabase: "/dashboard/reporting",
+  mattermost: "/dashboard/chat",
+};
+
 function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
@@ -2655,6 +2667,41 @@ app.get("/api/firms/:firmId/service-accounts", async (req, res) => {
     });
 
     res.json(accounts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/access-policy", async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const planned = await ensureFirmServiceAccountPlan(firmId);
+    if (!planned?.firm) return res.status(404).json({ error: "Firm not found" });
+
+    const policy = {};
+    for (const service of Object.values(SERVICE_CATALOG)) {
+      const cred = await getServiceCredential(firmId, service.key);
+      const configured = !!cred?.token || !!cred?.username || !!cred?.password;
+      policy[service.key] = {
+        key: service.key,
+        name: service.name,
+        workspacePath: SERVICE_WORKSPACE_PATHS[service.key] || "/dashboard",
+        cpaAccessMode: "maxed_native",
+        upstreamAccessMode: "platform_admin_only",
+        configured,
+        bootstrapRequired: getServiceIdentityShape(service.key).bootstrapRequired,
+      };
+    }
+
+    res.json({
+      firmId,
+      identityProvider: "maxed",
+      model: "maxed_first_control_plane",
+      cpaAccess: "maxed_native_workspaces",
+      upstreamAccess: "platform_admin_setup_only",
+      note: "CPAs should work from Maxed-native modules first. Raw upstream app access is reserved for bootstrap, provisioning, and exception handling.",
+      services: policy,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

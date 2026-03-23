@@ -320,6 +320,24 @@ type IdentityWorkspace = {
   }>;
 };
 
+type AccessPolicy = {
+  firmId: string;
+  identityProvider: string;
+  model: string;
+  cpaAccess: string;
+  upstreamAccess: string;
+  note: string;
+  services: Record<string, {
+    key: string;
+    name: string;
+    workspacePath: string;
+    cpaAccessMode: string;
+    upstreamAccessMode: string;
+    configured: boolean;
+    bootstrapRequired: boolean;
+  }>;
+};
+
 function buildServiceUrl(baseUrl: string, path = '') {
   if (!path) return baseUrl;
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -357,6 +375,7 @@ function AdminContent() {
   const [serviceCatalog, setServiceCatalog] = useState<Record<string, ServiceCatalogEntry>>({});
   const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
   const [identityWorkspace, setIdentityWorkspace] = useState<IdentityWorkspace | null>(null);
+  const [accessPolicy, setAccessPolicy] = useState<AccessPolicy | null>(null);
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -392,12 +411,14 @@ function AdminContent() {
         } catch {}
         await fetchCredentials(firmIdParam);
         try {
-          const [overviewRes, identityRes] = await Promise.all([
+          const [overviewRes, identityRes, accessRes] = await Promise.all([
             fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`)),
             fetch(apiUrl(`/api/firms/${firmIdParam}/identity-workspace`)),
+            fetch(apiUrl(`/api/firms/${firmIdParam}/access-policy`)),
           ]);
           if (overviewRes.ok) setProvisioningOverview(await overviewRes.json());
           if (identityRes.ok) setIdentityWorkspace(await identityRes.json());
+          if (accessRes.ok) setAccessPolicy(await accessRes.json());
         } catch {}
       }
 
@@ -673,6 +694,39 @@ function AdminContent() {
                 ))}
               </ol>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {accessPolicy ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Maxed Access Model</p>
+              <p className="mt-1 text-sm text-slate-700">Identity provider: <span className="font-medium text-slate-900">{accessPolicy.identityProvider}</span></p>
+              <p className="mt-1 text-sm text-slate-700">CPA access: <span className="font-medium text-slate-900">Maxed-native workspaces</span></p>
+              <p className="mt-1 text-sm text-slate-700">Upstream access: <span className="font-medium text-slate-900">Platform admin setup only</span></p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 lg:w-[26rem]">
+              <p className="text-sm text-slate-700">{accessPolicy.note}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {Object.values(accessPolicy.services).map((service) => (
+              <div key={service.key} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-slate-900">{service.name}</p>
+                  <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
+                    {service.configured ? 'Mapped' : 'Pending'}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">CPA workspace</p>
+                <p className="mt-1 text-sm text-slate-700">{service.workspacePath}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {service.bootstrapRequired ? 'Bootstrap admin required before CPA handoff.' : 'Direct Maxed-first access model.'}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       ) : null}
