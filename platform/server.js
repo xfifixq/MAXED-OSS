@@ -1433,6 +1433,27 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
           status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
         })),
       };
+    } else if (service === "invoiceninja") {
+      const provisioned = await provisionInvoiceNinjaUser({
+        firmId,
+        firm: planned.firm,
+        identity: planned.identity,
+        suggestion,
+      });
+      credential = provisioned.credential;
+      output = {
+        adapter,
+        credentialSeeded: {
+          username: credential.username,
+          metadata: credential.metadata,
+          tokenPresent: !!credential.token,
+        },
+        upstreamProvisioning: provisioned.output,
+        serviceAccounts: accounts.map((account) => ({
+          role: account.role,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
+        })),
+      };
     } else if (service === "metabase") {
       const provisioned = await provisionMetabaseUser({
         firmId,
@@ -1768,6 +1789,112 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
       userId,
       email,
       brokerReady: false,
+    },
+  };
+}
+
+async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion }) {
+  const adminHeaders = await invoiceNinjaAuth(null);
+  if (!adminHeaders["X-API-TOKEN"]) {
+    const error = new Error("Invoice Ninja admin API token unavailable");
+    error.status = 502;
+    throw error;
+  }
+
+  const email = String(suggestion.username || identity.canonicalEmail || firm.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Invoice Ninja provisioning requires a canonical email");
+    error.status = 400;
+    throw error;
+  }
+
+  const fullName = String(identity.primaryMember?.name || firm.name || "CPA User").trim();
+  const [firstName, ...lastParts] = fullName.split(/\s+/).filter(Boolean);
+  const lastName = lastParts.join(" ");
+
+  let companyUserId = null;
+  let userId = null;
+
+  try {
+    const usersRes = await fetch(`${SERVICES.invoiceninja}/api/v1/users?per_page=100`, {
+      headers: adminHeaders,
+    });
+    const usersPayload = await usersRes.json().catch(() => null);
+    const users = Array.isArray(usersPayload?.data) ? usersPayload.data : [];
+    if (usersRes.ok) {
+      const existing = users.find((user) => {
+        const candidateEmail = String(user?.email || user?.user?.email || "").trim().toLowerCase();
+        return candidateEmail === email;
+      });
+      if (existing) {
+        companyUserId = existing?.id || null;
+        userId = existing?.user?.id || existing?.user_id || existing?.id || null;
+      }
+    }
+  } catch {}
+
+  if (!companyUserId) {
+    const createRes = await fetch(`${SERVICES.invoiceninja}/api/v1/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...adminHeaders,
+      },
+      body: JSON.stringify({
+        first_name: firstName || "CPA",
+        last_name: lastName || "User",
+        email,
+        password: suggestion.password,
+      }),
+    });
+
+    const createdData = await createRes.json().catch(() => null);
+    if (!createRes.ok) {
+      const error = new Error(
+        createdData?.message || createdData?.error || "Invoice Ninja user creation failed",
+      );
+      error.status = createRes.status;
+      throw error;
+    }
+
+    const created = createdData?.data || createdData || {};
+    companyUserId = created?.id || null;
+    userId = created?.user?.id || created?.user_id || created?.id || null;
+  }
+
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "invoiceninja" } },
+    create: {
+      firmId,
+      service: "invoiceninja",
+      username: email,
+      password: suggestion.password,
+    },
+    update: {
+      username: email,
+      password: suggestion.password,
+    },
+  });
+  credentialCache.delete(`${firmId}:invoiceninja`);
+
+  await prisma.firmServiceAccount.updateMany({
+    where: { firmId, service: "invoiceninja", role: "firm_user" },
+    data: {
+      identifier: email,
+      status: "verified",
+      notes: "Provisioned by Maxed via Invoice Ninja users API.",
+    },
+  });
+
+  return {
+    credential,
+    output: {
+      companyUserId,
+      userId,
+      email,
+      brokerReady: false,
+      inviteAvailable: true,
+      tokenMode: "password_only_with_admin_api_fallback",
     },
   };
 }
