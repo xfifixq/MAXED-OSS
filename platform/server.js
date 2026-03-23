@@ -1648,10 +1648,11 @@ async function provisionFirmServices({ firmId, requestedById = null }) {
         service,
         requestedById,
       });
+      const verified = result.output?.provisioningVerified !== false;
       results[service] = {
-        ok: true,
+        ok: verified,
         runId: result.run.id,
-        status: result.run.status,
+        status: verified ? result.run.status : "partial",
         output: result.output,
       };
     } catch (err) {
@@ -1725,6 +1726,7 @@ async function provisionWorkspaceManagedService({ firmId, service, identity, sug
       tokenSeeded: !!credential.token,
       brokerReady: false,
       canonicalIdentifier: suggestion.username || identity.canonicalEmail || null,
+      provisioningVerified: true,
     },
   };
 }
@@ -1848,6 +1850,7 @@ async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
       email,
       teamId,
       brokerReady: false,
+      provisioningVerified: Boolean(userId),
     },
   };
 }
@@ -1955,6 +1958,7 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
       userId,
       email,
       brokerReady: false,
+      provisioningVerified: Boolean(userId),
     },
   };
 }
@@ -2063,6 +2067,7 @@ async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion })
       brokerReady: false,
       inviteAvailable: true,
       tokenMode: "password_only_with_admin_api_fallback",
+      provisioningVerified: Boolean(companyUserId || userId),
     },
   };
 }
@@ -2164,6 +2169,7 @@ async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
       username,
       brokerReady: false,
       tokenMode: credential.token ? "shared_admin_token" : "password_only",
+      provisioningVerified: Boolean(userId),
     },
   };
 }
@@ -3606,6 +3612,7 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
     const { firmId } = req.params;
     const results = {};
     const status = {};
+    const planned = await ensureFirmServiceAccountPlan(firmId);
 
     for (const [name, url] of Object.entries(SERVICES)) {
       try {
@@ -3621,17 +3628,25 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
 
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
+      const plannedAccounts = planned?.plan?.filter((entry) => entry.service === service.key) || [];
+      const firmUserAccount = plannedAccounts.find((entry) => entry.role === "firm_user") || null;
       const hasFirmCred = !!cred?.token || (!!cred?.username && !!cred?.password) || !!cred?.username;
+      const isProvisioningVerified = firmUserAccount?.status === "verified";
+      const isProvisioningPending = Boolean(firmUserAccount) && !isProvisioningVerified;
       const upstreamReachable = status[service.key]?.status === "connected";
-      const healthState = hasFirmCred
+      const healthState = isProvisioningVerified
         ? (upstreamReachable ? "connected" : "degraded")
-        : "disconnected";
+        : (hasFirmCred || isProvisioningPending)
+          ? "degraded"
+          : "disconnected";
 
       results[service.key] = {
         ...service,
-        configured: hasFirmCred,
+        configured: hasFirmCred || isProvisioningPending || isProvisioningVerified,
         health: healthState,
-        source: hasFirmCred ? "firm" : "none",
+        source: hasFirmCred ? "firm" : (isProvisioningPending || isProvisioningVerified ? "planned" : "none"),
+        provisioningVerified: isProvisioningVerified,
+        provisioningStatus: firmUserAccount?.status || null,
         accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
         provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
         launch: {
