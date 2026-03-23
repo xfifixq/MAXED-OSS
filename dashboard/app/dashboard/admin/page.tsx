@@ -650,34 +650,6 @@ function AdminContent() {
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <div className="card p-8 text-center text-gray-500">Only administrators can access this page.</div>
-      </div>
-    );
-  }
-
-  if (!firmIdParam) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <div className="card p-8 text-center">
-          <p className="mb-4 text-gray-500">Select a CPA firm to set up their services.</p>
-          <Link href="/dashboard" className="btn-primary">Go to CPA Firms</Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-6xl">
-        <div className="skeleton mb-4 h-8 w-64" />
-        <div className="skeleton h-96 w-full rounded-xl" />
-      </div>
-    );
-  }
-
   const activeSvc = SERVICE_TABS.find((item) => item.key === activeTab)!;
   const overviewEntry = provisioningOverview?.services?.[activeTab];
   const catalogEntry = overviewEntry || serviceCatalog[activeTab];
@@ -730,6 +702,34 @@ function AdminContent() {
     }
     setIframeVisible(!readyForHandoff);
   }, [activeTab, readyForHandoff, useEmbeddedFlow]);
+
+  if (!isAdmin) {
+    return (
+      <div className="mx-auto max-w-4xl">
+        <div className="card p-8 text-center text-gray-500">Only administrators can access this page.</div>
+      </div>
+    );
+  }
+
+  if (!firmIdParam) {
+    return (
+      <div className="mx-auto max-w-4xl">
+        <div className="card p-8 text-center">
+          <p className="mb-4 text-gray-500">Select a CPA firm to set up their services.</p>
+          <Link href="/dashboard" className="btn-primary">Go to CPA Firms</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-6xl">
+        <div className="skeleton mb-4 h-8 w-64" />
+        <div className="skeleton h-96 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   const statusLabel = (health?: ServiceHealth) => {
     switch (health) {
