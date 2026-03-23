@@ -1916,13 +1916,32 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
 
     const createdData = await createRes.json().catch(() => null);
     if (!createRes.ok) {
-      const error = new Error(
+      const message = String(
         createdData?.message || createdData?.errors?.email || "Metabase user creation failed",
       );
-      error.status = createRes.status;
-      throw error;
+
+      if (/already in use/i.test(message)) {
+        try {
+          const usersRes = await fetch(`${SERVICES.metabase}/api/user`, {
+            headers: { "X-Metabase-Session": session },
+          });
+          const users = await usersRes.json().catch(() => []);
+          if (usersRes.ok && Array.isArray(users)) {
+            const existing = users.find((user) => String(user?.email || "").toLowerCase() === email);
+            if (existing?.id) {
+              userId = existing.id;
+            }
+          }
+        } catch {}
+      }
+
+      if (!userId) {
+        const error = new Error(message);
+        error.status = createRes.status;
+        throw error;
+      }
     }
-    userId = createdData?.id || null;
+    userId = userId || createdData?.id || null;
   }
 
   const credential = await prisma.serviceCredential.upsert({
