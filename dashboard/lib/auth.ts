@@ -2,8 +2,13 @@ import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const NEXTAUTH_SECRET =
+  process.env.NEXTAUTH_SECRET ||
+  process.env.MAXED_API_KEY ||
+  'maxed-dev-secret-change-me';
 
 export const authOptions: NextAuthOptions = {
+  secret: NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
       name: 'Maxed Platform',
@@ -96,4 +101,5 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/login',
   },
+  trustHost: true,
 };
