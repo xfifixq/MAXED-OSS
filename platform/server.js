@@ -1433,6 +1433,27 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
           status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
         })),
       };
+    } else if (service === "metabase") {
+      const provisioned = await provisionMetabaseUser({
+        firmId,
+        firm: planned.firm,
+        identity: planned.identity,
+        suggestion,
+      });
+      credential = provisioned.credential;
+      output = {
+        adapter,
+        credentialSeeded: {
+          username: credential.username,
+          metadata: credential.metadata,
+          tokenPresent: !!credential.token,
+        },
+        upstreamProvisioning: provisioned.output,
+        serviceAccounts: accounts.map((account) => ({
+          role: account.role,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
+        })),
+      };
     } else {
       const existing = await prisma.serviceCredential.findUnique({
         where: { firmId_service: { firmId, service } },
@@ -1620,6 +1641,111 @@ async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
       userId,
       email,
       teamId,
+      brokerReady: false,
+    },
+  };
+}
+
+async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
+  const session = await getMetabaseSession(null);
+  if (!session) {
+    const error = new Error("Metabase admin session unavailable");
+    error.status = 502;
+    throw error;
+  }
+
+  const email = String(suggestion.username || identity.canonicalEmail || firm.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Metabase provisioning requires a canonical email");
+    error.status = 400;
+    throw error;
+  }
+
+  let userId = null;
+  try {
+    const existingRes = await fetch(`${SERVICES.metabase}/api/user/current`, {
+      headers: { "X-Metabase-Session": session },
+    });
+    if (existingRes.status === 200) {
+      // session valid, continue
+    }
+  } catch {}
+
+  try {
+    const usersRes = await fetch(`${SERVICES.metabase}/api/user`, {
+      headers: { "X-Metabase-Session": session },
+    });
+    const users = await usersRes.json().catch(() => []);
+    if (usersRes.ok && Array.isArray(users)) {
+      const existing = users.find((user) => String(user?.email || "").toLowerCase() === email);
+      if (existing) userId = existing.id || null;
+    }
+  } catch {}
+
+  if (!userId) {
+    const nameParts = String(identity.primaryMember?.name || firm.name || "CPA User").trim().split(/\s+/);
+    const firstName = nameParts[0] || "CPA";
+    const lastName = nameParts.slice(1).join(" ") || "User";
+
+    const createRes = await fetch(`${SERVICES.metabase}/api/user`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Metabase-Session": session,
+      },
+      body: JSON.stringify({
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        password: suggestion.password,
+        group_ids: [],
+        login_attributes: {
+          email,
+        },
+      }),
+    });
+
+    const createdData = await createRes.json().catch(() => null);
+    if (!createRes.ok) {
+      const error = new Error(
+        createdData?.message || createdData?.errors?.email || "Metabase user creation failed",
+      );
+      error.status = createRes.status;
+      throw error;
+    }
+    userId = createdData?.id || null;
+  }
+
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "metabase" } },
+    create: {
+      firmId,
+      service: "metabase",
+      username: email,
+      password: suggestion.password,
+    },
+    update: {
+      username: email,
+      password: suggestion.password,
+    },
+  });
+  credentialCache.delete(`${firmId}:metabase`);
+  metabaseSessions.delete(firmId);
+
+  await prisma.firmServiceAccount.updateMany({
+    where: { firmId, service: "metabase", role: "firm_user" },
+    data: {
+      identifier: email,
+      status: "verified",
+      notes: "Provisioned by Maxed via Metabase API",
+    },
+  });
+
+  return {
+    credential,
+    output: {
+      userId,
+      email,
       brokerReady: false,
     },
   };
