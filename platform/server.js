@@ -1409,52 +1409,78 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
   });
 
   try {
-    const existing = await prisma.serviceCredential.findUnique({
-      where: { firmId_service: { firmId, service } },
-    });
-    const merged = mergeCredentialUpdate(existing, {
-      username: suggestion.username,
-      password: suggestion.password,
-      token: existing?.token ?? "",
-      metadata: suggestion.metadata,
-    });
+    let credential;
+    let output;
 
-    const credential = await prisma.serviceCredential.upsert({
-      where: { firmId_service: { firmId, service } },
-      create: { firmId, service, ...merged },
-      update: merged,
-    });
+    if (service === "mattermost") {
+      const provisioned = await provisionMattermostUser({
+        firmId,
+        firm: planned.firm,
+        identity: planned.identity,
+        suggestion,
+      });
+      credential = provisioned.credential;
+      output = {
+        adapter,
+        credentialSeeded: {
+          username: credential.username,
+          metadata: credential.metadata,
+          tokenPresent: !!credential.token,
+        },
+        upstreamProvisioning: provisioned.output,
+        serviceAccounts: accounts.map((account) => ({
+          role: account.role,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
+        })),
+      };
+    } else {
+      const existing = await prisma.serviceCredential.findUnique({
+        where: { firmId_service: { firmId, service } },
+      });
+      const merged = mergeCredentialUpdate(existing, {
+        username: suggestion.username,
+        password: suggestion.password,
+        token: existing?.token ?? "",
+        metadata: suggestion.metadata,
+      });
 
-    credentialCache.delete(`${firmId}:${service}`);
+      credential = await prisma.serviceCredential.upsert({
+        where: { firmId_service: { firmId, service } },
+        create: { firmId, service, ...merged },
+        update: merged,
+      });
 
-    await Promise.all(accounts.map((account) =>
-      prisma.firmServiceAccount.update({
-        where: {
-          firmId_service_role: {
-            firmId,
-            service,
-            role: account.role,
+      credentialCache.delete(`${firmId}:${service}`);
+
+      await Promise.all(accounts.map((account) =>
+        prisma.firmServiceAccount.update({
+          where: {
+            firmId_service_role: {
+              firmId,
+              service,
+              role: account.role,
+            },
           },
-        },
-        data: {
-          identifier: account.role === "firm_user" ? suggestion.username || account.identifier : account.identifier,
-          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
-        },
-      })
-    ));
+          data: {
+            identifier: account.role === "firm_user" ? suggestion.username || account.identifier : account.identifier,
+            status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
+          },
+        })
+      ));
 
-    const output = {
-      adapter,
-      credentialSeeded: {
-        username: credential.username,
-        metadata: credential.metadata,
-        tokenPresent: !!credential.token,
-      },
-      serviceAccounts: accounts.map((account) => ({
-        role: account.role,
-        status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
-      })),
-    };
+      output = {
+        adapter,
+        credentialSeeded: {
+          username: credential.username,
+          metadata: credential.metadata,
+          tokenPresent: !!credential.token,
+        },
+        serviceAccounts: accounts.map((account) => ({
+          role: account.role,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
+        })),
+      };
+    }
 
     const completed = await prisma.serviceProvisioningRun.update({
       where: { id: run.id },
@@ -1476,6 +1502,127 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
     }).catch(() => {});
     throw err;
   }
+}
+
+async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
+  const adminToken = await getMattermostToken(null);
+  if (!adminToken) {
+    const error = new Error("Mattermost admin auth unavailable");
+    error.status = 502;
+    throw error;
+  }
+
+  const email = String(suggestion.username || identity.canonicalEmail || firm.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Mattermost provisioning requires a canonical email");
+    error.status = 400;
+    throw error;
+  }
+
+  let userId = null;
+  try {
+    const existing = await fetch(`${SERVICES.mattermost}/api/v4/users/email/${encodeURIComponent(email)}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    if (existing.ok) {
+      const user = await existing.json();
+      userId = user?.id || null;
+    }
+  } catch {}
+
+  if (!userId) {
+    const nameParts = String(identity.primaryMember?.name || firm.name || "CPA User").trim().split(/\s+/);
+    const firstName = nameParts[0] || "CPA";
+    const lastName = nameParts.slice(1).join(" ") || "User";
+    const usernameBase = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 22) || `firm_${firmId.slice(0, 8)}`;
+
+    const created = await fetch(`${SERVICES.mattermost}/api/v4/users`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        username: usernameBase,
+        first_name: firstName,
+        last_name: lastName,
+        password: suggestion.password,
+      }),
+    });
+
+    const createdData = await created.json().catch(() => null);
+    if (!created.ok) {
+      const error = new Error(
+        createdData?.message || createdData?.error || "Mattermost user creation failed",
+      );
+      error.status = created.status;
+      throw error;
+    }
+    userId = createdData?.id || null;
+  }
+
+  let teamId = null;
+  try {
+    const teamsRes = await fetch(`${SERVICES.mattermost}/api/v4/teams`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const teams = await teamsRes.json().catch(() => []);
+    if (teamsRes.ok && Array.isArray(teams) && teams.length) {
+      teamId = teams[0]?.id || null;
+    }
+  } catch {}
+
+  if (teamId && userId) {
+    await fetch(`${SERVICES.mattermost}/api/v4/teams/${teamId}/members`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        team_id: teamId,
+        user_id: userId,
+      }),
+    }).catch(() => {});
+  }
+
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "mattermost" } },
+    create: {
+      firmId,
+      service: "mattermost",
+      username: email,
+      password: suggestion.password,
+      metadata: teamId || null,
+    },
+    update: {
+      username: email,
+      password: suggestion.password,
+      metadata: teamId || null,
+    },
+  });
+  credentialCache.delete(`${firmId}:mattermost`);
+  mattermostSessions.delete(firmId);
+
+  await prisma.firmServiceAccount.updateMany({
+    where: { firmId, service: "mattermost", role: "firm_user" },
+    data: {
+      identifier: email,
+      status: "verified",
+      notes: teamId ? `Provisioned in team ${teamId}` : "Provisioned by Maxed via Mattermost API",
+    },
+  });
+
+  return {
+    credential,
+    output: {
+      userId,
+      email,
+      teamId,
+      brokerReady: false,
+    },
+  };
 }
 
 function normalizeBridgeTarget(target) {
