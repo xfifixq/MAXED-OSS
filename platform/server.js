@@ -1207,6 +1207,14 @@ const SERVICE_PROVISIONING_ADAPTERS = {
   },
 };
 
+const SERVICE_DEFAULT_TOKENS = {
+  paperless: "PAPERLESS_API_TOKEN",
+  docuseal: "DOCUSEAL_API_TOKEN",
+  n8n: "N8N_API_KEY",
+  bigcapital: "BIGCAPITAL_API_TOKEN",
+  twenty: "TWENTY_API_KEY",
+};
+
 function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
@@ -1497,40 +1505,14 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
         })),
       };
     } else {
-      const existing = await prisma.serviceCredential.findUnique({
-        where: { firmId_service: { firmId, service } },
+      const provisioned = await provisionWorkspaceManagedService({
+        firmId,
+        service,
+        identity: planned.identity,
+        suggestion,
+        accounts,
       });
-      const merged = mergeCredentialUpdate(existing, {
-        username: suggestion.username,
-        password: suggestion.password,
-        token: existing?.token ?? "",
-        metadata: suggestion.metadata,
-      });
-
-      credential = await prisma.serviceCredential.upsert({
-        where: { firmId_service: { firmId, service } },
-        create: { firmId, service, ...merged },
-        update: merged,
-      });
-
-      credentialCache.delete(`${firmId}:${service}`);
-
-      await Promise.all(accounts.map((account) =>
-        prisma.firmServiceAccount.update({
-          where: {
-            firmId_service_role: {
-              firmId,
-              service,
-              role: account.role,
-            },
-          },
-          data: {
-            identifier: account.role === "firm_user" ? suggestion.username || account.identifier : account.identifier,
-            status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
-          },
-        })
-      ));
-
+      credential = provisioned.credential;
       output = {
         adapter,
         credentialSeeded: {
@@ -1538,9 +1520,10 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
           metadata: credential.metadata,
           tokenPresent: !!credential.token,
         },
+        upstreamProvisioning: provisioned.output,
         serviceAccounts: accounts.map((account) => ({
           role: account.role,
-          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "provisioned",
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
         })),
       };
     }
@@ -1565,6 +1548,62 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
     }).catch(() => {});
     throw err;
   }
+}
+
+async function provisionWorkspaceManagedService({ firmId, service, identity, suggestion, accounts }) {
+  const existing = await prisma.serviceCredential.findUnique({
+    where: { firmId_service: { firmId, service } },
+  });
+  const tokenEnv = SERVICE_DEFAULT_TOKENS[service];
+  const seededToken = tokenEnv ? process.env[tokenEnv] || "" : "";
+  const metadata =
+    service === "bigcapital"
+      ? (process.env.BIGCAPITAL_TENANT_ID || suggestion.metadata || existing?.metadata || null)
+      : (suggestion.metadata || existing?.metadata || null);
+
+  const merged = mergeCredentialUpdate(existing, {
+    username: suggestion.username,
+    password: suggestion.password,
+    token: existing?.token || seededToken,
+    metadata,
+  });
+
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service } },
+    create: { firmId, service, ...merged },
+    update: merged,
+  });
+
+  credentialCache.delete(`${firmId}:${service}`);
+
+  await Promise.all(accounts.map((account) =>
+    prisma.firmServiceAccount.update({
+      where: {
+        firmId_service_role: {
+          firmId,
+          service,
+          role: account.role,
+        },
+      },
+      data: {
+        identifier: account.role === "firm_user" ? suggestion.username || identity.canonicalEmail || account.identifier : account.identifier,
+        status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
+        notes: account.role === "firm_user"
+          ? "Provisioned by Maxed using workspace-managed credentials."
+          : account.notes,
+      },
+    })
+  ));
+
+  return {
+    credential,
+    output: {
+      mode: "workspace_managed_seed",
+      tokenSeeded: !!credential.token,
+      brokerReady: false,
+      canonicalIdentifier: suggestion.username || identity.canonicalEmail || null,
+    },
+  };
 }
 
 async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
@@ -3592,6 +3631,48 @@ app.post("/api/firms/:firmId/provisioning/:service/execute", async (req, res) =>
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/provisioning/execute-all", async (req, res) => {
+  try {
+    const platformSession = await resolvePlatformSessionFromRequest(req);
+    const requestedById = platformSession?.teamMemberId || null;
+    const results = {};
+
+    for (const service of Object.keys(SERVICE_CATALOG)) {
+      try {
+        const result = await executeProvisioningRun({
+          firmId: req.params.firmId,
+          service,
+          requestedById,
+        });
+        results[service] = {
+          ok: true,
+          runId: result.run.id,
+          status: result.run.status,
+          output: result.output,
+        };
+      } catch (err) {
+        results[service] = {
+          ok: false,
+          status: err.status || 500,
+          error: err.message,
+        };
+      }
+    }
+
+    res.json({
+      firmId: req.params.firmId,
+      summary: {
+        total: Object.keys(results).length,
+        succeeded: Object.values(results).filter((entry) => entry.ok).length,
+        failed: Object.values(results).filter((entry) => !entry.ok).length,
+      },
+      results,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
