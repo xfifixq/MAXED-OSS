@@ -408,6 +408,8 @@ function AdminContent() {
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountRecord[]>([]);
   const [accountForm, setAccountForm] = useState<Record<string, { identifier: string; status: string }>>({});
   const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
+  const [executingAll, setExecutingAll] = useState(false);
+  const [executingService, setExecutingService] = useState<string | null>(null);
 
   const fetchCredentials = useCallback(async (firmId: string) => {
     try {
@@ -442,6 +444,25 @@ function AdminContent() {
     } catch {}
   }, []);
 
+  const refreshFirmState = useCallback(async (firmId: string) => {
+    await Promise.all([
+      fetchCredentials(firmId),
+      fetchServiceAccounts(firmId),
+      (async () => {
+        try {
+          const [overviewRes, identityRes, accessRes] = await Promise.all([
+            fetch(apiUrl(`/api/firms/${firmId}/provisioning/overview`)),
+            fetch(apiUrl(`/api/firms/${firmId}/identity-workspace`)),
+            fetch(apiUrl(`/api/firms/${firmId}/access-policy`)),
+          ]);
+          if (overviewRes.ok) setProvisioningOverview(await overviewRes.json());
+          if (identityRes.ok) setIdentityWorkspace(await identityRes.json());
+          if (accessRes.ok) setAccessPolicy(await accessRes.json());
+        } catch {}
+      })(),
+    ]);
+  }, [fetchCredentials, fetchServiceAccounts]);
+
   useEffect(() => {
     async function init() {
       try {
@@ -461,25 +482,14 @@ function AdminContent() {
           const res = await fetch(apiUrl(`/api/firms/${firmIdParam}`));
           if (res.ok) setFirm(await res.json());
         } catch {}
-        await fetchCredentials(firmIdParam);
-        await fetchServiceAccounts(firmIdParam);
-        try {
-          const [overviewRes, identityRes, accessRes] = await Promise.all([
-            fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/overview`)),
-            fetch(apiUrl(`/api/firms/${firmIdParam}/identity-workspace`)),
-            fetch(apiUrl(`/api/firms/${firmIdParam}/access-policy`)),
-          ]);
-          if (overviewRes.ok) setProvisioningOverview(await overviewRes.json());
-          if (identityRes.ok) setIdentityWorkspace(await identityRes.json());
-          if (accessRes.ok) setAccessPolicy(await accessRes.json());
-        } catch {}
+        await refreshFirmState(firmIdParam);
       }
 
       setLoading(false);
     }
 
     init();
-  }, [fetchCredentials, fetchServiceAccounts, firmIdParam]);
+  }, [firmIdParam, refreshFirmState]);
 
   useEffect(() => {
     const credential = credentials[activeTab];
@@ -518,7 +528,7 @@ function AdminContent() {
       }
 
       setMessage('Saved!');
-      fetchCredentials(firmIdParam);
+      refreshFirmState(firmIdParam);
     } catch {
       setMessage('Unable to connect.');
     } finally {
@@ -582,11 +592,61 @@ function AdminContent() {
       }
 
       setMessage('Saved!');
-      await fetchServiceAccounts(firmIdParam);
+      await refreshFirmState(firmIdParam);
     } catch {
       setMessage('Unable to save service account.');
     } finally {
       setSavingAccountId(null);
+    }
+  };
+
+  const handleExecuteService = async () => {
+    if (!firmIdParam) return;
+
+    setExecutingService(activeTab);
+    setMessage('');
+
+    try {
+      const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/${activeTab}/execute`), {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || 'Provisioning failed.');
+        return;
+      }
+
+      await refreshFirmState(firmIdParam);
+      setMessage(`${activeSvc.name} provisioned via Maxed.`);
+    } catch {
+      setMessage('Provisioning failed.');
+    } finally {
+      setExecutingService(null);
+    }
+  };
+
+  const handleExecuteAll = async () => {
+    if (!firmIdParam) return;
+
+    setExecutingAll(true);
+    setMessage('');
+
+    try {
+      const res = await fetch(apiUrl(`/api/firms/${firmIdParam}/provisioning/execute-all`), {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error || 'Firm provisioning failed.');
+        return;
+      }
+
+      await refreshFirmState(firmIdParam);
+      setMessage(`Provisioned ${data?.summary?.succeeded ?? 0}/${data?.summary?.total ?? SERVICE_TABS.length} services via Maxed.`);
+    } catch {
+      setMessage('Firm provisioning failed.');
+    } finally {
+      setExecutingAll(false);
     }
   };
 
@@ -699,6 +759,15 @@ function AdminContent() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">Service Setup: {firm?.name || 'Unknown Firm'}</h1>
           <p className="text-sm text-gray-500">Use one workflow for every service: open the recommended setup workspace, create or confirm the firm user, save credentials in Maxed, then verify the connection.</p>
+        </div>
+        <div className="ml-auto">
+          <button
+            onClick={handleExecuteAll}
+            disabled={executingAll}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {executingAll ? 'Provisioning firm...' : 'Provision Firm Via Maxed'}
+          </button>
         </div>
       </div>
 
@@ -1124,9 +1193,17 @@ function AdminContent() {
           ) : null}
 
           <button
+            onClick={handleExecuteService}
+            disabled={executingService === activeTab}
+            className="btn-primary mt-4 w-full text-sm disabled:opacity-50"
+          >
+            {executingService === activeTab ? 'Provisioning...' : `Provision ${activeSvc.name} Via Maxed`}
+          </button>
+
+          <button
             onClick={handleSave}
             disabled={saving}
-            className="btn-primary mt-4 w-full text-sm disabled:opacity-50"
+            className="btn-secondary mt-2 w-full text-sm disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Credentials'}
           </button>
