@@ -655,11 +655,17 @@ function AdminContent() {
   const catalogEntry = overviewEntry || serviceCatalog[activeTab];
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const useEmbeddedFlow = activeSvc.embedPreferred !== false;
+  const hasDedicatedAdminPath = Boolean(
+    activeSvc.recommendedPath
+    || activeSvc.registerPath
+    || activeSvc.setupPath
+    || activeSvc.adminPath
+    || activeSvc.loginPath,
+  );
   const recommendedUrl = buildRecommendedUrl(activeSvc, baseUrl);
   const iframeUrl = recommendedUrl;
   const maxedWorkspacePath = accessPolicy?.services?.[activeTab]?.workspacePath || '/dashboard';
-  const maxedWorkspaceUrl = `https://app.maxed.life${maxedWorkspacePath}`;
-  const adminSetupUrl = recommendedUrl;
+  const adminSetupUrl = hasDedicatedAdminPath ? recommendedUrl : null;
   const isConfigured = Boolean(
     credentials[activeTab] &&
     (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
@@ -991,17 +997,9 @@ function AdminContent() {
                     {activeSvc.name} is provisioned and healthy. CPA work should stay in Maxed. Use upstream access only for admin exceptions.
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <a href={maxedWorkspaceUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
-                    Open Maxed workspace
-                  </a>
-                  <button
-                    onClick={() => setIframeVisible((current) => !current)}
-                    className="btn-secondary text-sm"
-                  >
-                    {iframeVisible ? 'Hide admin surface' : 'Show admin surface'}
-                  </button>
-                </div>
+                <Link href={maxedWorkspacePath} className="btn-primary text-sm">
+                  Open workspace
+                </Link>
               </div>
             </div>
           ) : null}
@@ -1010,19 +1008,21 @@ function AdminContent() {
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-xs text-gray-400">
-                    Admin exception surface: <code className="rounded bg-gray-100 px-1">{adminSetupUrl}</code>
-                  </span>
-                  <button
-                    onClick={() => setIframeVisible((current) => !current)}
-                    className="text-xs font-medium text-gray-500 hover:text-gray-700"
-                  >
-                    {iframeVisible ? 'Hide admin surface' : 'Show admin surface'}
-                  </button>
+                  {adminSetupUrl ? (
+                    <span className="text-xs text-gray-400">
+                      Admin exception surface: <code className="rounded bg-gray-100 px-1">{adminSetupUrl}</code>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400">
+                      No separate admin URL for this service. Use the embedded surface below if admin work is needed.
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-gray-500">
                   {!useEmbeddedFlow
-                    ? 'This service should be bootstrapped in a dedicated admin tab. CPA handoff remains in Maxed.'
+                    ? adminSetupUrl
+                      ? 'This service should be bootstrapped in a dedicated admin tab. CPA handoff remains in Maxed.'
+                      : 'This service should stay in Maxed unless you need direct admin repair work.'
                     : readyForHandoff
                       ? 'This embedded surface is now exception-only. Normal CPA work should stay in Maxed.'
                       : 'Use this embedded admin surface only for setup. CPA handoff remains in Maxed-native workspaces.'}
@@ -1030,12 +1030,24 @@ function AdminContent() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <a href={maxedWorkspaceUrl} target="_blank" rel="noopener noreferrer" className="btn-primary text-sm">
-                  Open Maxed workspace
-                </a>
-                <a href={adminSetupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
-                  Open admin exception surface
-                </a>
+                {!readyForHandoff ? (
+                  <Link href={maxedWorkspacePath} className="btn-primary text-sm">
+                    Open workspace
+                  </Link>
+                ) : null}
+                {useEmbeddedFlow ? (
+                  <button
+                    onClick={() => setIframeVisible((current) => !current)}
+                    className="btn-secondary text-sm"
+                  >
+                    {iframeVisible ? 'Hide admin surface' : 'Show admin surface'}
+                  </button>
+                ) : null}
+                {adminSetupUrl ? (
+                  <a href={adminSetupUrl} target="_blank" rel="noopener noreferrer" className="btn-secondary text-sm">
+                    Open admin exception surface
+                  </a>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1051,7 +1063,9 @@ function AdminContent() {
           ) : (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-12 text-center text-sm text-gray-500">
               {!useEmbeddedFlow
-                ? 'This service should be bootstrapped in a dedicated admin tab. Open the admin setup surface above, complete setup there, then keep CPA handoff inside Maxed.'
+                ? adminSetupUrl
+                  ? 'This service should be bootstrapped in a dedicated admin tab. Open the admin setup surface above, complete setup there, then keep CPA handoff inside Maxed.'
+                  : 'No separate admin URL is configured for this service. Keep CPA work in Maxed and only use the embedded surface or backend repair tools when needed.'
                 : readyForHandoff
                   ? 'Admin surface hidden because this service is already ready. Keep CPA work in Maxed unless you need an exception/admin task.'
                   : 'Embedded admin view hidden. Open the admin exception surface above and follow the setup process on the right.'}
