@@ -977,6 +977,54 @@ const SERVICE_WORKSPACE_PATHS = {
   mattermost: "/dashboard/chat",
 };
 
+const SERVICE_ACCESS_CAPABILITIES = {
+  paperless: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  docuseal: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  invoiceninja: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  n8n: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_owner_handoff",
+  },
+  kimai: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  bigcapital: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  twenty: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  metabase: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+  mattermost: {
+    browserSessionBroker: false,
+    cpaMode: "maxed_native_only",
+    adminMode: "setup_and_exception_handoff",
+  },
+};
+
 function getPublicServiceUrl(service) {
   return PUBLIC_SERVICES[service] || null;
 }
@@ -986,6 +1034,11 @@ function buildPublicServiceUrl(service, path = "") {
   if (!baseUrl) return null;
   if (!path) return baseUrl;
   return `${String(baseUrl).replace(/\/$/, "")}${path}`;
+}
+
+function getMaxedWorkspaceUrl(service) {
+  const workspacePath = SERVICE_WORKSPACE_PATHS[service] || "/dashboard";
+  return `https://app.maxed.life${workspacePath}`;
 }
 
 function getServiceIdentityShape(serviceKey) {
@@ -1490,6 +1543,12 @@ app.get("/bridge/:service", async (req, res) => {
   try {
     const service = req.params.service;
     const serviceUrl = getPublicServiceUrl(service);
+    const accessCapability = SERVICE_ACCESS_CAPABILITIES[service] || {
+      browserSessionBroker: false,
+      cpaMode: "maxed_native_only",
+      adminMode: "setup_and_exception_handoff",
+    };
+    const maxedWorkspaceUrl = getMaxedWorkspaceUrl(service);
     if (!serviceUrl) {
       return res.status(404).send(bridgePage({
         title: "Workspace Unavailable",
@@ -1510,7 +1569,7 @@ app.get("/bridge/:service", async (req, res) => {
       return res.status(400).send(bridgePage({
         title: "Firm Session Missing",
         message: "Maxed could not determine which firm workspace to open. Return to the dashboard and try again.",
-        redirectUrl: targetUrl,
+        redirectUrl: maxedWorkspaceUrl,
         autoRedirect: false,
       }));
     }
@@ -1519,8 +1578,17 @@ app.get("/bridge/:service", async (req, res) => {
       return res.status(401).send(bridgePage({
         title: "Workspace Credentials Required",
         message: "This workspace does not have saved credentials yet. Add the firm login and any API token in Maxed admin before opening it.",
-        redirectUrl: targetUrl,
+        redirectUrl: maxedWorkspaceUrl,
         autoRedirect: false,
+      }));
+    }
+
+    if (!accessCapability.browserSessionBroker) {
+      return res.status(200).send(bridgePage({
+        title: "Open In Maxed",
+        message: "This service does not support a true brokered browser session yet. Maxed is routing the firm back to its native workspace instead of handing off to a separate upstream login.",
+        redirectUrl: maxedWorkspaceUrl,
+        autoRedirect: true,
       }));
     }
 
@@ -2531,6 +2599,7 @@ app.get("/api/services/catalog", (_req, res) => {
     Object.values(SERVICE_CATALOG).map((service) => ({
       ...service,
       defaultUrl: PUBLIC_SERVICES[service.key] || null,
+      accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
     })),
   );
 });
@@ -2566,6 +2635,7 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
         configured: hasFirmCred,
         health: healthState,
         source: hasFirmCred ? "firm" : "none",
+        accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
         launch: {
           service: buildPublicServiceUrl(service.key),
           setup: buildPublicServiceUrl(service.key, service.setupPath || ""),
@@ -2681,14 +2751,20 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
       const configured = !!cred?.token || !!cred?.username || !!cred?.password;
+      const accessCapability = SERVICE_ACCESS_CAPABILITIES[service.key] || {
+        browserSessionBroker: false,
+        cpaMode: "maxed_native_only",
+        adminMode: "setup_and_exception_handoff",
+      };
       policy[service.key] = {
         key: service.key,
         name: service.name,
         workspacePath: SERVICE_WORKSPACE_PATHS[service.key] || "/dashboard",
-        cpaAccessMode: "maxed_native",
-        upstreamAccessMode: "platform_admin_only",
+        cpaAccessMode: accessCapability.cpaMode,
+        upstreamAccessMode: accessCapability.adminMode,
         configured,
         bootstrapRequired: getServiceIdentityShape(service.key).bootstrapRequired,
+        browserSessionBroker: accessCapability.browserSessionBroker,
       };
     }
 
