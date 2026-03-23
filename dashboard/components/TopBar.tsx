@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useNotifications } from '@/lib/notifications';
 
@@ -109,14 +110,12 @@ export default function TopBar() {
             </div>
           </div>
 
-          <a
-            href={process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL || 'https://portal.maxed.life'}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/dashboard/client-portal"
             className="hidden md:inline-flex items-center rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Client Portal
-          </a>
+          </Link>
 
           {/* Notifications */}
           <div className="relative" ref={notifRef}>

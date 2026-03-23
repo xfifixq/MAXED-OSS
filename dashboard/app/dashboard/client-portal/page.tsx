@@ -62,6 +62,9 @@ export default function ClientPortalPage() {
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">Portal URL</p>
             <p className="mt-2 break-all text-sm font-medium text-gray-900">{portalUrl}</p>
+            <p className="mt-2 text-xs text-gray-500">
+              This is a client-facing surface. CPA users should stay in Maxed unless they are verifying the client experience.
+            </p>
           </div>
 
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">

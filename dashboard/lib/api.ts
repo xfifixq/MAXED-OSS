@@ -46,14 +46,6 @@ export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
-export function bridgeUrl(service: string, target = ''): string {
-  const firmId = getFirmId();
-  const params = new URLSearchParams();
-  if (firmId) params.set('firmId', firmId);
-  if (target) params.set('target', target);
-  return `${API_URL}/bridge/${service}?${params.toString()}`;
-}
-
 export function firmApiUrl(path: string): string {
   return `${API_URL}/api/firms/${getFirmId()}${path}`;
 }
