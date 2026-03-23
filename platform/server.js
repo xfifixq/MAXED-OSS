@@ -1454,6 +1454,27 @@ async function executeProvisioningRun({ firmId, service, requestedById = null })
           status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
         })),
       };
+    } else if (service === "kimai") {
+      const provisioned = await provisionKimaiUser({
+        firmId,
+        firm: planned.firm,
+        identity: planned.identity,
+        suggestion,
+      });
+      credential = provisioned.credential;
+      output = {
+        adapter,
+        credentialSeeded: {
+          username: credential.username,
+          metadata: credential.metadata,
+          tokenPresent: !!credential.token,
+        },
+        upstreamProvisioning: provisioned.output,
+        serviceAccounts: accounts.map((account) => ({
+          role: account.role,
+          status: account.role === "bootstrap_admin" ? "bootstrap_pending" : "verified",
+        })),
+      };
     } else {
       const existing = await prisma.serviceCredential.findUnique({
         where: { firmId_service: { firmId, service } },
@@ -1747,6 +1768,105 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
       userId,
       email,
       brokerReady: false,
+    },
+  };
+}
+
+async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
+  const adminHeaders = await kimaiAuth(null);
+  if (!adminHeaders["X-AUTH-TOKEN"] && !adminHeaders.Authorization) {
+    const error = new Error("Kimai admin API auth unavailable");
+    error.status = 502;
+    throw error;
+  }
+
+  const email = String(suggestion.username || identity.canonicalEmail || firm.email || "").trim().toLowerCase();
+  if (!email) {
+    const error = new Error("Kimai provisioning requires a canonical email");
+    error.status = 400;
+    throw error;
+  }
+
+  const alias = String(identity.primaryMember?.name || firm.name || "CPA User").trim();
+  const username = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 32) || `firm_${firmId.slice(0, 8)}`;
+
+  let userId = null;
+  try {
+    const usersRes = await fetch(`${SERVICES.kimai}/api/users`, {
+      headers: adminHeaders,
+    });
+    const users = await usersRes.json().catch(() => []);
+    if (usersRes.ok && Array.isArray(users)) {
+      const existing = users.find((user) =>
+        String(user?.email || "").toLowerCase() === email ||
+        String(user?.username || "").toLowerCase() === username.toLowerCase(),
+      );
+      if (existing) userId = existing.id || null;
+    }
+  } catch {}
+
+  if (!userId) {
+    const createRes = await fetch(`${SERVICES.kimai}/api/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...adminHeaders,
+      },
+      body: JSON.stringify({
+        username,
+        email,
+        alias,
+        enabled: true,
+        roles: ["ROLE_USER"],
+        password: suggestion.password,
+      }),
+    });
+
+    const createdData = await createRes.json().catch(() => null);
+    if (!createRes.ok) {
+      const error = new Error(
+        createdData?.message || createdData?.error || "Kimai user creation failed",
+      );
+      error.status = createRes.status;
+      throw error;
+    }
+    userId = createdData?.id || null;
+  }
+
+  const credential = await prisma.serviceCredential.upsert({
+    where: { firmId_service: { firmId, service: "kimai" } },
+    create: {
+      firmId,
+      service: "kimai",
+      username: email,
+      password: suggestion.password,
+      token: process.env.KIMAI_API_TOKEN || null,
+    },
+    update: {
+      username: email,
+      password: suggestion.password,
+      token: process.env.KIMAI_API_TOKEN || undefined,
+    },
+  });
+  credentialCache.delete(`${firmId}:kimai`);
+
+  await prisma.firmServiceAccount.updateMany({
+    where: { firmId, service: "kimai", role: "firm_user" },
+    data: {
+      identifier: email,
+      status: "verified",
+      notes: "Provisioned by Maxed via Kimai API; token may still require per-user generation.",
+    },
+  });
+
+  return {
+    credential,
+    output: {
+      userId,
+      email,
+      username,
+      brokerReady: false,
+      tokenMode: credential.token ? "shared_admin_token" : "password_only",
     },
   };
 }
