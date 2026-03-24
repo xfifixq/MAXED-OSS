@@ -25,13 +25,13 @@ export default function LoginPage() {
     });
 
     if (!loginRes.ok) {
-      return;
+      return '';
     }
 
     const loginPayload = (await loginRes.json().catch(() => null)) as { platformSessionToken?: string } | null;
     const token = loginPayload?.platformSessionToken;
     if (!token) {
-      return;
+      return '';
     }
 
     await fetch('/api/platform/session/bootstrap', {
@@ -41,12 +41,19 @@ export default function LoginPage() {
         Authorization: `Bearer ${token}`,
       },
     }).catch(() => null);
+
+    return token;
   };
 
-  const bootstrapPlatformSession = async () => {
+  const bootstrapPlatformSession = async (platformSessionToken?: string) => {
     const res = await fetch('/api/platform/session/bootstrap', {
       method: 'POST',
       credentials: 'include',
+      headers: platformSessionToken
+        ? {
+            Authorization: `Bearer ${platformSessionToken}`,
+          }
+        : undefined,
     });
 
     if (!res.ok) {
@@ -60,7 +67,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    await primePlatformSession();
+    const primedPlatformToken = await primePlatformSession();
 
     const result = await signIn('credentials', {
       email,
@@ -75,7 +82,7 @@ export default function LoginPage() {
       setError('Invalid email or password.');
     } else if (result?.ok) {
       try {
-        await bootstrapPlatformSession();
+        await bootstrapPlatformSession(primedPlatformToken);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unable to establish secure Maxed session.');
         return;

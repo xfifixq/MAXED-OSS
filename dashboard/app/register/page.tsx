@@ -37,13 +37,13 @@ export default function RegisterPage() {
     });
 
     if (!loginRes.ok) {
-      return;
+      return '';
     }
 
     const loginPayload = (await loginRes.json().catch(() => null)) as { platformSessionToken?: string } | null;
     const token = loginPayload?.platformSessionToken;
     if (!token) {
-      return;
+      return '';
     }
 
     await fetch('/api/platform/session/bootstrap', {
@@ -53,12 +53,19 @@ export default function RegisterPage() {
         Authorization: `Bearer ${token}`,
       },
     }).catch(() => null);
+
+    return token;
   };
 
-  const bootstrapPlatformSession = async () => {
+  const bootstrapPlatformSession = async (platformSessionToken?: string) => {
     const res = await fetch('/api/platform/session/bootstrap', {
       method: 'POST',
       credentials: 'include',
+      headers: platformSessionToken
+        ? {
+            Authorization: `Bearer ${platformSessionToken}`,
+          }
+        : undefined,
     });
 
     if (!res.ok) {
@@ -114,7 +121,7 @@ export default function RegisterPage() {
         return;
       }
 
-      await primePlatformSession(adminEmail, adminPassword);
+      const primedPlatformToken = await primePlatformSession(adminEmail, adminPassword);
 
       // Auto sign in after registration
       const result = await signIn('credentials', {
@@ -125,7 +132,7 @@ export default function RegisterPage() {
       });
 
       if (result?.ok) {
-        await bootstrapPlatformSession();
+        await bootstrapPlatformSession(primedPlatformToken);
         router.push('/dashboard');
       } else {
         // Registration succeeded but auto-login failed, redirect to login
