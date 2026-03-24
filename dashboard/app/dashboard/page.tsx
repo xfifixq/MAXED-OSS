@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { apiUrl, firmApiUrl } from '@/lib/api';
+import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { useFirmReady } from '@/lib/useFirmReady';
 
 // ---------------------------------------------------------------------------
 // CPA Dashboard (non-admin users)
@@ -23,6 +24,7 @@ interface DashboardSummary {
 
 function CpaDashboard() {
   const { data: session } = useSession();
+  const { isReady } = useFirmReady();
   const [stats, setStats] = useState<Stats>({ totalClients: 0, activeWorkflows: 0, pendingInvoices: 0, upcomingDeadlines: 0 });
   const [summary, setSummary] = useState<DashboardSummary>({ recentClients: [], todoItems: [], recentMessages: [] });
   const [loading, setLoading] = useState(true);
@@ -30,14 +32,15 @@ function CpaDashboard() {
   const [feedback, setFeedback] = useState('');
 
   async function fetchData() {
+    if (!isReady) return;
     try {
-      const [statsRes, summaryRes] = await Promise.all([
-        fetch(firmApiUrl('/stats')),
-        fetch(firmApiUrl('/dashboard-summary')),
+      const [statsPayload, summaryPayload] = await Promise.all([
+        firmFetch<Stats>('/stats'),
+        firmFetch<DashboardSummary>('/dashboard-summary'),
       ]);
 
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (summaryRes.ok) setSummary(await summaryRes.json());
+      setStats(statsPayload);
+      setSummary(summaryPayload);
     } catch {
       // silent
     } finally {
@@ -46,18 +49,16 @@ function CpaDashboard() {
   }
 
   useEffect(() => {
+    if (!isReady) return;
     fetchData();
-  }, []);
+  }, [isReady]);
 
   const handleLoadDemoData = async () => {
     setLoadingDemo(true);
     setFeedback('');
     try {
-      const res = await fetch(firmApiUrl('/demo-data'), { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) {
-        setFeedback(data.error || 'Unable to load demo data.');
-      } else {
+      const data = await firmFetch<{ seeded?: boolean }>('/demo-data', { method: 'POST' });
+      if (data) {
         setFeedback(data.seeded ? 'Demo data loaded for this firm.' : 'This firm already has demo data loaded.');
         await fetchData();
       }
@@ -219,22 +220,17 @@ function AdminDashboard() {
 
   const fetchFirms = async () => {
     try {
-      const res = await fetch(apiUrl('/api/firms'));
-      if (res.ok) {
-        const data = await res.json();
-        // Fetch details for each firm
-        const detailed = await Promise.all(
-          data.map(async (f: Firm) => {
-            try {
-              const r = await fetch(apiUrl(`/api/firms/${f.id}`));
-              if (r.ok) return r.json();
-            } catch { /* silent */ }
+      const data = await serviceFetch<Firm[]>('/api/firms');
+      const detailed = await Promise.all(
+        data.map(async (f: Firm) => {
+          try {
+            return await serviceFetch<Firm>(`/api/firms/${f.id}`);
+          } catch {
             return f;
-          })
-        );
-        // Filter out the admin firm (firm 1 / admin@maxed.dev)
-        setFirms(detailed);
-      }
+          }
+        }),
+      );
+      setFirms(detailed);
     } catch { /* silent */ }
     setLoading(false);
   };
@@ -250,19 +246,13 @@ function AdminDashboard() {
     }
     setCreating(true);
     try {
-      const res = await fetch(apiUrl('/api/register'), {
+      await serviceFetch('/api/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to create firm.');
-      } else {
-        setShowAddFirm(false);
-        setForm({ firmName: '', firmEmail: '', firmPhone: '', adminName: '', adminEmail: '', adminPassword: '' });
-        fetchFirms();
-      }
+      setShowAddFirm(false);
+      setForm({ firmName: '', firmEmail: '', firmPhone: '', adminName: '', adminEmail: '', adminPassword: '' });
+      fetchFirms();
     } catch {
       setError('Unable to connect to the server.');
     }
@@ -408,8 +398,16 @@ function AdminDashboard() {
 // Main page — routes to admin or CPA dashboard based on session
 // ---------------------------------------------------------------------------
 export default function DashboardHome() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const isAdmin = Boolean((session?.user as any)?.isPlatformAdmin);
+
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-gray-500">
+        Loading dashboard...
+      </div>
+    );
+  }
 
   if (isAdmin) return <AdminDashboard />;
   return <CpaDashboard />;

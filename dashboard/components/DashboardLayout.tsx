@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { SessionProvider, signOut, useSession } from 'next-auth/react';
+import { SessionProvider, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
 import { clearFirmId, installApiFetchCredentials, setFirmId } from '@/lib/api';
 import Sidebar from './Sidebar';
@@ -28,21 +28,20 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
       }
 
       const firmId = (session?.user as any)?.firmId;
+      const platformSessionToken = (session?.user as any)?.platformSessionToken;
       if (firmId) setFirmId(firmId);
 
       try {
         const res = await fetch('/api/platform/session/bootstrap', {
           method: 'POST',
           credentials: 'include',
+          headers: platformSessionToken
+            ? { Authorization: `Bearer ${platformSessionToken}` }
+            : undefined,
         });
 
         if (!res.ok) {
           const payload = await res.json().catch(() => null);
-          if (res.status === 401) {
-            clearFirmId();
-            await signOut({ redirect: false });
-            throw new Error('Your session expired. Sign in again.');
-          }
           throw new Error(payload?.error || 'Unable to establish a secure Maxed session.');
         }
 

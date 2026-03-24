@@ -14,10 +14,11 @@ function resolveCookieDomain(host: string | null): string | undefined {
 
 export async function POST(request: NextRequest) {
   const secureCookie = request.nextUrl.protocol === 'https:' || process.env.NODE_ENV === 'production';
-  const token = await resolveNextAuthToken(request);
-  const platformSessionToken = typeof token?.platformSessionToken === 'string'
+  const headerToken = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '';
+  const token = headerToken ? null : await resolveNextAuthToken(request);
+  const platformSessionToken = headerToken || (typeof token?.platformSessionToken === 'string'
     ? token.platformSessionToken
-    : '';
+    : '');
 
   if (!platformSessionToken) {
     return NextResponse.json({ error: 'Platform session unavailable' }, { status: 401 });

@@ -93,6 +93,8 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
         (session.user as any).firmName = token.firmName;
         (session.user as any).isPlatformAdmin = token.isPlatformAdmin;
+        (session.user as any).platformSessionToken = token.platformSessionToken;
+        (session.user as any).platformSessionExpiresAt = token.platformSessionExpiresAt;
       }
       return session;
     },
