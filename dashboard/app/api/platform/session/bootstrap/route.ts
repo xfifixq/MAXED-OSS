@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getToken } from 'next-auth/jwt';
-
-const NEXTAUTH_SECRET =
-  process.env.NEXTAUTH_SECRET ||
-  process.env.MAXED_API_KEY ||
-  'maxed-dev-secret-change-me';
+import { resolveNextAuthToken } from '@/lib/nextauth-token';
 
 function resolveCookieDomain(host: string | null): string | undefined {
   const hostname = String(host || '').split(':')[0].toLowerCase();
@@ -19,23 +14,7 @@ function resolveCookieDomain(host: string | null): string | undefined {
 
 export async function POST(request: NextRequest) {
   const secureCookie = request.nextUrl.protocol === 'https:' || process.env.NODE_ENV === 'production';
-  const token =
-    await getToken({
-      req: request,
-      secret: NEXTAUTH_SECRET,
-      secureCookie,
-      cookieName: secureCookie ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
-    }) ||
-    await getToken({
-      req: request,
-      secret: NEXTAUTH_SECRET,
-      secureCookie,
-    }) ||
-    await getToken({
-      req: request,
-      secret: NEXTAUTH_SECRET,
-      cookieName: 'next-auth.session-token',
-    });
+  const token = await resolveNextAuthToken(request);
   const platformSessionToken = typeof token?.platformSessionToken === 'string'
     ? token.platformSessionToken
     : '';
