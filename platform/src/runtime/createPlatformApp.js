@@ -1,6 +1,6 @@
 const createServiceApp = require("../shared/createServiceApp");
 
-module.exports = function createPlatformApp({ requireAuth, supabaseConnected }) {
+module.exports = function createPlatformApp({ requireAuth, supabaseConnected, readinessCheck = null }) {
   return createServiceApp({
     serviceName: "maxed-api",
     version: "0.1.0",
@@ -14,5 +14,6 @@ module.exports = function createPlatformApp({ requireAuth, supabaseConnected }) 
     ],
     includeSupabaseStatus: true,
     supabaseConnected,
+    readinessCheck,
   });
 };

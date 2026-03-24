@@ -53,6 +53,18 @@ Unified data layer for the Maxed accounting firm management platform. Built with
 
 For the full decomposed runtime, use the PM2 file at [ecosystem.config.cjs](/Users/fifisiddiqui/Desktop/MAXED-OSS/MAXED-OSS/infra/pm2/ecosystem.config.cjs) or the Docker Compose stack in [docker-compose.yml](/Users/fifisiddiqui/Desktop/MAXED-OSS/MAXED-OSS/infra/docker-compose.yml).
 
+## Production Rollout
+
+After pulling the latest code:
+
+```bash
+npx prisma migrate deploy
+npx prisma generate
+npm run smoke:runtime
+```
+
+Use `/ready` on each service for dependency-aware readiness, not just `/health`.
+
 ## API Endpoints
 
 | Method | Path | Description |

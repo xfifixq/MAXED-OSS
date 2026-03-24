@@ -8,6 +8,7 @@ const {
 } = require("../../src/shared/platformSession");
 const registerAuthRoutes = require("../../src/auth/registerAuthRoutes");
 const { getServicePort } = require("../../src/shared/runtimeConfig");
+const { checkDatabaseReadiness } = require("../../src/shared/readiness");
 
 const bcryptAvailable = (() => {
   try {
@@ -23,6 +24,7 @@ const { issuePlatformSession, resolvePlatformSessionFromRequest } =
 
 const app = createServiceApp({
   serviceName: "maxed-auth",
+  readinessCheck: () => checkDatabaseReadiness(prisma),
 });
 
 app.use(async (req, _res, next) => {

@@ -1,4 +1,7 @@
 require("dotenv").config();
 
-process.env.PORT = process.env.PORT || String(require("../../src/shared/runtimeConfig").getServicePort("api"));
-require("../../server");
+const { getServicePort } = require("../../src/shared/runtimeConfig");
+const { start } = require("../../server");
+
+const PORT = Number(process.env.PORT || getServicePort("api"));
+start(PORT);

@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const crypto = require("crypto");
 
 function matchesPublicPath(req, publicPaths) {
   return publicPaths.some((entry) => {
@@ -21,10 +22,17 @@ module.exports = function createServiceApp({
   supabaseConnected = false,
   jsonLimit = "10mb",
   rateLimitMax = 200,
+  readinessCheck = null,
 }) {
   const app = express();
 
   app.set("trust proxy", 1);
+  app.use((req, res, next) => {
+    const requestId = req.headers["x-request-id"] || crypto.randomUUID();
+    req.requestId = requestId;
+    res.setHeader("X-Request-Id", String(requestId));
+    next();
+  });
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({
     origin: process.env.CORS_ORIGINS
@@ -67,6 +75,25 @@ module.exports = function createServiceApp({
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: serviceName, version });
+  });
+
+  app.get("/ready", async (req, res) => {
+    try {
+      const details = readinessCheck ? await readinessCheck(req) : {};
+      res.json({
+        status: "ready",
+        service: serviceName,
+        version,
+        details,
+      });
+    } catch (err) {
+      res.status(err.status || 503).json({
+        status: "not_ready",
+        service: serviceName,
+        version,
+        error: err.message,
+      });
+    }
   });
 
   return app;

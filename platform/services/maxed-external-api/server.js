@@ -12,6 +12,7 @@ const { getServicePort } = require("../../src/shared/runtimeConfig");
 
 const app = createServiceApp({
   serviceName: "maxed-external-api",
+  readinessCheck: async () => ({ externalApi: "ok" }),
 });
 
 registerExternalRoutes(app, {

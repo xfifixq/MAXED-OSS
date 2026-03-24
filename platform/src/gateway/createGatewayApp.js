@@ -36,12 +36,13 @@ function resolveGatewayTarget(pathname) {
   return "api";
 }
 
-module.exports = function createGatewayApp() {
+module.exports = function createGatewayApp({ readinessCheck = null } = {}) {
   const app = createServiceApp({
     serviceName: "maxed-gateway",
     publicPaths: [
       isPublicGatewayPath,
     ],
+    readinessCheck,
   });
 
   app.use(async (req, res, next) => {

@@ -13,7 +13,8 @@
     "start:stream": "node services/maxed-stream/server.js",
     "start:config": "node services/maxed-config/server.js",
     "dev": "nodemon server.js",
-    "seed": "prisma db seed"
+    "seed": "prisma db seed",
+    "smoke:runtime": "node scripts/runtime-smoke.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

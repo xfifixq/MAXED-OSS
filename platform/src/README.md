@@ -24,3 +24,10 @@ The backend is decomposed into runtime roles under `platform/src/` and `platform
   Shared auth/session, Prisma/Supabase bootstrap, runtime ports, and proxy helpers.
 
 `platform/server.js` remains the legacy-compatible internal API composition root, while the deployed topology now runs through the service entrypoints under `platform/services/`.
+
+Each deployable exposes:
+
+- `/health`
+  Process is up.
+- `/ready`
+  Process and critical dependencies are ready.

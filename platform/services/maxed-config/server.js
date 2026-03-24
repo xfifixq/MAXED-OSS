@@ -13,6 +13,7 @@ const { getServicePort } = require("../../src/shared/runtimeConfig");
 
 const app = createServiceApp({
   serviceName: "maxed-config",
+  readinessCheck: async () => ({ config: "ok" }),
 });
 
 registerConfigRoutes(app, {

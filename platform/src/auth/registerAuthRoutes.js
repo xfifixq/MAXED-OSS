@@ -44,8 +44,6 @@ module.exports = function registerAuthRoutes(app, deps) {
     resolvePlatformSessionFromRequest,
   } = deps;
 
-  const resetTokens = new Map();
-
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -223,10 +221,32 @@ module.exports = function registerAuthRoutes(app, deps) {
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    resetTokens.set(token, { email, expires: Date.now() + 3600000 });
+    const tokenHash = hashOpaqueToken(token);
+    const expiresAt = new Date(Date.now() + 3600000);
 
-    console.log(`Password reset token for ${email}: ${token}`);
-    console.log(`Reset URL: https://app.maxed.life/reset-password?token=${token}`);
+    await prisma.passwordResetToken.deleteMany({
+      where: {
+        OR: [
+          { teamMemberId: member.id },
+          { expiresAt: { lt: new Date() } },
+        ],
+      },
+    });
+
+    await prisma.passwordResetToken.create({
+      data: {
+        tokenHash,
+        teamMemberId: member.id,
+        expiresAt,
+      },
+    });
+
+    if (process.env.EXPOSE_PASSWORD_RESET_TOKENS === "true" || process.env.NODE_ENV !== "production") {
+      console.log(`Password reset token for ${email}: ${token}`);
+      console.log(`Reset URL: https://app.maxed.life/reset-password?token=${token}`);
+    } else {
+      console.log(`Password reset requested for ${email}`);
+    }
 
     emitRuntimeEvent({
       type: "auth.password_reset_requested",
@@ -236,11 +256,16 @@ module.exports = function registerAuthRoutes(app, deps) {
       detail: { email: member.email },
     });
 
-    return res.json({
+    const payload = {
       ok: true,
       message: "If an account exists, a reset link has been generated.",
-      token,
-    });
+    };
+
+    if (process.env.EXPOSE_PASSWORD_RESET_TOKENS === "true" || process.env.NODE_ENV !== "production") {
+      payload.token = token;
+    }
+
+    return res.json(payload);
   });
 
   app.post("/api/auth/reset-password", async (req, res) => {
@@ -252,26 +277,41 @@ module.exports = function registerAuthRoutes(app, deps) {
       return res.status(400).json({ error: "Password must be at least 8 characters" });
     }
 
-    const entry = resetTokens.get(token);
-    if (!entry || entry.expires < Date.now()) {
+    const tokenHash = hashOpaqueToken(token);
+    const entry = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { teamMember: true },
+    });
+
+    if (!entry || entry.consumedAt || entry.expiresAt.getTime() < Date.now()) {
       return res.status(400).json({ error: "Invalid or expired reset token" });
     }
 
     const bcrypt = require("bcryptjs");
     const passwordHash = await bcrypt.hash(newPassword, 12);
 
-    await prisma.teamMember.updateMany({
-      where: { email: entry.email },
-      data: { passwordHash },
-    });
-
-    resetTokens.delete(token);
+    await prisma.$transaction([
+      prisma.teamMember.update({
+        where: { id: entry.teamMemberId },
+        data: { passwordHash },
+      }),
+      prisma.passwordResetToken.update({
+        where: { id: entry.id },
+        data: { consumedAt: new Date() },
+      }),
+      prisma.passwordResetToken.deleteMany({
+        where: {
+          teamMemberId: entry.teamMemberId,
+          id: { not: entry.id },
+        },
+      }),
+    ]);
 
     emitRuntimeEvent({
       type: "auth.password_reset_completed",
       source: "maxed-auth",
-      actorId: null,
-      detail: { email: entry.email },
+      actorId: entry.teamMemberId,
+      detail: { email: entry.teamMember.email },
     });
 
     return res.json({

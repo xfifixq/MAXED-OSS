@@ -31,6 +31,7 @@ const {
   requireFirmScope,
   requireClientScope,
 } = require("./src/shared/tenantAccess");
+const { checkDatabaseReadiness } = require("./src/shared/readiness");
 const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
@@ -53,6 +54,13 @@ const requireAuth = createRequireAuth({
 const app = createPlatformApp({
   requireAuth,
   supabaseConnected: !!supabase,
+  readinessCheck: async () => {
+    const details = await checkDatabaseReadiness(prisma);
+    return {
+      ...details,
+      supabase: supabase ? "configured" : "disabled",
+    };
+  },
 });
 app.use("/api", attachAuthContext);
 app.use("/api/firms/:firmId", requireFirmScope("firmId"));
@@ -2487,9 +2495,17 @@ registerOpenFrameRoutes(app, {
   loadReportingWorkspace,
 });
 
-// ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-app.listen(PORT, () => {
-  console.log(`Maxed platform API running on http://localhost:${PORT}`);
-});
+function start(port = PORT) {
+  return app.listen(port, () => {
+    console.log(`Maxed platform API running on http://localhost:${port}`);
+  });
+}
+
+if (require.main === module) {
+  start(PORT);
+}
+
+module.exports = {
+  app,
+  start,
+};
