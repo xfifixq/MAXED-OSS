@@ -111,10 +111,11 @@ Completed in the current Maxed rewrite:
   - chat
   - CRM
 - The browser-side CPA UI no longer depends on raw Bigcapital, Kimai, Invoice Ninja, Paperless, Mattermost, Twenty, DocuSeal, n8n, or Metabase proxy calls for those workspaces.
+- The backend control plane is now decomposed into extracted OpenFrame route modules under `platform/src/openframe/`, with `platform/server.js` acting as the composition root instead of keeping those surfaces inline.
 
 Still deferred:
 
-- Split `platform/server.js` into explicit gateway, connector registry, and domain modules.
+- Split the remaining non-OpenFrame legacy platform CRUD/auth surfaces out of `platform/server.js`.
 - Move provisioning and connector definitions out of the monolith into a formal registry.
 - Add deeper Maxed-owned workflow coverage where the current UI is still read-heavy or thin compared with the upstream systems.
 
