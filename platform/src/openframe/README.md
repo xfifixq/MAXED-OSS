@@ -19,9 +19,15 @@ This folder contains the Maxed backend decomposition for the OpenFrame-style con
 
 `platform/server.js` is now the composition root:
 
-- boot and middleware
-- auth and base platform routes
-- shared connector and workspace helpers
+- shared service/kernel helpers only
+- runtime app creation from `platform/src/runtime/`
+- platform/auth/base CRUD route registration from `platform/src/platform/`
 - OpenFrame route registration through this folder
 
-That keeps the control-plane/domain surfaces modular without breaking the existing runtime contract.
+That keeps the runtime split explicit:
+
+- runtime bootstrap
+- platform routes
+- OpenFrame control plane
+- OpenFrame workspaces
+- legacy adapter compatibility
