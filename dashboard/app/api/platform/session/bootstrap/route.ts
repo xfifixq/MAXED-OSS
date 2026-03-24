@@ -18,7 +18,24 @@ function resolveCookieDomain(host: string | null): string | undefined {
 }
 
 export async function POST(request: NextRequest) {
-  const token = await getToken({ req: request, secret: NEXTAUTH_SECRET });
+  const secureCookie = request.nextUrl.protocol === 'https:' || process.env.NODE_ENV === 'production';
+  const token =
+    await getToken({
+      req: request,
+      secret: NEXTAUTH_SECRET,
+      secureCookie,
+      cookieName: secureCookie ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+    }) ||
+    await getToken({
+      req: request,
+      secret: NEXTAUTH_SECRET,
+      secureCookie,
+    }) ||
+    await getToken({
+      req: request,
+      secret: NEXTAUTH_SECRET,
+      cookieName: 'next-auth.session-token',
+    });
   const platformSessionToken = typeof token?.platformSessionToken === 'string'
     ? token.platformSessionToken
     : '';
@@ -28,11 +45,10 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json({ ok: true });
-  const secure = request.nextUrl.protocol === 'https:' || process.env.NODE_ENV === 'production';
   response.cookies.set('maxed_session', platformSessionToken, {
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
+    secure: secureCookie,
+    sameSite: secureCookie ? 'none' : 'lax',
     path: '/',
     domain: resolveCookieDomain(request.headers.get('host')),
     maxAge: 30 * 24 * 60 * 60,

@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { setFirmId } from './api';
+import { clearFirmId, setFirmId } from './api';
 
 /**
  * Hook that returns the authenticated firm's ID and a ready flag.
@@ -13,12 +13,18 @@ export function useFirmReady() {
   const { data: session, status } = useSession();
   const [firmId, setFirmIdState] = useState<string | null>(null);
   useEffect(() => {
+    if (status !== 'authenticated') {
+      clearFirmId();
+      setFirmIdState(null);
+      return;
+    }
+
     const id = (session?.user as any)?.firmId;
     if (id) {
       setFirmId(id);
       setFirmIdState(id);
     }
-  }, [session]);
+  }, [session, status]);
 
   return {
     firmId,

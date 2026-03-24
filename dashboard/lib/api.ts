@@ -15,6 +15,13 @@ export function setFirmId(id: string) {
   }
 }
 
+export function clearFirmId() {
+  _firmId = '';
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(FIRM_STORAGE_KEY);
+  }
+}
+
 export function getFirmId(): string {
   if (!_firmId) {
     _firmId = readStoredFirmId();

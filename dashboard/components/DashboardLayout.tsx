@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { SessionProvider, useSession } from 'next-auth/react';
+import { SessionProvider, signOut, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
-import { installApiFetchCredentials, setFirmId } from '@/lib/api';
+import { clearFirmId, installApiFetchCredentials, setFirmId } from '@/lib/api';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
@@ -22,6 +22,7 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
     async function sync() {
       if (status === 'loading') return;
       if (status !== 'authenticated') {
+        clearFirmId();
         if (active) setReady(true);
         return;
       }
@@ -37,6 +38,11 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
 
         if (!res.ok) {
           const payload = await res.json().catch(() => null);
+          if (res.status === 401) {
+            clearFirmId();
+            await signOut({ redirect: false });
+            throw new Error('Your session expired. Sign in again.');
+          }
           throw new Error(payload?.error || 'Unable to establish a secure Maxed session.');
         }
 
@@ -85,8 +91,8 @@ export default function DashboardLayout({
 }) {
   return (
     <SessionProvider>
-      <NotificationProvider>
-        <FirmIdSync>
+      <FirmIdSync>
+        <NotificationProvider>
           <div className="flex min-h-screen bg-gray-50">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
@@ -96,8 +102,8 @@ export default function DashboardLayout({
               </main>
             </div>
           </div>
-        </FirmIdSync>
-      </NotificationProvider>
+        </NotificationProvider>
+      </FirmIdSync>
     </SessionProvider>
   );
 }

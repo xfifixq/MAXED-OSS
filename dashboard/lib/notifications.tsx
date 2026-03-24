@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useSession } from 'next-auth/react';
 import { firmApiUrl, serviceHeaders } from './api';
 
 export interface Notification {
@@ -125,6 +126,7 @@ function createNotification(
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const bootstrappedRef = useRef(false);
 
@@ -156,9 +158,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     async function poll() {
       try {
-        const headers = serviceHeaders();
-        const firmId = headers['X-Firm-Id'];
+        if (status !== 'authenticated') return;
+        const firmId = String((session?.user as any)?.firmId || '');
         if (!firmId) return;
+        const headers = {
+          ...serviceHeaders(),
+          'X-Firm-Id': firmId,
+        };
 
         const [statsRes, controlPlaneRes] = await Promise.all([
           fetch(firmApiUrl('/stats'), {
@@ -247,13 +253,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
     }
 
+    if (status !== 'authenticated' || !(session?.user as any)?.firmId) {
+      return () => {
+        mounted = false;
+      };
+    }
+
     poll();
     const interval = setInterval(poll, POLL_INTERVAL);
     return () => {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [session, status]);
 
   const markAsRead = useCallback((id: string) => {
     setNotifications((prev) =>

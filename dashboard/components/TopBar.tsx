@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
+import { clearFirmId } from '@/lib/api';
 import { useNotifications } from '@/lib/notifications';
 
 function timeAgo(iso: string): string {
@@ -87,6 +88,7 @@ export default function TopBar() {
       // Best-effort secure session cleanup.
     }
 
+    clearFirmId();
     await signOut({ callbackUrl: '/login' });
   };
 
