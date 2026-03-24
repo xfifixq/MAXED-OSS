@@ -9,16 +9,58 @@ import { useRouter } from 'next/navigation';
 export default function LoginPage() {
   const router = useRouter();
   const callbackUrl = '/dashboard';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const primePlatformSession = async () => {
+    const loginRes = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include',
+    });
+
+    if (!loginRes.ok) {
+      return;
+    }
+
+    const loginPayload = (await loginRes.json().catch(() => null)) as { platformSessionToken?: string } | null;
+    const token = loginPayload?.platformSessionToken;
+    if (!token) {
+      return;
+    }
+
+    await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch(() => null);
+  };
+
+  const bootstrapPlatformSession = async () => {
+    const res = await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error || 'Unable to establish secure Maxed session.');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    await primePlatformSession();
 
     const result = await signIn('credentials', {
       email,
@@ -32,6 +74,12 @@ export default function LoginPage() {
     if (result?.error) {
       setError('Invalid email or password.');
     } else if (result?.ok) {
+      try {
+        await bootstrapPlatformSession();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to establish secure Maxed session.');
+        return;
+      }
       router.push(callbackUrl);
     }
   };

@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { resolveNextAuthToken } from '@/lib/nextauth-token';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
@@ -15,10 +17,16 @@ function resolveCookieDomain(host: string | null): string | undefined {
 }
 
 export async function POST(request: NextRequest) {
-  const token = await resolveNextAuthToken(request);
-  const platformSessionToken = typeof token?.platformSessionToken === 'string'
-    ? token.platformSessionToken
+  const session = await getServerSession(authOptions);
+  const sessionPlatformToken = typeof (session?.user as any)?.platformSessionToken === 'string'
+    ? (session?.user as any).platformSessionToken
     : '';
+  const token = sessionPlatformToken ? null : await resolveNextAuthToken(request);
+  const platformSessionToken =
+    sessionPlatformToken ||
+    (typeof token?.platformSessionToken === 'string'
+      ? token.platformSessionToken
+      : '');
 
   if (platformSessionToken) {
     try {

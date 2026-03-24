@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { resolveNextAuthToken } from '@/lib/nextauth-token';
 
 function resolveCookieDomain(host: string | null): string | undefined {
@@ -15,12 +17,25 @@ function resolveCookieDomain(host: string | null): string | undefined {
 export async function POST(request: NextRequest) {
   const secureCookie = request.nextUrl.protocol === 'https:' || process.env.NODE_ENV === 'production';
   const headerToken = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '';
-  const token = headerToken ? null : await resolveNextAuthToken(request);
-  const platformSessionToken = headerToken || (typeof token?.platformSessionToken === 'string'
-    ? token.platformSessionToken
-    : '');
+  const session = headerToken ? null : await getServerSession(authOptions);
+  const sessionPlatformToken = typeof (session?.user as any)?.platformSessionToken === 'string'
+    ? (session?.user as any).platformSessionToken
+    : '';
+  const token = (headerToken || sessionPlatformToken)
+    ? null
+    : await resolveNextAuthToken(request);
+  const existingCookieToken = request.cookies.get('maxed_session')?.value || '';
+  const platformSessionToken =
+    headerToken ||
+    sessionPlatformToken ||
+    (typeof token?.platformSessionToken === 'string'
+      ? token.platformSessionToken
+      : '');
 
   if (!platformSessionToken) {
+    if (existingCookieToken) {
+      return NextResponse.json({ ok: true, reused: true });
+    }
     return NextResponse.json({ error: 'Platform session unavailable' }, { status: 401 });
   }
 
