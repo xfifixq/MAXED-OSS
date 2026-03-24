@@ -5,12 +5,15 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const { PrismaClient } = require("@prisma/client");
 const crypto = require("crypto");
+const fs = require("fs/promises");
+const path = require("path");
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const PLATFORM_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BROKER_SESSION_TTL_MS = 15 * 60 * 1000;
+const LOCAL_STORAGE_ROOT = path.resolve(process.env.LOCAL_STORAGE_ROOT || path.join(__dirname, "storage"));
 
 // ---------------------------------------------------------------------------
 // Production Security
@@ -1666,12 +1669,14 @@ async function provisionFirmServices({ firmId, requestedById = null }) {
         service,
         requestedById,
       });
-      const verified = result.output?.provisioningVerified !== false;
+      const liveProbe = await probeServiceAccess(firmId, service);
+      const verified = result.output?.provisioningVerified !== false && liveProbe.ok;
       results[service] = {
         ok: verified,
         runId: result.run.id,
         status: verified ? result.run.status : "partial",
         output: result.output,
+        liveProbe,
       };
     } catch (err) {
       results[service] = {
@@ -2289,6 +2294,10 @@ async function proxyFetchWithFallbacks(serviceUrl, paths, options = {}) {
   return lastResult || { status: 404, data: { error: "Not found" } };
 }
 
+function statusOk(status) {
+  return typeof status === "number" && status >= 200 && status < 300;
+}
+
 // ---------------------------------------------------------------------------
 // Per-firm service credential lookup (DB-first, env-var fallback)
 // ---------------------------------------------------------------------------
@@ -2786,6 +2795,134 @@ async function getMattermostToken(firmId) {
     }
   } catch {}
   return null;
+}
+
+async function probeServiceAccess(firmId, service) {
+  try {
+    switch (service) {
+      case "paperless": {
+        const headers = await paperlessAuth(firmId);
+        if (!headers.Authorization) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.paperless, "/api/documents/?page=1&page_size=1", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "docuseal": {
+        const headers = await docusealAuth(firmId);
+        if (!headers.Authorization && !headers["X-Auth-Token"]) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.docuseal, "/api/templates", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "invoiceninja": {
+        const headers = await invoiceNinjaAuth(firmId);
+        if (!headers["X-API-TOKEN"]) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/clients?per_page=1", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "n8n": {
+        const headers = await n8nAuth(firmId);
+        if (!headers["X-N8N-API-KEY"]) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.n8n, "/api/v1/workflows?limit=1", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "kimai": {
+        const headers = await kimaiAuth(firmId);
+        if (!headers["X-AUTH-TOKEN"] && !headers.Authorization) {
+          return { ok: false, status: 401, reason: "credentials_missing" };
+        }
+        const result = await proxyFetch(SERVICES.kimai, "/api/customers", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "mattermost": {
+        const token = await getMattermostToken(firmId);
+        if (!token) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "metabase": {
+        const session = await getMetabaseSession(firmId);
+        if (!session) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.metabase, "/api/dashboard", {
+          headers: { "X-Metabase-Session": session },
+        });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "twenty": {
+        const headers = await twentyAuth(firmId);
+        if (!headers.Authorization) return { ok: false, status: 401, reason: "credentials_missing" };
+        const result = await proxyFetch(SERVICES.twenty, "/api/companies", { headers });
+        return {
+          ok: statusOk(result.status),
+          status: result.status,
+          reason: statusOk(result.status) ? "connected" : "upstream_rejected",
+        };
+      }
+      case "bigcapital": {
+        const headers = await bigcapitalAuth(firmId);
+        if (!headers.Authorization) return { ok: false, status: 401, reason: "credentials_missing" };
+
+        const accounts = await proxyFetchWithFallbacks(SERVICES.bigcapital, ["/api/accounts", "/api/v1/accounts"], { headers });
+        const balanceSheet = await proxyFetchWithFallbacks(
+          SERVICES.bigcapital,
+          [
+            "/api/reports/balance-sheet",
+            "/api/financial-statements/balance-sheet",
+            "/api/v1/financial-statements/balance-sheet",
+          ],
+          { headers }
+        );
+
+        const ok = statusOk(accounts.status) && statusOk(balanceSheet.status);
+        return {
+          ok,
+          status: ok ? 200 : (accounts.status >= 400 ? accounts.status : balanceSheet.status),
+          reason: ok ? "connected" : "upstream_rejected",
+          detail: {
+            accounts: accounts.status,
+            balanceSheet: balanceSheet.status,
+          },
+        };
+      }
+      default:
+        return { ok: false, status: 404, reason: "service_not_supported" };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      status: err.status || 502,
+      reason: "probe_failed",
+      detail: err.message,
+    };
+  }
 }
 
 app.get("/bridge/:service", async (req, res) => {
@@ -3367,37 +3504,113 @@ app.post("/api/services/invoiceninja/payments", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Supabase Storage proxy — File uploads/downloads via Supabase Storage
+// Storage proxy — Supabase when configured, local Maxed storage otherwise
 // ---------------------------------------------------------------------------
-if (supabase) {
-  app.post("/api/storage/upload", async (req, res) => {
-    try {
-      const { bucket = "documents", path, base64Data, contentType } = req.body;
-      if (!path || !base64Data) {
-        return res.status(400).json({ error: "path and base64Data required" });
-      }
-      const buffer = Buffer.from(base64Data, "base64");
+function resolveStorageTarget(bucket, relativePath) {
+  const safeBucket = String(bucket || "documents").replace(/[^a-zA-Z0-9._-]/g, "") || "documents";
+  const normalizedPath = String(relativePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const absolutePath = path.resolve(LOCAL_STORAGE_ROOT, safeBucket, normalizedPath);
+  const bucketRoot = path.resolve(LOCAL_STORAGE_ROOT, safeBucket);
+
+  if (!normalizedPath || !absolutePath.startsWith(`${bucketRoot}${path.sep}`) && absolutePath !== bucketRoot) {
+    const error = new Error("Invalid storage path");
+    error.status = 400;
+    throw error;
+  }
+
+  return {
+    bucket: safeBucket,
+    relativePath: normalizedPath,
+    absolutePath,
+  };
+}
+
+function buildPublicApiBase(req) {
+  if (process.env.PUBLIC_API_URL) {
+    return String(process.env.PUBLIC_API_URL).replace(/\/$/, "");
+  }
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || req.protocol || "http");
+  const forwardedHost = String(req.headers["x-forwarded-host"] || req.headers.host || `localhost:${PORT}`);
+  return `${forwardedProto}://${forwardedHost}`;
+}
+
+app.post("/api/storage/upload", async (req, res) => {
+  try {
+    const { bucket = "documents", path: relativePath, base64Data, contentType } = req.body;
+    if (!relativePath || !base64Data) {
+      return res.status(400).json({ error: "path and base64Data required" });
+    }
+
+    const buffer = Buffer.from(base64Data, "base64");
+
+    if (supabase) {
       const { data, error } = await supabase.storage
         .from(bucket)
-        .upload(path, buffer, { contentType: contentType || "application/octet-stream", upsert: true });
+        .upload(relativePath, buffer, { contentType: contentType || "application/octet-stream", upsert: true });
       if (error) return res.status(400).json({ error: error.message });
-      res.json(data);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+      return res.json({
+        provider: "supabase",
+        bucket,
+        path: relativePath,
+        ...data,
+      });
     }
-  });
 
-  app.get("/api/storage/url", async (req, res) => {
-    try {
-      const { bucket = "documents", path } = req.query;
-      if (!path) return res.status(400).json({ error: "path required" });
-      const { data } = supabase.storage.from(String(bucket)).getPublicUrl(String(path));
-      res.json({ url: data.publicUrl });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+    const target = resolveStorageTarget(bucket, relativePath);
+    await fs.mkdir(path.dirname(target.absolutePath), { recursive: true });
+    await fs.writeFile(target.absolutePath, buffer);
+
+    return res.json({
+      provider: "local",
+      bucket: target.bucket,
+      path: target.relativePath,
+      size: buffer.length,
+      localPath: target.absolutePath,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/storage/url", async (req, res) => {
+  try {
+    const { bucket = "documents", path: relativePath } = req.query;
+    if (!relativePath) return res.status(400).json({ error: "path required" });
+
+    if (supabase) {
+      const { data } = supabase.storage.from(String(bucket)).getPublicUrl(String(relativePath));
+      return res.json({ provider: "supabase", url: data.publicUrl });
     }
-  });
-}
+
+    const target = resolveStorageTarget(bucket, relativePath);
+    await fs.access(target.absolutePath);
+
+    const baseUrl = buildPublicApiBase(req);
+    return res.json({
+      provider: "local",
+      url: `${baseUrl}/api/storage/file?bucket=${encodeURIComponent(target.bucket)}&path=${encodeURIComponent(target.relativePath)}`,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/storage/file", async (req, res) => {
+  try {
+    const { bucket = "documents", path: relativePath } = req.query;
+    if (!relativePath) return res.status(400).json({ error: "path required" });
+
+    const target = resolveStorageTarget(bucket, relativePath);
+    await fs.access(target.absolutePath);
+    return res.sendFile(target.absolutePath);
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return res.status(404).json({ error: "File not found" });
+    }
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Admin — Manage team members (admin creates accounts for users)
@@ -3532,6 +3745,7 @@ app.get("/api/services/bigcapital/balance-sheet", async (req, res) => {
     const result = await proxyFetchWithFallbacks(
       SERVICES.bigcapital,
       [
+        "/api/reports/balance-sheet",
         "/api/financial-statements/balance-sheet",
         "/api/v1/financial-statements/balance-sheet",
       ],
@@ -3548,6 +3762,7 @@ app.get("/api/services/bigcapital/profit-loss", async (req, res) => {
     const result = await proxyFetchWithFallbacks(
       SERVICES.bigcapital,
       [
+        "/api/reports/profit-loss-sheet",
         "/api/financial-statements/profit-loss-sheet",
         "/api/v1/financial-statements/profit-loss-sheet",
       ],
@@ -3859,20 +4074,7 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
   try {
     const { firmId } = req.params;
     const results = {};
-    const status = {};
     const planned = await ensureFirmServiceAccountPlan(firmId);
-
-    for (const [name, url] of Object.entries(SERVICES)) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000);
-        const r = await fetch(`${url}/`, { signal: controller.signal });
-        clearTimeout(timeout);
-        status[name] = { status: "connected", code: r.status };
-      } catch {
-        status[name] = { status: "unavailable" };
-      }
-    }
 
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
@@ -3881,9 +4083,9 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
       const hasFirmCred = !!cred?.token || (!!cred?.username && !!cred?.password) || !!cred?.username;
       const isProvisioningVerified = firmUserAccount?.status === "verified";
       const isProvisioningPending = Boolean(firmUserAccount) && !isProvisioningVerified;
-      const upstreamReachable = status[service.key]?.status === "connected";
-      const healthState = isProvisioningVerified
-        ? (upstreamReachable ? "connected" : "degraded")
+      const liveProbe = await probeServiceAccess(firmId, service.key);
+      const healthState = liveProbe.ok
+        ? "connected"
         : (hasFirmCred || isProvisioningPending)
           ? "degraded"
           : "disconnected";
@@ -3893,8 +4095,9 @@ app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
         configured: hasFirmCred || isProvisioningPending || isProvisioningVerified,
         health: healthState,
         source: hasFirmCred ? "firm" : (isProvisioningPending || isProvisioningVerified ? "planned" : "none"),
-        provisioningVerified: isProvisioningVerified,
+        provisioningVerified: isProvisioningVerified && liveProbe.ok,
         provisioningStatus: firmUserAccount?.status || null,
+        liveProbe,
         accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
         provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
         launch: {
@@ -4067,6 +4270,7 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
     for (const service of Object.values(SERVICE_CATALOG)) {
       const cred = await getServiceCredential(firmId, service.key);
       const configured = !!cred?.token || !!cred?.username || !!cred?.password;
+      const liveProbe = await probeServiceAccess(firmId, service.key);
       const accessCapability = SERVICE_ACCESS_CAPABILITIES[service.key] || {
         browserSessionBroker: false,
         cpaMode: "maxed_native_only",
@@ -4079,6 +4283,7 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
         cpaAccessMode: accessCapability.cpaMode,
         upstreamAccessMode: accessCapability.adminMode,
         configured,
+        liveProbe,
         bootstrapRequired: getServiceIdentityShape(service.key).bootstrapRequired,
         browserSessionBroker: accessCapability.browserSessionBroker,
         provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
@@ -4093,6 +4298,43 @@ app.get("/api/firms/:firmId/access-policy", async (req, res) => {
       upstreamAccess: "platform_admin_setup_only",
       note: "CPAs should work from Maxed-native modules first. Raw upstream app access is reserved for bootstrap, provisioning, and exception handling.",
       services: policy,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/control-plane/services", async (req, res) => {
+  try {
+    const { firmId } = req.params;
+    const planned = await ensureFirmServiceAccountPlan(firmId);
+    if (!planned?.firm) return res.status(404).json({ error: "Firm not found" });
+
+    const services = {};
+    for (const service of Object.values(SERVICE_CATALOG)) {
+      const credential = await getServiceCredential(firmId, service.key);
+      const liveProbe = await probeServiceAccess(firmId, service.key);
+      services[service.key] = {
+        key: service.key,
+        name: service.name,
+        workspacePath: SERVICE_WORKSPACE_PATHS[service.key] || "/dashboard",
+        configured: !!credential?.token || !!credential?.username || !!credential?.password,
+        identityShape: getServiceIdentityShape(service.key),
+        access: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
+        provisioning: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
+        liveProbe,
+      };
+    }
+
+    res.json({
+      firm: {
+        id: planned.firm.id,
+        name: planned.firm.name,
+        email: planned.firm.email,
+      },
+      model: "maxed_control_plane",
+      note: "Service health is derived from live connector probes, not provisioning intent alone.",
+      services,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
