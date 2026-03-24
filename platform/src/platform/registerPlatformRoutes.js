@@ -206,8 +206,17 @@ module.exports = function registerPlatformRoutes(app, deps) {
         return res.status(400).json({ error: "Email and password required" });
       }
 
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const envAdminEmail = String(process.env.SERVICE_ADMIN_EMAIL || "").trim().toLowerCase();
+      const envAdminPassword = String(process.env.SERVICE_ADMIN_PASSWORD || "");
+
       const member = await prisma.teamMember.findFirst({
-        where: { email },
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: "insensitive",
+          },
+        },
         include: { firm: true },
       });
 
@@ -215,7 +224,13 @@ module.exports = function registerPlatformRoutes(app, deps) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      if (bcryptAvailable && member.passwordHash) {
+      const allowEnvAdminPassword =
+        !!envAdminPassword &&
+        normalizedEmail === envAdminEmail &&
+        isPlatformAdminEmail(normalizedEmail) &&
+        password === envAdminPassword;
+
+      if (!allowEnvAdminPassword && bcryptAvailable && member.passwordHash) {
         const bcrypt = require("bcryptjs");
         const valid = await bcrypt.compare(password, member.passwordHash);
         if (!valid) {
