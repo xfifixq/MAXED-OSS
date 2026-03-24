@@ -41,6 +41,7 @@ export default function TimeTrackingPage() {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [timesheets, setTimesheets] = useState<ReturnType<typeof normalizeKimaiTimesheets>>([]);
   const [customers, setCustomers] = useState<ReturnType<typeof normalizeKimaiCustomers>>([]);
   const [projects, setProjects] = useState<ReturnType<typeof normalizeKimaiProjects>>([]);
@@ -64,20 +65,30 @@ export default function TimeTrackingPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
     try {
-      const [timesheetPayload, projectsPayload, activitiesPayload, customersPayload] = await Promise.all([
+      const results = await Promise.allSettled([
         serviceFetch('/api/services/kimai/timesheets'),
         serviceFetch('/api/services/kimai/projects'),
         serviceFetch('/api/services/kimai/activities'),
         serviceFetch('/api/services/kimai/customers'),
       ]);
 
-      const normalizedProjects = normalizeKimaiProjects(projectsPayload);
-      const normalizedActivities = normalizeKimaiActivities(activitiesPayload);
-      const normalizedCustomers = normalizeKimaiCustomers(customersPayload);
+      const [timesheetPayload, projectsPayload, activitiesPayload, customersPayload] = results;
+      const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason instanceof Error ? result.reason.message : 'Kimai connector unavailable.');
 
-      setTimesheets(normalizeKimaiTimesheets(timesheetPayload));
+      if (failures.length) {
+        setWarning(`Kimai needs repair before live time tracking is available. ${failures[0]}`);
+      }
+
+      const normalizedProjects = projectsPayload.status === 'fulfilled' ? normalizeKimaiProjects(projectsPayload.value) : [];
+      const normalizedActivities = activitiesPayload.status === 'fulfilled' ? normalizeKimaiActivities(activitiesPayload.value) : [];
+      const normalizedCustomers = customersPayload.status === 'fulfilled' ? normalizeKimaiCustomers(customersPayload.value) : [];
+
+      setTimesheets(timesheetPayload.status === 'fulfilled' ? normalizeKimaiTimesheets(timesheetPayload.value) : []);
       setProjects(normalizedProjects);
       setActivities(normalizedActivities);
       setCustomers(normalizedCustomers);
@@ -203,6 +214,9 @@ export default function TimeTrackingPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadTimesheets} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.88fr,1.12fr]">
         <WorkspacePanel title="Log time" description="Create a time entry directly from Maxed.">

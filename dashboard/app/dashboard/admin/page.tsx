@@ -243,6 +243,13 @@ interface Firm {
 
 type ServiceHealth = 'connected' | 'degraded' | 'disconnected' | 'unknown';
 
+type LiveProbe = {
+  ok?: boolean;
+  status?: number;
+  reason?: string;
+  detail?: unknown;
+};
+
 type ServiceStatusEntry = {
   configured: boolean;
   health: ServiceHealth;
@@ -286,6 +293,9 @@ type ProvisioningOverview = {
     } | null;
     isolationTier?: string;
     isolationNote?: string;
+    provisioningStatus?: string | null;
+    provisioningVerified?: boolean;
+    liveProbe?: LiveProbe;
   }>;
   summary: {
     connected: number;
@@ -352,6 +362,24 @@ type AccessPolicy = {
     browserSessionBroker: boolean;
     isolationTier?: string;
     isolationNote?: string;
+    liveProbe?: LiveProbe;
+  }>;
+};
+
+type ControlPlaneSnapshot = {
+  firm: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  model: string;
+  note: string;
+  services: Record<string, {
+    key: string;
+    name: string;
+    workspacePath: string;
+    configured: boolean;
+    liveProbe?: LiveProbe;
   }>;
 };
 
@@ -425,6 +453,81 @@ function isolationLabel(tier?: string) {
   }
 }
 
+function stringifyProbeDetail(detail: unknown) {
+  if (detail == null) return '';
+  if (typeof detail === 'string') return detail;
+  if (typeof detail === 'number' || typeof detail === 'boolean') return String(detail);
+  if (typeof detail === 'object') {
+    return Object.entries(detail as Record<string, unknown>)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(' · ');
+  }
+  return '';
+}
+
+function probeReasonLabel(probe?: LiveProbe) {
+  if (!probe) return 'Not checked';
+  if (probe.ok) return 'Live';
+
+  switch (probe.reason) {
+    case 'credentials_missing':
+      return 'Credentials missing';
+    case 'upstream_rejected':
+      return 'Upstream rejected';
+    case 'probe_failed':
+      return 'Connector failed';
+    case 'service_not_supported':
+      return 'Not supported';
+    default:
+      return 'Needs repair';
+  }
+}
+
+function probeSummary(probe?: LiveProbe) {
+  if (!probe) return 'No live probe has run yet.';
+
+  const parts = [probeReasonLabel(probe)];
+  if (typeof probe.status === 'number') parts.push(`HTTP ${probe.status}`);
+  const detail = stringifyProbeDetail(probe.detail);
+  if (!probe.ok && detail) parts.push(detail);
+  return parts.join(' · ');
+}
+
+function probeNarrative(probe?: LiveProbe) {
+  if (!probe) return 'Run Maxed provisioning or save credentials to verify the connector.';
+  if (probe.ok) return 'Maxed authenticated into the live workspace for this firm.';
+
+  switch (probe.reason) {
+    case 'credentials_missing':
+      return 'This firm does not have usable saved credentials for the live connector yet.';
+    case 'upstream_rejected':
+      return 'The connector reached the upstream service, but the saved identity or route was rejected.';
+    case 'probe_failed':
+      return 'The Maxed connector failed before it could verify a healthy upstream response.';
+    default:
+      return 'The connector is not healthy yet and still needs repair before CPA handoff.';
+  }
+}
+
+function provisioningMessage(result: any) {
+  const total = result?.summary?.total ?? SERVICE_TABS.length;
+  const succeeded = result?.summary?.succeeded ?? 0;
+  const failingServices = Object.entries(result?.results || {})
+    .filter(([, entry]) => !((entry as { ok?: boolean }).ok))
+    .map(([key, entry]) => {
+      const typedEntry = entry as { liveProbe?: LiveProbe; error?: string };
+      const label = SERVICE_TABS.find((service) => service.key === key)?.name || key;
+      const reason = typedEntry.liveProbe ? probeReasonLabel(typedEntry.liveProbe) : typedEntry.error || 'Needs repair';
+      return `${label} (${reason})`;
+    });
+
+  if (!failingServices.length) {
+    return `Verified ${succeeded}/${total} services live via Maxed.`;
+  }
+
+  return `Verified ${succeeded}/${total} services live. Repair needed: ${failingServices.join(', ')}.`;
+}
+
 function AdminContent() {
   const { data: session } = useSession();
   const isAdmin = Boolean((session?.user as { isPlatformAdmin?: boolean } | undefined)?.isPlatformAdmin);
@@ -445,6 +548,7 @@ function AdminContent() {
   const [provisioningOverview, setProvisioningOverview] = useState<ProvisioningOverview | null>(null);
   const [identityWorkspace, setIdentityWorkspace] = useState<IdentityWorkspace | null>(null);
   const [accessPolicy, setAccessPolicy] = useState<AccessPolicy | null>(null);
+  const [controlPlane, setControlPlane] = useState<ControlPlaneSnapshot | null>(null);
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountRecord[]>([]);
   const [accountForm, setAccountForm] = useState<Record<string, { identifier: string; status: string }>>({});
   const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
@@ -490,14 +594,16 @@ function AdminContent() {
       fetchServiceAccounts(firmId),
       (async () => {
         try {
-          const [overviewRes, identityRes, accessRes] = await Promise.all([
+          const [overviewRes, identityRes, accessRes, controlPlaneRes] = await Promise.all([
             fetch(apiUrl(`/api/firms/${firmId}/provisioning/overview`)),
             fetch(apiUrl(`/api/firms/${firmId}/identity-workspace`)),
             fetch(apiUrl(`/api/firms/${firmId}/access-policy`)),
+            fetch(apiUrl(`/api/firms/${firmId}/control-plane/services`)),
           ]);
           if (overviewRes.ok) setProvisioningOverview(await overviewRes.json());
           if (identityRes.ok) setIdentityWorkspace(await identityRes.json());
           if (accessRes.ok) setAccessPolicy(await accessRes.json());
+          if (controlPlaneRes.ok) setControlPlane(await controlPlaneRes.json());
         } catch {}
       })(),
     ]);
@@ -657,7 +763,11 @@ function AdminContent() {
       }
 
       await refreshFirmState(firmIdParam);
-      setMessage(`${activeSvc.name} provisioned via Maxed.`);
+      setMessage(
+        data?.liveProbe?.ok
+          ? `${activeSvc.name} verified live via Maxed.`
+          : `${activeSvc.name} seeded by Maxed, but the live connector still needs repair: ${probeSummary(data?.liveProbe)}.`,
+      );
     } catch {
       setMessage('Provisioning failed.');
     } finally {
@@ -682,7 +792,7 @@ function AdminContent() {
       }
 
       await refreshFirmState(firmIdParam);
-      setMessage(`Provisioned ${data?.summary?.succeeded ?? 0}/${data?.summary?.total ?? SERVICE_TABS.length} services via Maxed.`);
+      setMessage(provisioningMessage(data));
     } catch {
       setMessage('Firm provisioning failed.');
     } finally {
@@ -692,6 +802,7 @@ function AdminContent() {
 
   const activeSvc = SERVICE_TABS.find((item) => item.key === activeTab)!;
   const overviewEntry = provisioningOverview?.services?.[activeTab];
+  const activeControlPlane = controlPlane?.services?.[activeTab];
   const catalogEntry = overviewEntry || serviceCatalog[activeTab];
   const baseUrl = serviceUrls[activeTab] || activeSvc.defaultUrl;
   const useEmbeddedFlow = activeSvc.embedPreferred !== false;
@@ -704,20 +815,23 @@ function AdminContent() {
   );
   const recommendedUrl = buildRecommendedUrl(activeSvc, baseUrl);
   const iframeUrl = recommendedUrl;
-  const maxedWorkspacePath = accessPolicy?.services?.[activeTab]?.workspacePath || '/dashboard';
+  const maxedWorkspacePath = activeControlPlane?.workspacePath || accessPolicy?.services?.[activeTab]?.workspacePath || '/dashboard';
   const adminSetupUrl = hasDedicatedAdminPath ? recommendedUrl : null;
   const isConfigured = Boolean(
-    credentials[activeTab] &&
-    (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password),
+    activeControlPlane?.configured
+      || (credentials[activeTab] && (credentials[activeTab].token || credentials[activeTab].username || credentials[activeTab].password)),
   );
   const serviceStatus = SERVICE_TABS.reduce<Record<string, ServiceStatusEntry>>(
     (acc, service) => {
+      const controlPlaneEntry = controlPlane?.services?.[service.key];
       const overview = provisioningOverview?.services?.[service.key];
       const credential = credentials[service.key];
-      const configured = overview?.configured ?? Boolean(
+      const configured = controlPlaneEntry?.configured ?? overview?.configured ?? Boolean(
         credential && (credential.token || credential.username || credential.password),
       );
-      const health = overview?.health ?? (configured ? 'unknown' : 'disconnected');
+      const health = controlPlaneEntry
+        ? (controlPlaneEntry.liveProbe?.ok ? 'connected' : configured ? 'degraded' : 'disconnected')
+        : overview?.health ?? (configured ? 'unknown' : 'disconnected');
       acc[service.key] = { configured, health };
       return acc;
     },
@@ -734,12 +848,18 @@ function AdminContent() {
     },
     { connected: 0, degraded: 0, disconnected: 0, unknown: 0 },
   );
-  const connectedServiceCount = provisioningOverview?.summary.connected ?? Object.values(serviceStatus).filter((service) => service.health === 'connected').length;
-  const configuredServiceCount = provisioningOverview?.summary.configured ?? Object.values(serviceStatus).filter((service) => service.configured).length;
+  const controlPlaneEntries = Object.values(controlPlane?.services || {});
+  const connectedServiceCount = controlPlaneEntries.length
+    ? controlPlaneEntries.filter((service) => service.liveProbe?.ok).length
+    : provisioningOverview?.summary.connected ?? Object.values(serviceStatus).filter((service) => service.health === 'connected').length;
+  const configuredServiceCount = controlPlaneEntries.length
+    ? controlPlaneEntries.filter((service) => service.configured).length
+    : provisioningOverview?.summary.configured ?? Object.values(serviceStatus).filter((service) => service.configured).length;
   const needsSetupCount = SERVICE_TABS.length - configuredServiceCount;
   const identityEntry = identityWorkspace?.services?.[activeTab];
   const activeServiceAccounts = serviceAccounts.filter((account) => account.service === activeTab);
   const readyForHandoff = activeStatus?.health === 'connected' && isConfigured;
+  const activeProbe = activeControlPlane?.liveProbe || overviewEntry?.liveProbe || accessPolicy?.services?.[activeTab]?.liveProbe;
 
   useEffect(() => {
     if (!useEmbeddedFlow) {
@@ -782,11 +902,11 @@ function AdminContent() {
       case 'connected':
         return 'Ready';
       case 'degraded':
-        return 'Saved, verify';
+        return 'Needs repair';
       case 'disconnected':
         return 'Needs setup';
       default:
-        return 'Unknown';
+        return 'Pending';
     }
   };
 
@@ -840,6 +960,7 @@ function AdminContent() {
             </div>
           </div>
           <p className="mt-3 text-sm text-slate-600">{activeSvc.accountModel}</p>
+          {controlPlane?.note ? <p className="mt-2 text-sm text-slate-500">{controlPlane.note}</p> : null}
           {catalogEntry.note ? <p className="mt-2 text-sm text-slate-500">{catalogEntry.note}</p> : null}
         </div>
       ) : null}
@@ -913,10 +1034,14 @@ function AdminContent() {
                     <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
                       {service.configured ? 'Mapped' : 'Pending'}
                     </span>
+                    <span className={service.liveProbe?.ok ? 'badge-green' : service.configured ? 'badge-yellow' : 'badge'}>
+                      {probeReasonLabel(service.liveProbe)}
+                    </span>
                   </div>
                 </div>
                 <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">CPA workspace</p>
                 <p className="mt-1 text-sm text-slate-700">{service.workspacePath}</p>
+                <p className="mt-2 text-xs text-slate-500">{probeSummary(service.liveProbe)}</p>
                 {service.isolationNote ? (
                   <p className="mt-2 text-xs text-slate-500">{service.isolationNote}</p>
                 ) : null}
@@ -934,24 +1059,24 @@ function AdminContent() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Services ready</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Live connectors</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{connectedServiceCount}/{SERVICE_TABS.length}</p>
           <p className="mt-1 text-sm text-slate-500">Verified and responding in this firm workspace</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Credentials saved</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Control-plane mapped</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{configuredServiceCount}</p>
-          <p className="mt-1 text-sm text-slate-500">Service accounts already stored in Maxed</p>
+          <p className="mt-1 text-sm text-slate-500">Services with saved identity or token state in Maxed</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs setup</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing credentials</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{needsSetupCount}</p>
           <p className="mt-1 text-sm text-slate-500">Services without saved credentials yet</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs verification</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Needs repair</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{readinessSummary.degraded}</p>
-          <p className="mt-1 text-sm text-slate-500">Credentials exist, but the health check is not fully green yet</p>
+          <p className="mt-1 text-sm text-slate-500">Configured services that still fail live connector checks</p>
         </div>
       </div>
 
@@ -987,12 +1112,13 @@ function AdminContent() {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs">
                     <span className={service.configured ? 'badge-green' : 'badge-yellow'}>
-                      {service.configured ? 'Credentials saved' : 'Credentials missing'}
+                      {service.configured ? 'Mapped' : 'Credentials missing'}
                     </span>
                     <span className="badge-blue">
                       {service.accessCapability?.browserSessionBroker ? 'Direct handoff' : 'Maxed-native CPA access'}
                     </span>
                   </div>
+                  <p className="mt-3 text-xs text-slate-500">{probeSummary(service.liveProbe)}</p>
                 </button>
               ))}
           </div>
@@ -1150,6 +1276,18 @@ function AdminContent() {
             <p className="mb-4 text-xs text-gray-500">{catalogEntry.isolationNote}</p>
           ) : null}
 
+          <div className={`mb-4 rounded-xl border px-4 py-4 ${
+            activeProbe?.ok
+              ? 'border-emerald-200 bg-emerald-50'
+              : isConfigured
+                ? 'border-amber-200 bg-amber-50'
+                : 'border-slate-200 bg-slate-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Live Connector Status</p>
+            <p className="mt-2 text-sm font-medium text-slate-900">{probeSummary(activeProbe)}</p>
+            <p className="mt-2 text-xs text-slate-600">{probeNarrative(activeProbe)}</p>
+          </div>
+
           {identityEntry ? (
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Identity Model</p>
@@ -1261,13 +1399,13 @@ function AdminContent() {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Go / No-Go</p>
             <ul className="mt-3 space-y-2 text-sm text-slate-700">
               <li className="flex items-center justify-between gap-3">
-                <span>Credentials saved in Maxed</span>
+                <span>Credentials mapped in Maxed</span>
                 <span className={isConfigured ? 'badge-green' : 'badge-yellow'}>{isConfigured ? 'Yes' : 'No'}</span>
               </li>
               <li className="flex items-center justify-between gap-3">
-                <span>Service reachable</span>
+                <span>Live connector</span>
                 <span className={activeStatus?.health === 'connected' ? 'badge-green' : activeStatus?.health === 'degraded' ? 'badge-yellow' : 'badge'}>
-                  {activeStatus?.health === 'connected' ? 'Healthy' : activeStatus?.health === 'degraded' ? 'Degraded' : 'Unknown'}
+                  {probeReasonLabel(activeProbe)}
                 </span>
               </li>
               <li className="flex items-center justify-between gap-3">
@@ -1298,8 +1436,10 @@ function AdminContent() {
 
           {message ? (
             <p className={`mt-3 text-xs ${
-              message === 'Saved!' || message.includes('provisioned') || message.includes('Provisioned')
-                ? 'text-green-600'
+              message.includes('Repair needed') || message.includes('needs repair')
+                  ? 'text-amber-700'
+                : message === 'Saved!' || message.includes('Verified') || message.includes('ready')
+                  ? 'text-green-600'
                 : 'text-red-600'
             }`}>{message}</p>
           ) : null}
@@ -1329,8 +1469,8 @@ function AdminContent() {
           </button>
 
           {isConfigured ? (
-            <p className="mt-2 text-center text-xs text-green-600">
-              {readyForHandoff ? 'Provisioned and ready for Maxed-first CPA handoff' : 'Credentials saved for this service'}
+            <p className={`mt-2 text-center text-xs ${readyForHandoff ? 'text-green-600' : 'text-slate-500'}`}>
+              {readyForHandoff ? 'Provisioned and ready for Maxed-first CPA handoff' : 'Mapped in Maxed, but live connector verification is still pending or degraded'}
             </p>
           ) : null}
         </div>

@@ -43,6 +43,7 @@ export default function BookkeepingPage() {
   const [ledger, setLedger] = useState<LedgerState>(EMPTY_LEDGER);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
   const [contactFilter, setContactFilter] = useState('');
@@ -52,9 +53,10 @@ export default function BookkeepingPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
     try {
-      const [clientsPayload, accountsPayload, transactionsPayload, balanceSheetPayload, profitLossPayload] = await Promise.all([
+      const results = await Promise.allSettled([
         firmFetch('/clients'),
         serviceFetch('/api/services/bigcapital/accounts'),
         serviceFetch('/api/services/bigcapital/transactions'),
@@ -62,12 +64,25 @@ export default function BookkeepingPage() {
         serviceFetch('/api/services/bigcapital/profit-loss'),
       ]);
 
+      const [clientsPayload, accountsPayload, transactionsPayload, balanceSheetPayload, profitLossPayload] = results;
+      const bigcapitalFailures = [accountsPayload, transactionsPayload, balanceSheetPayload, profitLossPayload]
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason instanceof Error ? result.reason.message : 'Bigcapital connector unavailable.');
+
+      if (clientsPayload.status !== 'fulfilled') {
+        throw new Error(clientsPayload.reason instanceof Error ? clientsPayload.reason.message : 'Unable to load ledger data.');
+      }
+
+      if (bigcapitalFailures.length) {
+        setWarning(`Bigcapital needs repair before live ledger data is trustworthy. ${bigcapitalFailures[0]}`);
+      }
+
       setLedger({
-        clients: normalizeFirmClients(clientsPayload),
-        accounts: normalizeBigcapitalAccounts(accountsPayload),
-        transactions: normalizeBigcapitalTransactions(transactionsPayload),
-        balanceSheet: normalizeBigcapitalStatement(balanceSheetPayload),
-        profitLoss: normalizeBigcapitalStatement(profitLossPayload),
+        clients: normalizeFirmClients(clientsPayload.value),
+        accounts: accountsPayload.status === 'fulfilled' ? normalizeBigcapitalAccounts(accountsPayload.value) : [],
+        transactions: transactionsPayload.status === 'fulfilled' ? normalizeBigcapitalTransactions(transactionsPayload.value) : [],
+        balanceSheet: balanceSheetPayload.status === 'fulfilled' ? normalizeBigcapitalStatement(balanceSheetPayload.value) : [],
+        profitLoss: profitLossPayload.status === 'fulfilled' ? normalizeBigcapitalStatement(profitLossPayload.value) : [],
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load ledger data.');
@@ -193,6 +208,9 @@ export default function BookkeepingPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadLedger} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
         <WorkspacePanel

@@ -4231,7 +4231,12 @@ app.post("/api/firms/:firmId/provisioning/:service/execute", async (req, res) =>
       service: req.params.service,
       requestedById,
     });
-    res.json(result);
+    const liveProbe = await probeServiceAccess(req.params.firmId, req.params.service);
+    res.json({
+      ...result,
+      liveProbe,
+      verified: result.output?.provisioningVerified !== false && liveProbe.ok,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -4314,11 +4319,14 @@ app.get("/api/firms/:firmId/control-plane/services", async (req, res) => {
     for (const service of Object.values(SERVICE_CATALOG)) {
       const credential = await getServiceCredential(firmId, service.key);
       const liveProbe = await probeServiceAccess(firmId, service.key);
+      const configured = !!credential?.token || !!credential?.username || !!credential?.password;
       services[service.key] = {
         key: service.key,
         name: service.name,
         workspacePath: SERVICE_WORKSPACE_PATHS[service.key] || "/dashboard",
-        configured: !!credential?.token || !!credential?.username || !!credential?.password,
+        configured,
+        source: configured ? "firm" : "none",
+        health: !configured ? "disconnected" : liveProbe.ok ? "connected" : "degraded",
         identityShape: getServiceIdentityShape(service.key),
         access: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
         provisioning: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,

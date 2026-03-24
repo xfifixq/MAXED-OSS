@@ -190,6 +190,13 @@ export default function Sidebar() {
 
   const allNavItems = isAdmin ? adminNavItems : navItems;
 
+  const connectionTone = (health?: string) => {
+    if (health === 'connected') return { dot: 'bg-green-400', text: 'Ready' };
+    if (health === 'degraded') return { dot: 'bg-amber-400', text: 'Repair' };
+    if (health === 'unknown') return { dot: 'bg-slate-400', text: 'Pending' };
+    return { dot: 'bg-red-400', text: 'Setup' };
+  };
+
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
     return pathname.startsWith(href);
@@ -237,25 +244,14 @@ export default function Sidebar() {
             <div className="space-y-2">
               {connectionItems.map(([key, label]) => {
                 const entry = statuses[key];
-                const dotClass =
-                  entry?.health === 'connected'
-                    ? 'bg-green-400'
-                    : entry?.health === 'degraded'
-                      ? 'bg-amber-400'
-                      : 'bg-red-400';
-                const text =
-                  entry?.health === 'connected'
-                    ? 'Connected'
-                    : entry?.health === 'degraded'
-                      ? 'Configured'
-                      : 'Missing';
+                const tone = connectionTone(entry?.health);
                 return (
                   <div key={key} className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2 text-white/90">
-                      <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
+                      <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
                       <span>{label}</span>
                     </div>
-                    <span className="text-[#8f95b2]">{text}</span>
+                    <span className="text-[#8f95b2]">{tone.text}</span>
                   </div>
                 );
               })}

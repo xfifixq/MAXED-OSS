@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { apiUrl, firmApiUrl, serviceHeaders } from './api';
+import { firmApiUrl, serviceHeaders } from './api';
 
 export interface Notification {
   id: string;
@@ -156,22 +156,23 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     async function poll() {
       try {
-        const [statsRes, diagnoseRes, statusRes] = await Promise.all([
+        const headers = serviceHeaders();
+        const firmId = headers['X-Firm-Id'];
+        if (!firmId) return;
+
+        const [statsRes, controlPlaneRes] = await Promise.all([
           fetch(firmApiUrl('/stats'), {
+            headers,
             signal: AbortSignal.timeout(8000),
           }),
-          fetch(apiUrl('/api/services/diagnose'), {
-            headers: serviceHeaders(),
-            signal: AbortSignal.timeout(8000),
-          }),
-          fetch(apiUrl('/api/services/status'), {
+          fetch(firmApiUrl('/control-plane/services'), {
+            headers,
             signal: AbortSignal.timeout(8000),
           }),
         ]);
         if (!statsRes.ok) return;
         const data = await statsRes.json();
-        const diagnose = diagnoseRes.ok ? await diagnoseRes.json() : {};
-        const status = statusRes.ok ? await statusRes.json() : {};
+        const controlPlane = controlPlaneRes.ok ? await controlPlaneRes.json() : null;
 
         const last = loadLastStats();
         if (last && mounted && bootstrappedRef.current) {
@@ -194,12 +195,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         }
 
         const lastSnapshot = loadServiceSnapshot();
-        const currentSnapshot = Object.entries(diagnose)
-          .filter(([key]) => key !== 'firmId')
+        const currentSnapshot = Object.entries(controlPlane?.services || {})
           .reduce<Record<string, string>>((acc, [key, value]) => {
-            const configured = (value as { configured?: boolean })?.configured;
-            const health = status?.[key]?.status || 'unknown';
-            acc[key] = configured ? health : 'missing';
+            const configured = Boolean((value as { configured?: boolean })?.configured);
+            const liveProbe = (value as { liveProbe?: { ok?: boolean; reason?: string } })?.liveProbe;
+            acc[key] = !configured
+              ? 'missing'
+              : liveProbe?.ok
+                ? 'connected'
+                : `degraded:${liveProbe?.reason || 'unknown'}`;
             return acc;
           }, {});
 
@@ -214,9 +218,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
               serviceAlerts.push(
                 createNotification('system', `${label} connected`, `${label} is responding again.`)
               );
-            } else if (state === 'unavailable') {
+            } else if (state.startsWith('degraded:')) {
+              const reason = state.split(':')[1]?.replace(/_/g, ' ') || 'connector issue';
               serviceAlerts.push(
-                createNotification('system', `${label} unavailable`, `${label} stopped responding.`)
+                createNotification('system', `${label} needs repair`, `${label} is configured, but the live connector is failing: ${reason}.`)
               );
             } else if (state === 'missing') {
               serviceAlerts.push(

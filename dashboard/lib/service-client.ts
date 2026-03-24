@@ -13,6 +13,18 @@ async function parsePayload(res: Response) {
   }
 }
 
+function formatDetail(detail: unknown) {
+  if (detail == null) return '';
+  if (typeof detail === 'string') return detail;
+  if (typeof detail === 'number' || typeof detail === 'boolean') return String(detail);
+  if (typeof detail === 'object') {
+    return Object.entries(detail as Record<string, unknown>)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(' · ');
+  }
+  return '';
+}
+
 function buildHeaders(options?: RequestInit) {
   const headers = new Headers(options?.headers || {});
   Object.entries(serviceHeaders()).forEach(([key, value]) => {
@@ -34,11 +46,15 @@ export async function serviceFetch<T = unknown>(path: string, options?: RequestI
 
   const payload = await parsePayload(res);
   if (!res.ok) {
-    const detail =
+    const errorText =
       payload && typeof payload === 'object' && 'error' in payload
         ? String((payload as { error: unknown }).error)
-        : `${res.status} ${res.statusText}`;
-    throw new Error(detail);
+        : res.statusText || 'Request failed';
+    const detailText =
+      payload && typeof payload === 'object' && 'detail' in payload && (payload as { detail?: unknown }).detail
+        ? ` (${formatDetail((payload as { detail: unknown }).detail)})`
+        : '';
+    throw new Error(`HTTP ${res.status}: ${errorText}${detailText}`);
   }
 
   return payload as T;
@@ -52,11 +68,15 @@ export async function firmFetch<T = unknown>(path: string, options?: RequestInit
 
   const payload = await parsePayload(res);
   if (!res.ok) {
-    const detail =
+    const errorText =
       payload && typeof payload === 'object' && 'error' in payload
         ? String((payload as { error: unknown }).error)
-        : `${res.status} ${res.statusText}`;
-    throw new Error(detail);
+        : res.statusText || 'Request failed';
+    const detailText =
+      payload && typeof payload === 'object' && 'detail' in payload && (payload as { detail?: unknown }).detail
+        ? ` (${formatDetail((payload as { detail: unknown }).detail)})`
+        : '';
+    throw new Error(`HTTP ${res.status}: ${errorText}${detailText}`);
   }
 
   return payload as T;

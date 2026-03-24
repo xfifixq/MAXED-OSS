@@ -12,7 +12,7 @@ function statusTone(health?: string) {
     return {
       dot: 'bg-emerald-400',
       badge: 'bg-emerald-500/15 text-emerald-100 ring-1 ring-inset ring-emerald-400/30',
-      label: 'Connected',
+      label: 'Live',
     };
   }
 
@@ -20,7 +20,15 @@ function statusTone(health?: string) {
     return {
       dot: 'bg-amber-300',
       badge: 'bg-amber-500/15 text-amber-50 ring-1 ring-inset ring-amber-300/40',
-      label: 'Configured',
+      label: 'Needs repair',
+    };
+  }
+
+  if (health === 'unknown') {
+    return {
+      dot: 'bg-slate-300',
+      badge: 'bg-slate-500/15 text-slate-100 ring-1 ring-inset ring-slate-300/30',
+      label: 'Pending',
     };
   }
 

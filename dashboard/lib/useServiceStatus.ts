@@ -1,10 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { apiUrl } from './api';
+import { apiUrl, serviceHeaders } from './api';
 import { useFirmReady } from './useFirmReady';
 
 export type ServiceHealth = 'connected' | 'degraded' | 'disconnected' | 'unknown';
+
+type LiveProbe = {
+  ok?: boolean;
+  status?: number;
+  reason?: string;
+  detail?: unknown;
+};
 
 export interface ServiceStatusEntry {
   key: string;
@@ -12,6 +19,9 @@ export interface ServiceStatusEntry {
   source: 'firm' | 'env' | 'none';
   health: ServiceHealth;
   code?: number;
+  reason?: string;
+  detail?: string;
+  workspacePath?: string;
 }
 
 const SERVICE_KEYS = [
@@ -26,6 +36,18 @@ const SERVICE_KEYS = [
   'mattermost',
 ] as const;
 
+function stringifyDetail(detail: unknown) {
+  if (detail == null) return undefined;
+  if (typeof detail === 'string') return detail;
+  if (typeof detail === 'number' || typeof detail === 'boolean') return String(detail);
+  if (typeof detail === 'object') {
+    return Object.entries(detail as Record<string, unknown>)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(' · ');
+  }
+  return undefined;
+}
+
 export function useServiceStatus() {
   const { isReady, firmId } = useFirmReady();
   const [statuses, setStatuses] = useState<Record<string, ServiceStatusEntry>>({});
@@ -36,50 +58,91 @@ export function useServiceStatus() {
 
     async function fetchStatuses() {
       try {
-        const [statusRes, urlsRes] = await Promise.all([
-          fetch(apiUrl('/api/services/status')),
-          fetch(apiUrl('/api/services/urls')),
-        ]);
+        const urlsRes = await fetch(apiUrl('/api/services/urls'));
+        const urlsJson = (urlsRes.ok ? await urlsRes.json() : {}) as Record<string, string>;
 
-        const statusJson = statusRes.ok ? await statusRes.json() : {};
-        const urlsJson = urlsRes.ok ? await urlsRes.json() : {};
+        let nextStatuses: Record<string, ServiceStatusEntry> = {};
 
-        let diagnoseJson: Record<string, any> = {};
         if (firmId) {
-          const diagnoseRes = await fetch(apiUrl('/api/services/diagnose'), {
-            headers: { 'X-Firm-Id': firmId },
+          const controlPlaneRes = await fetch(apiUrl(`/api/firms/${firmId}/control-plane/services`), {
+            headers: serviceHeaders(),
           });
-          diagnoseJson = diagnoseRes.ok ? await diagnoseRes.json() : {};
+
+          if (controlPlaneRes.ok) {
+            const controlPlaneJson = (await controlPlaneRes.json()) as {
+              services?: Record<string, {
+                key?: string;
+                configured?: boolean;
+                source?: 'firm' | 'env' | 'none';
+                workspacePath?: string;
+                liveProbe?: LiveProbe;
+              }>;
+            };
+
+            nextStatuses = SERVICE_KEYS.reduce<Record<string, ServiceStatusEntry>>((acc, key) => {
+              const service = controlPlaneJson?.services?.[key];
+              const configured = Boolean(service?.configured);
+              const liveProbe = service?.liveProbe;
+              const health: ServiceHealth = !configured
+                ? 'disconnected'
+                : liveProbe?.ok
+                  ? 'connected'
+                  : 'degraded';
+
+              acc[key] = {
+                key,
+                configured,
+                source: service?.source || 'firm',
+                health,
+                code: liveProbe?.status,
+                reason: liveProbe?.reason,
+                detail: stringifyDetail(liveProbe?.detail),
+                workspacePath: service?.workspacePath,
+              };
+              return acc;
+            }, {});
+          }
+        }
+
+        if (!Object.keys(nextStatuses).length) {
+          const [statusRes, diagnoseRes] = await Promise.all([
+            fetch(apiUrl('/api/services/status')),
+            firmId
+              ? fetch(apiUrl('/api/services/diagnose'), { headers: serviceHeaders() })
+              : Promise.resolve(null),
+          ]);
+          const statusJson = (statusRes.ok ? await statusRes.json() : {}) as Record<string, any>;
+          const diagnoseJson = (diagnoseRes && diagnoseRes.ok ? await diagnoseRes.json() : {}) as Record<string, any>;
+
+          nextStatuses = SERVICE_KEYS.reduce<Record<string, ServiceStatusEntry>>((acc, key) => {
+            const healthData = statusJson?.[key];
+            const hasFirmScope = Boolean(firmId);
+            const configured = hasFirmScope ? Boolean(diagnoseJson?.[key]?.configured) : false;
+            const source = (hasFirmScope ? diagnoseJson?.[key]?.source : 'none') as ServiceStatusEntry['source'];
+            let health: ServiceHealth = 'unknown';
+
+            if (!hasFirmScope) {
+              health = 'unknown';
+            } else if (!configured) {
+              health = 'disconnected';
+            } else if (healthData?.status === 'connected') {
+              health = 'connected';
+            } else if (healthData?.status === 'unavailable') {
+              health = 'degraded';
+            }
+
+            acc[key] = {
+              key,
+              configured,
+              source,
+              health,
+              code: healthData?.code,
+            };
+            return acc;
+          }, {});
         }
 
         if (!active) return;
-
-        const nextStatuses = SERVICE_KEYS.reduce<Record<string, ServiceStatusEntry>>((acc, key) => {
-          const healthData = statusJson?.[key];
-          const hasFirmScope = Boolean(firmId);
-          const configured = hasFirmScope ? Boolean(diagnoseJson?.[key]?.configured) : false;
-          const source = (hasFirmScope ? diagnoseJson?.[key]?.source : 'none') as ServiceStatusEntry['source'];
-          let health: ServiceHealth = 'unknown';
-
-          if (!hasFirmScope) {
-            health = 'unknown';
-          } else if (!configured) {
-            health = 'disconnected';
-          } else if (healthData?.status === 'connected') {
-            health = 'connected';
-          } else if (healthData?.status === 'unavailable') {
-            health = 'degraded';
-          }
-
-          acc[key] = {
-            key,
-            configured,
-            source,
-            health,
-            code: healthData?.code,
-          };
-          return acc;
-        }, {});
 
         setStatuses(nextStatuses);
         setServiceUrls(urlsJson);
