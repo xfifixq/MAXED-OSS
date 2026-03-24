@@ -3,10 +3,12 @@ module.exports = function registerWorkspaceRoutes(app, deps) {
     SERVICES,
     prisma,
     proxyFetch,
+    proxyFetchWithFallbacks,
     paperlessAuth,
     kimaiAuth,
     docusealAuth,
     n8nAuth,
+    bigcapitalAuth,
     twentyAuth,
     invoiceNinjaAuth,
     getMattermostToken,
@@ -37,6 +39,95 @@ module.exports = function registerWorkspaceRoutes(app, deps) {
       res.json(workspace);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/firms/:firmId/workspaces/bookkeeping/accounts", async (req, res) => {
+    try {
+      const { name, code, accountType, currencyCode } = req.body || {};
+      if (!String(name || "").trim()) {
+        return res.status(400).json({ error: "name is required" });
+      }
+
+      const payload = {
+        name: String(name).trim(),
+        code: String(code || "").trim() || undefined,
+        accountType: String(accountType || "").trim() || undefined,
+        account_type: String(accountType || "").trim() || undefined,
+        currencyCode: String(currencyCode || "").trim() || undefined,
+        currency_code: String(currencyCode || "").trim() || undefined,
+      };
+
+      const result = await proxyFetchWithFallbacks(SERVICES.bigcapital, ["/api/accounts", "/api/v1/accounts"], {
+        method: "POST",
+        headers: await bigcapitalAuth(req.params.firmId),
+        body: JSON.stringify(payload),
+      });
+
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "Bigcapital unavailable", detail: err.message });
+    }
+  });
+
+  app.post("/api/firms/:firmId/workspaces/bookkeeping/manual-journals", async (req, res) => {
+    try {
+      const { date, reference, description, amount, debitAccountId, creditAccountId } = req.body || {};
+      const numericAmount = Number(amount);
+
+      if (!debitAccountId || !creditAccountId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+        return res.status(400).json({ error: "debitAccountId, creditAccountId, and a positive amount are required" });
+      }
+
+      const safeDate = date ? new Date(date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const safeDescription = String(description || "").trim() || "Manual journal";
+      const payload = {
+        date: safeDate,
+        description: safeDescription,
+        reference_no: String(reference || "").trim() || undefined,
+        entries: [
+          {
+            account_id: debitAccountId,
+            debit: numericAmount,
+            credit: 0,
+            note: safeDescription,
+          },
+          {
+            account_id: creditAccountId,
+            debit: 0,
+            credit: numericAmount,
+            note: safeDescription,
+          },
+        ],
+      };
+
+      const result = await proxyFetchWithFallbacks(SERVICES.bigcapital, ["/api/manual-journals", "/api/v1/manual-journals"], {
+        method: "POST",
+        headers: await bigcapitalAuth(req.params.firmId),
+        body: JSON.stringify(payload),
+      });
+
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "Bigcapital unavailable", detail: err.message });
+    }
+  });
+
+  app.post("/api/firms/:firmId/workspaces/bookkeeping/manual-journals/:id/publish", async (req, res) => {
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        [`/api/manual-journals/${req.params.id}/publish`, `/api/v1/manual-journals/${req.params.id}/publish`],
+        {
+          method: "POST",
+          headers: await bigcapitalAuth(req.params.firmId),
+          body: JSON.stringify(req.body || {}),
+        },
+      );
+
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "Bigcapital unavailable", detail: err.message });
     }
   });
 
@@ -283,6 +374,69 @@ module.exports = function registerWorkspaceRoutes(app, deps) {
     }
   });
 
+  app.post("/api/firms/:firmId/workspaces/workflows", async (req, res) => {
+    try {
+      const payload = req.body || {};
+      const name = String(payload.name || "").trim();
+      if (!name) {
+        return res.status(400).json({ error: "name is required" });
+      }
+
+      const workflowPayload = {
+        name,
+        nodes: Array.isArray(payload.nodes) ? payload.nodes : [],
+        connections: payload.connections && typeof payload.connections === "object" ? payload.connections : {},
+        settings: payload.settings && typeof payload.settings === "object" ? payload.settings : undefined,
+        staticData: payload.staticData && typeof payload.staticData === "object" ? payload.staticData : undefined,
+        pinData: payload.pinData && typeof payload.pinData === "object" ? payload.pinData : undefined,
+        tags: Array.isArray(payload.tags) ? payload.tags : undefined,
+        active: payload.active === true,
+      };
+
+      const result = await proxyFetch(SERVICES.n8n, "/api/v1/workflows", {
+        method: "POST",
+        headers: await n8nAuth(req.params.firmId),
+        body: JSON.stringify(workflowPayload),
+      });
+
+      if (statusOk(result.status)) {
+        const remote = result.data?.data || result.data || {};
+        const remoteId = String(remote.id || "");
+        if (remoteId) {
+          const existing = await prisma.workflow.findFirst({
+            where: {
+              firmId: req.params.firmId,
+              n8nFlowId: remoteId,
+            },
+          });
+
+          if (existing) {
+            await prisma.workflow.update({
+              where: { id: existing.id },
+              data: {
+                name: String(remote.name || name),
+                status: remote.active ? "active" : "draft",
+              },
+            });
+          } else {
+            await prisma.workflow.create({
+              data: {
+                firmId: req.params.firmId,
+                name: String(remote.name || name),
+                status: remote.active ? "active" : "draft",
+                n8nFlowId: remoteId,
+              },
+            });
+          }
+        }
+      }
+
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "n8n unavailable", detail: err.message });
+    }
+  });
+
   app.post("/api/firms/:firmId/workspaces/workflows/:id/activate", async (req, res) => {
     try {
       const active = req.body?.active !== false;
@@ -509,6 +663,38 @@ module.exports = function registerWorkspaceRoutes(app, deps) {
       const result = await proxyFetch(SERVICES.metabase, `/api/dashboard/${req.params.id}`, {
         headers: { "X-Metabase-Session": session },
       });
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "Metabase unavailable", detail: err.message });
+    }
+  });
+
+  app.get("/api/firms/:firmId/workspaces/reporting/questions/:id", async (req, res) => {
+    try {
+      const session = await getMetabaseSession(req.params.firmId);
+      if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+      const result = await proxyFetch(SERVICES.metabase, `/api/card/${req.params.id}`, {
+        headers: { "X-Metabase-Session": session },
+      });
+      res.status(result.status).json(result.data);
+    } catch (err) {
+      res.status(err.status || 502).json({ error: "Metabase unavailable", detail: err.message });
+    }
+  });
+
+  app.post("/api/firms/:firmId/workspaces/reporting/questions/:id/query", async (req, res) => {
+    try {
+      const session = await getMetabaseSession(req.params.firmId);
+      if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.metabase,
+        [`/api/card/${req.params.id}/query/json`, `/api/card/${req.params.id}/query`],
+        {
+          method: "POST",
+          headers: { "X-Metabase-Session": session },
+          body: JSON.stringify(req.body || {}),
+        },
+      );
       res.status(result.status).json(result.data);
     } catch (err) {
       res.status(err.status || 502).json({ error: "Metabase unavailable", detail: err.message });

@@ -26,6 +26,15 @@ export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
+export function bridgeUrl(service: string, options?: { firmId?: string; mode?: 'maxed' | 'direct' }): string {
+  const params = new URLSearchParams();
+  const firmId = options?.firmId || getFirmId();
+  if (firmId) params.set('firmId', firmId);
+  if (options?.mode) params.set('mode', options.mode);
+  const query = params.toString();
+  return `${API_URL}/bridge/${service}${query ? `?${query}` : ''}`;
+}
+
 export function firmApiUrl(path: string): string {
   return `${API_URL}/api/firms/${getFirmId()}${path}`;
 }

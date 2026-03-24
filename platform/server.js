@@ -1750,6 +1750,7 @@ async function loadBookkeepingWorkspace(firmId) {
   let transactions = null;
   let balanceSheet = null;
   let profitLoss = null;
+  let manualJournals = null;
 
   if (workspace.configured && headers.Authorization) {
     try {
@@ -1795,6 +1796,18 @@ async function loadBookkeepingWorkspace(firmId) {
     } catch (err) {
       issues.push(workspaceIssueFromError("bigcapital", "profit_loss", err));
     }
+
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        ["/api/manual-journals?page=1&page_size=20", "/api/v1/manual-journals?page=1&page_size=20"],
+        { headers },
+      );
+      if (statusOk(result.status)) manualJournals = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "manual_journals", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "manual_journals", err));
+    }
   }
 
   return {
@@ -1805,6 +1818,8 @@ async function loadBookkeepingWorkspace(firmId) {
       actions: {
         read: true,
         review: true,
+        createAccount: true,
+        createJournal: true,
       },
     },
     issues,
@@ -1814,6 +1829,7 @@ async function loadBookkeepingWorkspace(firmId) {
       transactions,
       balanceSheet,
       profitLoss,
+      manualJournals,
     },
   };
 }
@@ -2093,6 +2109,7 @@ async function loadWorkflowsWorkspace(firmId) {
       actions: {
         read: true,
         toggleWorkflow: true,
+        createWorkflow: true,
       },
     },
     issues,
@@ -2271,6 +2288,8 @@ async function loadReportingWorkspace(firmId) {
       title: "Maxed Analytics",
       actions: {
         read: true,
+        inspectDashboards: true,
+        inspectQuestions: true,
       },
     },
     issues,
@@ -2294,6 +2313,7 @@ app.get("/bridge/:service", async (req, res) => {
       adminMode: "setup_and_exception_handoff",
     };
     const maxedWorkspaceUrl = getMaxedWorkspaceUrl(service);
+    const mode = req.query.mode === "direct" ? "direct" : "maxed";
     if (!serviceUrl) {
       return res.status(404).send(bridgePage({
         title: "Workspace Unavailable",
@@ -2326,20 +2346,22 @@ app.get("/bridge/:service", async (req, res) => {
       }));
     }
 
-    if (!accessCapability.browserSessionBroker) {
+    if (mode === "direct") {
       return res.status(200).send(bridgePage({
-        title: "Open In Maxed",
-        message: "This workspace is Maxed-managed. CPA access stays in Maxed, and upstream access remains an admin exception path.",
-        redirectUrl: maxedWorkspaceUrl,
+        title: "Opening Live Module",
+        message: accessCapability.browserSessionBroker
+          ? "Maxed is handing off to the live workspace for this firm."
+          : "Maxed is opening the full upstream module for advanced actions that are not yet surfaced natively in the Maxed workspace.",
+        redirectUrl: serviceUrl,
         autoRedirect: true,
       }));
     }
 
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).send(bridgePage({
-      title: "Opening Workspace",
-      message: "Maxed is handing off to the live workspace for this firm.",
-      redirectUrl: serviceUrl,
+      title: "Open In Maxed",
+      message: "This workspace is Maxed-managed. CPA access stays in Maxed, and upstream access remains an admin exception path.",
+      redirectUrl: maxedWorkspaceUrl,
       autoRedirect: true,
     }));
   } catch (err) {

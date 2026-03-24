@@ -50,9 +50,12 @@ module.exports = function createGatewayApp({ readinessCheck = null } = {}) {
       return next();
     }
 
-    if (req.path.startsWith("/api") && !isPublicGatewayPath(req)) {
+    if ((req.path.startsWith("/api") || req.path.startsWith("/bridge/")) && !isPublicGatewayPath(req)) {
       const session = await resolvePlatformSessionFromRequest(req);
       if (!session) {
+        if (req.path.startsWith("/bridge/")) {
+          return res.status(401).send("Unauthorized");
+        }
         return res.status(401).json({ error: "Unauthorized" });
       }
 

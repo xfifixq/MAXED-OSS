@@ -38,14 +38,34 @@ type WorkflowsWorkspacePayload = {
   };
 };
 
+type DraftWorkflow = {
+  name: string;
+  definition: string;
+  active: boolean;
+};
+
 export default function WorkflowsPage() {
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [savingId, setSavingId] = useState('');
+  const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const [workflows, setWorkflows] = useState<ReturnType<typeof normalizeN8nWorkflows>>([]);
   const [executions, setExecutions] = useState<ReturnType<typeof normalizeN8nExecutions>>([]);
+  const [draftWorkflow, setDraftWorkflow] = useState<DraftWorkflow>({
+    name: 'New firm automation',
+    definition: JSON.stringify(
+      {
+        nodes: [],
+        connections: {},
+        settings: {},
+      },
+      null,
+      2,
+    ),
+    active: false,
+  });
 
   const loadWorkflows = useCallback(async () => {
     if (!isReady) return;
@@ -104,6 +124,34 @@ export default function WorkflowsPage() {
 
     return { activeCount, failureCount, completedCount, rate };
   }, [executions, workflows]);
+
+  const createWorkflow = useCallback(async () => {
+    setCreatingWorkflow(true);
+    setError('');
+
+    try {
+      const parsed = JSON.parse(draftWorkflow.definition || '{}') as Record<string, unknown>;
+      await firmFetch('/workspaces/workflows', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: draftWorkflow.name,
+          active: draftWorkflow.active,
+          ...parsed,
+        }),
+      });
+      setDraftWorkflow((current) => ({
+        ...current,
+        name: 'New firm automation',
+        definition: JSON.stringify({ nodes: [], connections: {}, settings: {} }, null, 2),
+        active: false,
+      }));
+      await loadWorkflows();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create workflow.');
+    } finally {
+      setCreatingWorkflow(false);
+    }
+  }, [draftWorkflow.active, draftWorkflow.definition, draftWorkflow.name, loadWorkflows]);
 
   return (
     <WorkspaceShell
@@ -230,6 +278,43 @@ export default function WorkflowsPage() {
           )}
         </WorkspacePanel>
       </div>
+
+      <WorkspacePanel title="Create workflow" description="Import a workflow definition directly into n8n from the Maxed workspace.">
+        <div className="grid gap-4 lg:grid-cols-[0.35fr,0.65fr]">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Workflow name</label>
+              <input
+                className="input mt-2"
+                value={draftWorkflow.name}
+                onChange={(event) => setDraftWorkflow((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Quarterly close reminder"
+              />
+            </div>
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={draftWorkflow.active}
+                onChange={(event) => setDraftWorkflow((current) => ({ ...current, active: event.target.checked }))}
+              />
+              Activate immediately after create
+            </label>
+            <button onClick={createWorkflow} disabled={creatingWorkflow || !draftWorkflow.name.trim()} className="btn-primary w-full disabled:opacity-60">
+              {creatingWorkflow ? 'Creating workflow...' : 'Create workflow'}
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Workflow JSON</label>
+            <textarea
+              className="input mt-2 min-h-[18rem] font-mono text-xs"
+              value={draftWorkflow.definition}
+              onChange={(event) => setDraftWorkflow((current) => ({ ...current, definition: event.target.value }))}
+              spellCheck={false}
+            />
+          </div>
+        </div>
+      </WorkspacePanel>
     </WorkspaceShell>
   );
 }
