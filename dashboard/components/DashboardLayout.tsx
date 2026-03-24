@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { SessionProvider, useSession } from 'next-auth/react';
+import { SessionProvider, signOut, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
 import { apiUrl, clearFirmId, installApiFetchCredentials, setFirmId } from '@/lib/api';
 import Sidebar from './Sidebar';
@@ -63,8 +63,10 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         if (active) {
+          clearFirmId();
           setError(err instanceof Error ? err.message : 'Unable to establish a secure Maxed session.');
         }
+        await signOut({ redirect: true, callbackUrl: '/login' });
       }
     }
 
