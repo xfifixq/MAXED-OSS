@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatDateTime,
   normalizeMattermostChannels,
@@ -18,12 +18,57 @@ type DraftChannel = {
   type: 'O' | 'P';
 };
 
+type ChatWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    me?: unknown;
+    teams?: unknown;
+  };
+};
+
+type ChatChannelsPayload = {
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    channels?: unknown;
+  };
+};
+
+type ChatPostsPayload = {
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    posts?: unknown;
+  };
+};
+
 export default function ChatPage() {
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [currentUserName, setCurrentUserName] = useState('Team member');
   const [teams, setTeams] = useState<ReturnType<typeof normalizeMattermostTeams>>([]);
   const [channels, setChannels] = useState<ReturnType<typeof normalizeMattermostChannels>>([]);
@@ -43,16 +88,22 @@ export default function ChatPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
     try {
-      const [mePayload, teamsPayload] = await Promise.all([
-        serviceFetch('/api/services/mattermost/me'),
-        serviceFetch('/api/services/mattermost/teams'),
-      ]);
+      const payload = await firmFetch<ChatWorkspacePayload>('/workspaces/chat');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const nextTeams = normalizeMattermostTeams(payload.data?.teams);
 
-      const nextTeams = normalizeMattermostTeams(teamsPayload);
+      if (issue) {
+        setWarning(`Mattermost needs repair before live chat data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Mattermost is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
+
       setTeams(nextTeams);
-      setCurrentUserName(String((mePayload as { username?: string; first_name?: string; last_name?: string })?.username || 'Team member'));
+      setCurrentUserName(String((payload.data?.me as { username?: string; first_name?: string; last_name?: string })?.username || 'Team member'));
       setActiveTeamId((current) => current || nextTeams[0]?.id || '');
       setDraftChannel((current) => ({ ...current, teamId: current.teamId || nextTeams[0]?.id || '' }));
     } catch (err) {
@@ -66,8 +117,8 @@ export default function ChatPage() {
     if (!isReady || !activeTeamId) return;
 
     try {
-      const payload = await serviceFetch(`/api/services/mattermost/teams/${activeTeamId}/channels`);
-      const nextChannels = normalizeMattermostChannels(payload);
+      const payload = await firmFetch<ChatChannelsPayload>(`/workspaces/chat/teams/${activeTeamId}/channels`);
+      const nextChannels = normalizeMattermostChannels(payload.data?.channels);
       setChannels(nextChannels);
       setActiveChannelId((current) => current || nextChannels[0]?.id || '');
     } catch (err) {
@@ -79,8 +130,8 @@ export default function ChatPage() {
     if (!isReady || !activeChannelId) return;
 
     try {
-      const payload = await serviceFetch(`/api/services/mattermost/channels/${activeChannelId}/posts`);
-      setPosts(normalizeMattermostPosts(payload));
+      const payload = await firmFetch<ChatPostsPayload>(`/workspaces/chat/channels/${activeChannelId}/posts`);
+      setPosts(normalizeMattermostPosts(payload.data?.posts));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load posts.');
     }
@@ -109,7 +160,7 @@ export default function ChatPage() {
     setError('');
 
     try {
-      await serviceFetch(`/api/services/mattermost/channels/${activeChannelId}/posts`, {
+      await firmFetch(`/workspaces/chat/channels/${activeChannelId}/posts`, {
         method: 'POST',
         body: JSON.stringify({
           channel_id: activeChannelId,
@@ -132,7 +183,7 @@ export default function ChatPage() {
     setError('');
 
     try {
-      await serviceFetch('/api/services/mattermost/channels', {
+      await firmFetch('/workspaces/chat/channels', {
         method: 'POST',
         body: JSON.stringify({
           team_id: draftChannel.teamId,
@@ -181,6 +232,9 @@ export default function ChatPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadWorkspace} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.82fr,1.18fr]">
         <div className="space-y-6">

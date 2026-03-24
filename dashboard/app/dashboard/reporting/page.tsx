@@ -10,7 +10,7 @@ import {
   WorkspaceSkeleton,
 } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   findStatementAmount,
   formatCurrency,
@@ -29,7 +29,7 @@ type StatsPayload = {
   totalRevenue?: number;
 };
 
-type BookkeepingReportingPayload = {
+type ReportingWorkspacePayload = {
   workspace?: {
     configured?: boolean;
     health?: string;
@@ -38,12 +38,16 @@ type BookkeepingReportingPayload = {
     };
   };
   issues?: Array<{
+    service?: string;
     operation?: string;
     reason?: string;
     status?: number;
     detail?: string;
   }>;
   data?: {
+    stats?: StatsPayload;
+    dashboards?: unknown;
+    questions?: unknown;
     balanceSheet?: unknown;
     profitLoss?: unknown;
   };
@@ -71,62 +75,50 @@ export default function ReportingPage() {
     setError('');
     setWarning('');
 
-    const results = await Promise.allSettled([
-      firmFetch<StatsPayload>('/stats'),
-      serviceFetch('/api/services/metabase/dashboards'),
-      serviceFetch('/api/services/metabase/questions'),
-      firmFetch<BookkeepingReportingPayload>('/workspaces/bookkeeping'),
-    ]);
+    try {
+      const payload = await firmFetch<ReportingWorkspacePayload>('/workspaces/reporting');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const nextDashboards = normalizeMetabaseDashboards(payload.data?.dashboards);
 
-    const [statsResult, dashboardsResult, questionsResult, bookkeepingResult] = results;
-
-    if (statsResult.status === 'fulfilled') {
-      setStats(statsResult.value || {});
-    } else {
-      setError(statsResult.reason instanceof Error ? statsResult.reason.message : 'Unable to load analytics.');
-    }
-
-    if (dashboardsResult.status === 'fulfilled') {
-      const nextDashboards = normalizeMetabaseDashboards(dashboardsResult.value);
+      setStats(payload.data?.stats || {});
       setDashboards(nextDashboards);
-      if (!selectedDashboardId && nextDashboards[0]?.id) {
-        setSelectedDashboardId(nextDashboards[0].id);
-      }
-    } else {
-      setWarning('Metabase dashboards are unavailable. Maxed analytics cards are still shown below.');
-      setDashboards([]);
-    }
+      setQuestions(normalizeMetabaseQuestions(payload.data?.questions));
+      setBalanceSheet(normalizeBigcapitalStatement(payload.data?.balanceSheet));
+      setProfitLoss(normalizeBigcapitalStatement(payload.data?.profitLoss));
 
-    if (questionsResult.status === 'fulfilled') {
-      setQuestions(normalizeMetabaseQuestions(questionsResult.value));
-    } else {
-      setQuestions([]);
-    }
+      setSelectedDashboardId((current) => {
+        if (current && nextDashboards.some((dashboard) => dashboard.id === current)) return current;
+        return nextDashboards[0]?.id || '';
+      });
 
-    if (bookkeepingResult.status === 'fulfilled') {
-      setBalanceSheet(normalizeBigcapitalStatement(bookkeepingResult.value.data?.balanceSheet));
-      setProfitLoss(normalizeBigcapitalStatement(bookkeepingResult.value.data?.profitLoss));
-
-      const issue = bookkeepingResult.value.issues?.[0];
-      const probeReason = bookkeepingResult.value.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
       if (issue) {
-        setWarning(`Bigcapital reporting data needs repair. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
-      } else if (bookkeepingResult.value.workspace?.configured && bookkeepingResult.value.workspace?.health !== 'connected') {
-        setWarning(`Bigcapital reporting data is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+        const serviceName = issue.service ? issue.service.replace(/_/g, ' ') : 'connector';
+        setWarning(`Reporting needs repair before live analytics are trustworthy. ${serviceName} ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Metabase is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
       }
-    } else {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load analytics.');
+      setStats({});
+      setDashboards([]);
+      setQuestions([]);
       setBalanceSheet([]);
       setProfitLoss([]);
+      setSelectedDashboardId('');
     }
 
     setLoading(false);
-  }, [isReady, selectedDashboardId]);
+  }, [isReady]);
 
   const loadSelectedDashboard = useCallback(async () => {
-    if (!selectedDashboardId || !isReady) return;
+    if (!selectedDashboardId || !isReady) {
+      setSelectedDashboard(null);
+      return;
+    }
 
     try {
-      const payload = await serviceFetch(`/api/services/metabase/dashboard/${selectedDashboardId}`);
+      const payload = await firmFetch(`/workspaces/reporting/dashboards/${selectedDashboardId}`);
       setSelectedDashboard(normalizeMetabaseDashboardDetail(payload));
     } catch {
       setSelectedDashboard(null);

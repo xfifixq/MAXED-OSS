@@ -94,6 +94,30 @@ The UI should not assume that "provisioned" means usable.
 - Split the platform monolith into explicit gateway/control-plane and domain services
 - Keep tenant enforcement and auditability central
 
+## Current Progress
+
+Completed in the current Maxed rewrite:
+
+- Live connector probes now determine service health instead of provisioning intent.
+- Maxed-owned storage now works without Supabase and Paperless sync is additive.
+- CPA dashboard workspaces now load through firm-scoped Maxed adapters for:
+  - bookkeeping
+  - time tracking
+  - invoicing
+  - reporting
+  - documents
+  - proposals
+  - workflows
+  - chat
+  - CRM
+- The browser-side CPA UI no longer depends on raw Bigcapital, Kimai, Invoice Ninja, Paperless, Mattermost, Twenty, DocuSeal, n8n, or Metabase proxy calls for those workspaces.
+
+Still deferred:
+
+- Split `platform/server.js` into explicit gateway, connector registry, and domain modules.
+- Move provisioning and connector definitions out of the monolith into a formal registry.
+- Add deeper Maxed-owned workflow coverage where the current UI is still read-heavy or thin compared with the upstream systems.
+
 ## Non-Goals
 
 - Copying OpenFrame source directly

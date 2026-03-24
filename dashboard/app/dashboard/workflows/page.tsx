@@ -10,7 +10,7 @@ import {
   WorkspaceSkeleton,
 } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatDateTime,
   formatDurationMinutes,
@@ -18,10 +18,31 @@ import {
   normalizeN8nWorkflows,
 } from '@/lib/service-adapters';
 
+type WorkflowsWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    workflows?: unknown;
+    executions?: unknown;
+  };
+};
+
 export default function WorkflowsPage() {
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [savingId, setSavingId] = useState('');
   const [workflows, setWorkflows] = useState<ReturnType<typeof normalizeN8nWorkflows>>([]);
   const [executions, setExecutions] = useState<ReturnType<typeof normalizeN8nExecutions>>([]);
@@ -31,15 +52,21 @@ export default function WorkflowsPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
     try {
-      const [workflowPayload, executionPayload] = await Promise.all([
-        serviceFetch('/api/services/n8n/workflows'),
-        serviceFetch('/api/services/n8n/executions?limit=30'),
-      ]);
+      const payload = await firmFetch<WorkflowsWorkspacePayload>('/workspaces/workflows');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
 
-      setWorkflows(normalizeN8nWorkflows(workflowPayload));
-      setExecutions(normalizeN8nExecutions(executionPayload));
+      if (issue) {
+        setWarning(`n8n needs repair before live workflow data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`n8n is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
+
+      setWorkflows(normalizeN8nWorkflows(payload.data?.workflows));
+      setExecutions(normalizeN8nExecutions(payload.data?.executions));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load automations.');
     } finally {
@@ -55,7 +82,7 @@ export default function WorkflowsPage() {
     async (id: string, active: boolean) => {
       setSavingId(id);
       try {
-        await serviceFetch(`/api/services/n8n/workflows/${id}/activate`, {
+        await firmFetch(`/workspaces/workflows/${id}/activate`, {
           method: 'POST',
           body: JSON.stringify({ active }),
         });
@@ -99,6 +126,9 @@ export default function WorkflowsPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadWorkflows} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
         <WorkspacePanel title="Workflow inventory" description="Toggle automations without leaving Maxed.">

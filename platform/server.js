@@ -930,46 +930,46 @@ app.post("/api/firms/:firmId/demo-data", async (req, res) => {
   }
 });
 
+async function getFirmStatsPayload(firmId) {
+  const clients = await prisma.client.findMany({
+    where: { firmId },
+    select: { id: true, annualRevenue: true },
+  });
+
+  const clientIds = clients.map((c) => c.id);
+
+  const [docCount, invoiceCount, scenarioCount, workflowCount] = await Promise.all([
+    prisma.document.count({ where: { clientId: { in: clientIds } } }),
+    prisma.invoice.count({ where: { clientId: { in: clientIds } } }),
+    prisma.scenario.count({ where: { clientId: { in: clientIds } } }),
+    prisma.workflow.count({ where: { firmId, status: { in: ["active", "pending"] } } }),
+  ]);
+
+  const pendingInvoices = await prisma.invoice.count({
+    where: { clientId: { in: clientIds }, status: { in: ["draft", "sent", "pending"] } },
+  });
+
+  const totalRevenue = clients.reduce(
+    (sum, c) => sum + (c.annualRevenue || 0),
+    0
+  );
+
+  return {
+    totalClients: clients.length,
+    activeWorkflows: workflowCount,
+    pendingInvoices,
+    upcomingDeadlines: scenarioCount,
+    clientCount: clients.length,
+    docCount,
+    invoiceCount,
+    scenarioCount,
+    totalRevenue,
+  };
+}
+
 app.get("/api/firms/:firmId/stats", async (req, res) => {
   try {
-    const { firmId } = req.params;
-
-    const clients = await prisma.client.findMany({
-      where: { firmId },
-      select: { id: true, annualRevenue: true },
-    });
-
-    const clientIds = clients.map((c) => c.id);
-
-    const [docCount, invoiceCount, scenarioCount, workflowCount] = await Promise.all([
-      prisma.document.count({ where: { clientId: { in: clientIds } } }),
-      prisma.invoice.count({ where: { clientId: { in: clientIds } } }),
-      prisma.scenario.count({ where: { clientId: { in: clientIds } } }),
-      prisma.workflow.count({ where: { firmId, status: { in: ["active", "pending"] } } }),
-    ]);
-
-    const pendingInvoices = await prisma.invoice.count({
-      where: { clientId: { in: clientIds }, status: { in: ["draft", "sent", "pending"] } },
-    });
-
-    const totalRevenue = clients.reduce(
-      (sum, c) => sum + (c.annualRevenue || 0),
-      0
-    );
-
-    res.json({
-      // Dashboard-expected fields
-      totalClients: clients.length,
-      activeWorkflows: workflowCount,
-      pendingInvoices,
-      upcomingDeadlines: scenarioCount, // Scenarios as proxy for deadlines
-      // Extended stats
-      clientCount: clients.length,
-      docCount,
-      invoiceCount,
-      scenarioCount,
-      totalRevenue,
-    });
+    res.json(await getFirmStatsPayload(req.params.firmId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2396,7 +2396,7 @@ async function ensurePortalAccessCredentialForFirm(firmId) {
 // Extract firmId from X-Firm-Id header on all service proxy routes
 app.use("/api/services", (req, _res, next) => {
   req.firmId = req.headers["x-firm-id"] || null;
-  if (!req.firmId && req.path !== "/urls" && req.path !== "/status" && req.path !== "/diagnose") {
+  if (!req.firmId && req.path !== "/urls" && req.path !== "/catalog" && req.path !== "/status" && req.path !== "/diagnose") {
     console.warn(`[service-proxy] Request to ${req.path} without X-Firm-Id header`);
   }
   next();
@@ -3187,6 +3187,350 @@ async function loadInvoicingWorkspace(firmId) {
   };
 }
 
+async function loadDocumentsWorkspace(firmId, filters = {}) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "paperless");
+  const clients = await getFirmClientsWorkspaceData(firmId);
+  const headers = await paperlessAuth(firmId);
+  const issues = [];
+  let documents = null;
+  let tags = null;
+  let correspondents = null;
+  let documentTypes = null;
+
+  if (workspace.configured && headers.Authorization) {
+    const qs = new URLSearchParams({ page: "1", ordering: "-created" });
+    if (filters.search) qs.set("query", String(filters.search));
+    if (filters.tag) qs.set("tags__id", String(filters.tag));
+    if (filters.correspondent) qs.set("correspondent__id", String(filters.correspondent));
+    if (filters.documentType) qs.set("document_type__id", String(filters.documentType));
+
+    try {
+      const result = await proxyFetch(SERVICES.paperless, `/api/documents/?${qs}`, { headers });
+      if (statusOk(result.status)) documents = result.data;
+      else issues.push(workspaceIssueFromResult("paperless", "documents", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("paperless", "documents", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.paperless, "/api/tags/", { headers });
+      if (statusOk(result.status)) tags = result.data;
+      else issues.push(workspaceIssueFromResult("paperless", "tags", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("paperless", "tags", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.paperless, "/api/correspondents/", { headers });
+      if (statusOk(result.status)) correspondents = result.data;
+      else issues.push(workspaceIssueFromResult("paperless", "correspondents", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("paperless", "correspondents", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.paperless, "/api/document_types/", { headers });
+      if (statusOk(result.status)) documentTypes = result.data;
+      else issues.push(workspaceIssueFromResult("paperless", "document_types", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("paperless", "document_types", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "documents",
+      title: "Maxed Docs",
+      actions: {
+        read: true,
+        upload: true,
+        updateMetadata: true,
+        download: true,
+      },
+    },
+    issues,
+    data: {
+      clients,
+      documents,
+      tags,
+      correspondents,
+      documentTypes,
+    },
+  };
+}
+
+async function loadProposalsWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "docuseal");
+  const [clients, headers] = await Promise.all([
+    getFirmClientsWorkspaceData(firmId),
+    docusealAuth(firmId),
+  ]);
+  const issues = [];
+  let templates = null;
+  let submissions = null;
+
+  if (workspace.configured && (headers.Authorization || headers["X-Auth-Token"])) {
+    try {
+      const result = await proxyFetch(SERVICES.docuseal, "/api/templates", { headers });
+      if (statusOk(result.status)) templates = result.data;
+      else issues.push(workspaceIssueFromResult("docuseal", "templates", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("docuseal", "templates", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.docuseal, "/api/submissions?page=1", { headers });
+      if (statusOk(result.status)) submissions = result.data;
+      else issues.push(workspaceIssueFromResult("docuseal", "submissions", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("docuseal", "submissions", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "proposals",
+      title: "Maxed Sign",
+      actions: {
+        read: true,
+        createSubmission: true,
+      },
+    },
+    issues,
+    data: {
+      clients,
+      templates,
+      submissions,
+    },
+  };
+}
+
+async function loadWorkflowsWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "n8n");
+  const headers = await n8nAuth(firmId);
+  const issues = [];
+  let workflows = null;
+  let executions = null;
+
+  if (workspace.configured && headers["X-N8N-API-KEY"]) {
+    try {
+      const result = await proxyFetch(SERVICES.n8n, "/api/v1/workflows", { headers });
+      if (statusOk(result.status)) workflows = result.data;
+      else issues.push(workspaceIssueFromResult("n8n", "workflows", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("n8n", "workflows", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.n8n, "/api/v1/executions?limit=30", { headers });
+      if (statusOk(result.status)) executions = result.data;
+      else issues.push(workspaceIssueFromResult("n8n", "executions", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("n8n", "executions", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "workflows",
+      title: "Maxed Automations",
+      actions: {
+        read: true,
+        toggleWorkflow: true,
+      },
+    },
+    issues,
+    data: {
+      workflows,
+      executions,
+    },
+  };
+}
+
+async function loadChatWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "mattermost");
+  const token = await getMattermostToken(firmId);
+  const issues = [];
+  let me = null;
+  let teams = null;
+
+  if (workspace.configured && token) {
+    const headers = { Authorization: `Bearer ${token}` };
+
+    try {
+      const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users/me", { headers });
+      if (statusOk(result.status)) me = result.data;
+      else issues.push(workspaceIssueFromResult("mattermost", "me", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("mattermost", "me", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.mattermost, "/api/v4/users/me/teams", { headers });
+      if (statusOk(result.status)) teams = result.data;
+      else issues.push(workspaceIssueFromResult("mattermost", "teams", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("mattermost", "teams", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "chat",
+      title: "Maxed Team Chat",
+      actions: {
+        read: true,
+        post: true,
+        createChannel: true,
+      },
+    },
+    issues,
+    data: {
+      me,
+      teams,
+    },
+  };
+}
+
+async function loadChatChannelsWorkspace(firmId, teamId) {
+  const token = await getMattermostToken(firmId);
+  if (!token) {
+    return { issues: [{ service: "mattermost", operation: "channels", status: 401, reason: "auth_unavailable", detail: "" }], data: { channels: null } };
+  }
+
+  const result = await proxyFetch(SERVICES.mattermost, `/api/v4/users/me/teams/${teamId}/channels`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  return {
+    issues: statusOk(result.status) ? [] : [workspaceIssueFromResult("mattermost", "channels", result)],
+    data: {
+      channels: statusOk(result.status) ? result.data : null,
+    },
+  };
+}
+
+async function loadChatPostsWorkspace(firmId, channelId) {
+  const token = await getMattermostToken(firmId);
+  if (!token) {
+    return { issues: [{ service: "mattermost", operation: "posts", status: 401, reason: "auth_unavailable", detail: "" }], data: { posts: null } };
+  }
+
+  const result = await proxyFetch(SERVICES.mattermost, `/api/v4/channels/${channelId}/posts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  return {
+    issues: statusOk(result.status) ? [] : [workspaceIssueFromResult("mattermost", "posts", result)],
+    data: {
+      posts: statusOk(result.status) ? result.data : null,
+    },
+  };
+}
+
+async function loadCrmWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "twenty");
+  const [clients, headers] = await Promise.all([
+    getFirmClientsWorkspaceData(firmId),
+    twentyAuth(firmId),
+  ]);
+  const issues = [];
+  let companies = null;
+  let people = null;
+
+  if (workspace.configured && headers.Authorization) {
+    try {
+      const result = await proxyFetch(SERVICES.twenty, "/api/companies", { headers });
+      if (statusOk(result.status)) companies = result.data;
+      else issues.push(workspaceIssueFromResult("twenty", "companies", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("twenty", "companies", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.twenty, "/api/people", { headers });
+      if (statusOk(result.status)) people = result.data;
+      else issues.push(workspaceIssueFromResult("twenty", "people", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("twenty", "people", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "crm",
+      title: "Maxed CRM",
+      actions: {
+        read: true,
+        createCompany: true,
+        createPerson: true,
+      },
+    },
+    issues,
+    data: {
+      clients,
+      companies,
+      people,
+    },
+  };
+}
+
+async function loadReportingWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "metabase");
+  const [stats, metabaseSession, bookkeepingWorkspace] = await Promise.all([
+    getFirmStatsPayload(firmId),
+    getMetabaseSession(firmId),
+    loadBookkeepingWorkspace(firmId),
+  ]);
+  const issues = [...(bookkeepingWorkspace.issues || [])];
+  let dashboards = null;
+  let questions = null;
+
+  if (workspace.configured && metabaseSession) {
+    const headers = { "X-Metabase-Session": metabaseSession };
+
+    try {
+      const result = await proxyFetch(SERVICES.metabase, "/api/dashboard", { headers });
+      if (statusOk(result.status)) dashboards = result.data;
+      else issues.push(workspaceIssueFromResult("metabase", "dashboards", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("metabase", "dashboards", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.metabase, "/api/card", { headers });
+      if (statusOk(result.status)) questions = result.data;
+      else issues.push(workspaceIssueFromResult("metabase", "questions", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("metabase", "questions", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "reporting",
+      title: "Maxed Analytics",
+      actions: {
+        read: true,
+      },
+    },
+    issues,
+    data: {
+      stats,
+      dashboards,
+      questions,
+      balanceSheet: bookkeepingWorkspace.data?.balanceSheet || null,
+      profitLoss: bookkeepingWorkspace.data?.profitLoss || null,
+    },
+  };
+}
+
 app.get("/bridge/:service", async (req, res) => {
   try {
     const service = req.params.service;
@@ -3797,6 +4141,37 @@ function buildPublicApiBase(req) {
   return `${forwardedProto}://${forwardedHost}`;
 }
 
+async function writeManagedStorageObject({ bucket = "documents", relativePath, buffer, contentType }) {
+  if (supabase) {
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(relativePath, buffer, { contentType: contentType || "application/octet-stream", upsert: true });
+    if (error) {
+      const err = new Error(error.message);
+      err.status = 400;
+      throw err;
+    }
+    return {
+      provider: "supabase",
+      bucket,
+      path: relativePath,
+      ...data,
+    };
+  }
+
+  const target = resolveStorageTarget(bucket, relativePath);
+  await fs.mkdir(path.dirname(target.absolutePath), { recursive: true });
+  await fs.writeFile(target.absolutePath, buffer);
+
+  return {
+    provider: "local",
+    bucket: target.bucket,
+    path: target.relativePath,
+    size: buffer.length,
+    localPath: target.absolutePath,
+  };
+}
+
 app.post("/api/storage/upload", async (req, res) => {
   try {
     const { bucket = "documents", path: relativePath, base64Data, contentType } = req.body;
@@ -4317,19 +4692,33 @@ app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
 });
 
 // Return public-facing service URLs for admin iframe page
+function buildPublicServiceUrlsPayload() {
+  return PUBLIC_SERVICES;
+}
+
+function buildServiceCatalogPayload() {
+  return Object.values(SERVICE_CATALOG).map((service) => ({
+    ...service,
+    defaultUrl: PUBLIC_SERVICES[service.key] || null,
+    accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
+    provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
+  }));
+}
+
+app.get("/api/control-plane/urls", (_req, res) => {
+  res.json(buildPublicServiceUrlsPayload());
+});
+
+app.get("/api/control-plane/catalog", (_req, res) => {
+  res.json(buildServiceCatalogPayload());
+});
+
 app.get("/api/services/urls", (_req, res) => {
-  res.json(PUBLIC_SERVICES);
+  res.json(buildPublicServiceUrlsPayload());
 });
 
 app.get("/api/services/catalog", (_req, res) => {
-  res.json(
-    Object.values(SERVICE_CATALOG).map((service) => ({
-      ...service,
-      defaultUrl: PUBLIC_SERVICES[service.key] || null,
-      accessCapability: SERVICE_ACCESS_CAPABILITIES[service.key] || null,
-      provisioningAdapter: SERVICE_PROVISIONING_ADAPTERS[service.key] || null,
-    })),
-  );
+  res.json(buildServiceCatalogPayload());
 });
 
 app.get("/api/firms/:firmId/provisioning/overview", async (req, res) => {
@@ -4620,6 +5009,150 @@ app.get("/api/firms/:firmId/workspaces/bookkeeping", async (req, res) => {
   }
 });
 
+app.get("/api/firms/:firmId/workspaces/documents", async (req, res) => {
+  try {
+    const workspace = await loadDocumentsWorkspace(req.params.firmId, req.query || {});
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/documents/:id/thumb", async (req, res) => {
+  try {
+    const url = `${SERVICES.paperless}/api/documents/${req.params.id}/thumb/`;
+    const upstream = await fetch(url, { headers: await paperlessAuth(req.params.firmId) });
+    res.set("Content-Type", upstream.headers.get("content-type") || "image/png");
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/documents/:id/download", async (req, res) => {
+  try {
+    const upstream = await fetch(`${SERVICES.paperless}/api/documents/${req.params.id}/download/`, {
+      headers: await paperlessAuth(req.params.firmId),
+    });
+
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      return res.status(upstream.status).json({
+        error: "Paperless download failed",
+        detail,
+      });
+    }
+
+    const contentType = upstream.headers.get("content-type");
+    const contentDisposition = upstream.headers.get("content-disposition");
+    if (contentType) res.set("Content-Type", contentType);
+    if (contentDisposition) res.set("Content-Disposition", contentDisposition);
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.patch("/api/firms/:firmId/workspaces/documents/:id", async (req, res) => {
+  try {
+    const upstream = await fetch(`${SERVICES.paperless}/api/documents/${req.params.id}/`, {
+      method: "PATCH",
+      headers: {
+        ...(await paperlessAuth(req.params.firmId)),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const text = await upstream.text();
+    try {
+      const json = text ? JSON.parse(text) : {};
+      return res.status(upstream.status).json(json);
+    } catch {
+      return res.status(upstream.status).send(text);
+    }
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Paperless unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/documents/upload", async (req, res) => {
+  try {
+    const { clientId, filename, base64Data, contentType, title } = req.body || {};
+    if (!clientId || !filename || !base64Data) {
+      return res.status(400).json({ error: "clientId, filename, and base64Data are required" });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, firmId: req.params.firmId },
+    });
+    if (!client) return res.status(404).json({ error: "Client not found" });
+
+    const storagePath = `dashboard/${req.params.firmId}/${client.id}/${Date.now()}-${filename}`;
+    const buffer = Buffer.from(base64Data, "base64");
+    const storage = await writeManagedStorageObject({
+      bucket: "documents",
+      relativePath: storagePath,
+      buffer,
+      contentType: contentType || "application/octet-stream",
+    });
+
+    const localDocument = await prisma.document.create({
+      data: {
+        clientId: client.id,
+        title: title || filename,
+        type: contentType || "Document",
+        status: "uploaded",
+        paperlessDocId: storagePath,
+      },
+    });
+
+    let paperless = null;
+    let syncIssue = null;
+    try {
+      const form = new FormData();
+      const blob = new Blob([buffer], { type: contentType || "application/octet-stream" });
+      form.append("document", blob, filename);
+      form.append("title", String(title || filename));
+      if (client.paperlessTag) form.append("tags", String(client.paperlessTag));
+
+      const upstream = await fetch(`${SERVICES.paperless}/api/documents/post_document/`, {
+        method: "POST",
+        headers: await paperlessAuth(req.params.firmId),
+        body: form,
+      });
+      const text = await upstream.text();
+      try {
+        paperless = text ? JSON.parse(text) : {};
+      } catch {
+        paperless = text;
+      }
+      if (!upstream.ok) {
+        syncIssue = {
+          service: "paperless",
+          operation: "upload",
+          status: upstream.status,
+          reason: "sync_failed",
+          detail: stringifyConnectorDetail(paperless),
+        };
+      }
+    } catch (err) {
+      syncIssue = workspaceIssueFromError("paperless", "upload", err);
+    }
+
+    res.status(syncIssue ? 207 : 201).json({
+      storage,
+      localDocument,
+      paperless,
+      syncIssue,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.get("/api/firms/:firmId/workspaces/time-tracking", async (req, res) => {
   try {
     const workspace = await loadTimeTrackingWorkspace(req.params.firmId);
@@ -4685,6 +5218,141 @@ app.post("/api/firms/:firmId/workspaces/time-tracking/setup-records", async (req
     res.status(issues.length ? 207 : 201).json({ created, issues });
   } catch (err) {
     res.status(err.status || 502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/proposals", async (req, res) => {
+  try {
+    const workspace = await loadProposalsWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/proposals/submissions", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.docuseal, "/api/submissions", {
+      method: "POST",
+      headers: await docusealAuth(req.params.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "DocuSeal unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/workflows", async (req, res) => {
+  try {
+    const workspace = await loadWorkflowsWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/workflows/:id/activate", async (req, res) => {
+  try {
+    const active = req.body?.active !== false;
+    const result = await proxyFetch(SERVICES.n8n, `/api/v1/workflows/${req.params.id}`, {
+      method: "PATCH",
+      headers: await n8nAuth(req.params.firmId),
+      body: JSON.stringify({ active }),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "n8n unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/chat", async (req, res) => {
+  try {
+    const workspace = await loadChatWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/chat/teams/:teamId/channels", async (req, res) => {
+  try {
+    res.json(await loadChatChannelsWorkspace(req.params.firmId, req.params.teamId));
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/chat/channels/:id/posts", async (req, res) => {
+  try {
+    res.json(await loadChatPostsWorkspace(req.params.firmId, req.params.id));
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/chat/channels/:id/posts", async (req, res) => {
+  try {
+    const token = await getMattermostToken(req.params.firmId);
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, `/api/v4/posts`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/chat/channels", async (req, res) => {
+  try {
+    const token = await getMattermostToken(req.params.firmId);
+    if (!token) return res.status(401).json({ error: "Mattermost auth unavailable" });
+    const result = await proxyFetch(SERVICES.mattermost, "/api/v4/channels", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Mattermost unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/crm", async (req, res) => {
+  try {
+    const workspace = await loadCrmWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/crm/companies", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/companies", {
+      method: "POST",
+      headers: await twentyAuth(req.params.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Twenty CRM unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/crm/people", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.twenty, "/api/people", {
+      method: "POST",
+      headers: await twentyAuth(req.params.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Twenty CRM unavailable", detail: err.message });
   }
 });
 
@@ -4791,6 +5459,28 @@ app.post("/api/firms/:firmId/workspaces/invoicing/payments", async (req, res) =>
     res.status(result.status).json(result.data);
   } catch (err) {
     res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/reporting", async (req, res) => {
+  try {
+    const workspace = await loadReportingWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/reporting/dashboards/:id", async (req, res) => {
+  try {
+    const session = await getMetabaseSession(req.params.firmId);
+    if (!session) return res.status(401).json({ error: "Metabase session unavailable" });
+    const result = await proxyFetch(SERVICES.metabase, `/api/dashboard/${req.params.id}`, {
+      headers: { "X-Metabase-Session": session },
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Metabase unavailable", detail: err.message });
   }
 });
 
@@ -4928,7 +5618,7 @@ app.post("/api/firms/:firmId/provisioning/prepare/:service", async (req, res) =>
 // ---------------------------------------------------------------------------
 // Service health check — check all integrated services
 // ---------------------------------------------------------------------------
-app.get("/api/services/status", async (_req, res) => {
+async function buildServiceStatusPayload() {
   const results = {};
   for (const [name, url] of Object.entries(SERVICES)) {
     try {
@@ -4941,11 +5631,11 @@ app.get("/api/services/status", async (_req, res) => {
       results[name] = { status: "unavailable" };
     }
   }
-  res.json(results);
-});
+  return results;
+}
 
 // Diagnostic: check which service API tokens are configured (per-firm or env)
-app.get("/api/services/diagnose", async (req, res) => {
+async function buildServiceDiagnosePayload(req) {
   const firmId = req.headers["x-firm-id"] || null;
   const services = ["paperless", "docuseal", "invoiceninja", "n8n", "kimai", "bigcapital", "twenty", "metabase", "mattermost"];
   const envMap = {
@@ -4969,7 +5659,23 @@ app.get("/api/services/diagnose", async (req, res) => {
       source: hasFirmCred ? "firm" : hasEnvVar ? "env" : "none",
     };
   }
-  res.json(diag);
+  return diag;
+}
+
+app.get("/api/control-plane/status", async (_req, res) => {
+  res.json(await buildServiceStatusPayload());
+});
+
+app.get("/api/control-plane/diagnose", async (req, res) => {
+  res.json(await buildServiceDiagnosePayload(req));
+});
+
+app.get("/api/services/status", async (_req, res) => {
+  res.json(await buildServiceStatusPayload());
+});
+
+app.get("/api/services/diagnose", async (req, res) => {
+  res.json(await buildServiceDiagnosePayload(req));
 });
 
 // ---------------------------------------------------------------------------

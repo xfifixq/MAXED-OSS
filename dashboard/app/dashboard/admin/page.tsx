@@ -613,8 +613,8 @@ function AdminContent() {
     async function init() {
       try {
         const [urlsRes, catalogRes] = await Promise.all([
-          fetch(apiUrl('/api/services/urls')),
-          fetch(apiUrl('/api/services/catalog')),
+          fetch(apiUrl('/api/control-plane/urls')),
+          fetch(apiUrl('/api/control-plane/catalog')),
         ]);
         if (urlsRes.ok) setServiceUrls(await urlsRes.json());
         if (catalogRes.ok) {

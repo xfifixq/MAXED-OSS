@@ -58,7 +58,7 @@ export function useServiceStatus() {
 
     async function fetchStatuses() {
       try {
-        const urlsRes = await fetch(apiUrl('/api/services/urls'));
+        const urlsRes = await fetch(apiUrl('/api/control-plane/urls'));
         const urlsJson = (urlsRes.ok ? await urlsRes.json() : {}) as Record<string, string>;
 
         let nextStatuses: Record<string, ServiceStatusEntry> = {};
@@ -106,9 +106,9 @@ export function useServiceStatus() {
 
         if (!Object.keys(nextStatuses).length) {
           const [statusRes, diagnoseRes] = await Promise.all([
-            fetch(apiUrl('/api/services/status')),
+            fetch(apiUrl('/api/control-plane/status')),
             firmId
-              ? fetch(apiUrl('/api/services/diagnose'), { headers: serviceHeaders() })
+              ? fetch(apiUrl('/api/control-plane/diagnose'), { headers: serviceHeaders() })
               : Promise.resolve(null),
           ]);
           const statusJson = (statusRes.ok ? await statusRes.json() : {}) as Record<string, any>;

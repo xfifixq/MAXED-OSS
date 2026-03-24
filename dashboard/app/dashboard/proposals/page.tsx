@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatDate,
   normalizeDocuSealSubmissions,
@@ -19,6 +19,27 @@ type DraftState = {
   role: string;
 };
 
+type ProposalsWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    clients?: unknown;
+    templates?: unknown;
+    submissions?: unknown;
+  };
+};
+
 export default function ProposalsPage() {
   const { isReady } = useFirmReady();
   const searchParams = useSearchParams();
@@ -26,6 +47,7 @@ export default function ProposalsPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
@@ -39,17 +61,21 @@ export default function ProposalsPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
     try {
-      const [clientsPayload, templatesPayload, submissionsPayload] = await Promise.all([
-        firmFetch('/clients'),
-        serviceFetch('/api/services/docuseal/templates'),
-        serviceFetch('/api/services/docuseal/submissions'),
-      ]);
+      const payload = await firmFetch<ProposalsWorkspacePayload>('/workspaces/proposals');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const normalizedClients = normalizeFirmClients(payload.data?.clients);
+      const normalizedTemplates = normalizeDocuSealTemplates(payload.data?.templates);
+      const normalizedSubmissions = normalizeDocuSealSubmissions(payload.data?.submissions);
 
-      const normalizedClients = normalizeFirmClients(clientsPayload);
-      const normalizedTemplates = normalizeDocuSealTemplates(templatesPayload);
-      const normalizedSubmissions = normalizeDocuSealSubmissions(submissionsPayload);
+      if (issue) {
+        setWarning(`DocuSeal needs repair before live proposal data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`DocuSeal is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
 
       setClients(normalizedClients);
       setTemplates(normalizedTemplates);
@@ -123,7 +149,7 @@ export default function ProposalsPage() {
     setError('');
 
     try {
-      await serviceFetch('/api/services/docuseal/submissions', {
+      await firmFetch('/workspaces/proposals/submissions', {
         method: 'POST',
         body: JSON.stringify({
           template_id: Number(template.id) || template.id,
@@ -167,6 +193,9 @@ export default function ProposalsPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadProposals} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.92fr,1.08fr]">
         <WorkspacePanel title="Send a proposal" description="Pick a template, target client, and signer role.">

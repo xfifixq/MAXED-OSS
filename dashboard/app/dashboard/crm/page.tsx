@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatCurrency,
   formatDate,
@@ -32,12 +32,34 @@ type PersonDraft = {
   primaryEmail: string;
 };
 
+type CRMWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    clients?: unknown;
+    companies?: unknown;
+    people?: unknown;
+  };
+};
+
 export default function CRMPage() {
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
   const [creatingCompany, setCreatingCompany] = useState(false);
   const [creatingPerson, setCreatingPerson] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
   const [companies, setCompanies] = useState<ReturnType<typeof normalizeTwentyCompanies>>([]);
   const [people, setPeople] = useState<ReturnType<typeof normalizeTwentyPeople>>([]);
@@ -49,32 +71,27 @@ export default function CRMPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
-    const results = await Promise.allSettled([
-      firmFetch('/clients'),
-      serviceFetch('/api/services/twenty/companies'),
-      serviceFetch('/api/services/twenty/people'),
-    ]);
+    try {
+      const payload = await firmFetch<CRMWorkspacePayload>('/workspaces/crm');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const nextCompanies = normalizeTwentyCompanies(payload.data?.companies);
 
-    const [clientsResult, companiesResult, peopleResult] = results;
+      if (issue) {
+        setWarning(`Twenty CRM needs repair before live CRM data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Twenty CRM is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
 
-    if (clientsResult.status === 'fulfilled') {
-      setClients(normalizeFirmClients(clientsResult.value));
-    } else {
-      setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : 'Unable to load client relationships.');
-    }
-
-    if (companiesResult.status === 'fulfilled') {
-      const nextCompanies = normalizeTwentyCompanies(companiesResult.value);
+      setClients(normalizeFirmClients(payload.data?.clients));
       setCompanies(nextCompanies);
       setPersonDraft((current) => ({ ...current, companyId: current.companyId || nextCompanies[0]?.id || '' }));
-    } else {
+      setPeople(normalizeTwentyPeople(payload.data?.people));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load client relationships.');
       setCompanies([]);
-    }
-
-    if (peopleResult.status === 'fulfilled') {
-      setPeople(normalizeTwentyPeople(peopleResult.value));
-    } else {
       setPeople([]);
     }
 
@@ -121,7 +138,7 @@ export default function CRMPage() {
     setError('');
 
     try {
-      await serviceFetch('/api/services/twenty/companies', {
+      await firmFetch('/workspaces/crm/companies', {
         method: 'POST',
         body: JSON.stringify({
           name: companyDraft.name.trim(),
@@ -144,7 +161,7 @@ export default function CRMPage() {
     setError('');
 
     try {
-      await serviceFetch('/api/services/twenty/people', {
+      await firmFetch('/workspaces/crm/people', {
         method: 'POST',
         body: JSON.stringify({
           firstName: personDraft.firstName.trim(),
@@ -188,6 +205,9 @@ export default function CRMPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadCRM} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <WorkspacePanel title="Relationship pipeline" description="Client relationship stages derived from real Maxed activity.">
         {loading ? (

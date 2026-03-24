@@ -12,9 +12,9 @@ import {
   WorkspaceShell,
   WorkspaceSkeleton,
 } from '@/components/WorkspaceShell';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, firmApiUrl } from '@/lib/api';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatDate,
   normalizeFirmClients,
@@ -42,6 +42,29 @@ type MetadataDraft = {
   tags: string[];
 };
 
+type DocumentsWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    clients?: unknown;
+    documents?: unknown;
+    tags?: unknown;
+    correspondents?: unknown;
+    documentTypes?: unknown;
+  };
+};
+
 function toBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -59,7 +82,7 @@ function toBase64(file: File) {
 }
 
 export default function DocumentsPage() {
-  const { firmId, isReady } = useFirmReady();
+  const { isReady } = useFirmReady();
   const searchParams = useSearchParams();
   const preferredClientId = searchParams.get('clientId') || '';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,55 +125,39 @@ export default function DocumentsPage() {
     if (filters.correspondent) query.set('correspondent', filters.correspondent);
     if (filters.documentType) query.set('documentType', filters.documentType);
 
-    const results = await Promise.allSettled([
-      firmFetch('/clients'),
-      serviceFetch(`/api/services/paperless/documents?${query.toString()}`),
-      serviceFetch('/api/services/paperless/tags'),
-      serviceFetch('/api/services/paperless/correspondents'),
-      serviceFetch('/api/services/paperless/document-types'),
-    ]);
+    try {
+      const payload = await firmFetch<DocumentsWorkspacePayload>(`/workspaces/documents?${query.toString()}`);
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const normalizedClients = normalizeFirmClients(payload.data?.clients);
+      const docs = normalizePaperlessDocuments(payload.data?.documents);
 
-    const [clientsResult, documentsResult, tagsResult, correspondentsResult, documentTypesResult] = results;
-
-    if (clientsResult.status === 'fulfilled') {
-      const normalizedClients = normalizeFirmClients(clientsResult.value);
       setClients(normalizedClients);
       setUploadState((current) => ({
         ...current,
         clientId: current.clientId || preferredClientId || normalizedClients[0]?.id || '',
       }));
-    } else {
-      setError(clientsResult.reason instanceof Error ? clientsResult.reason.message : 'Unable to load client records.');
-    }
-
-    if (documentsResult.status === 'fulfilled') {
-      const docs = normalizePaperlessDocuments(documentsResult.value);
       setPaperlessDocuments(docs);
       setSelectedDocumentId((current) => {
         if (current && docs.some((document) => document.id === current)) return current;
         return docs[0]?.id || '';
       });
-    } else {
-      setWarning('Paperless is unavailable right now. Maxed client document records are still available below.');
+
+      if (issue) {
+        setWarning(`Paperless needs repair before the live vault is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Paperless is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
+
+      setPaperlessTags(normalizePaperlessTags(payload.data?.tags));
+      setPaperlessCorrespondents(normalizePaperlessLookupOptions(payload.data?.correspondents));
+      setPaperlessDocumentTypes(normalizePaperlessLookupOptions(payload.data?.documentTypes));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load client records.');
       setPaperlessDocuments([]);
       setSelectedDocumentId('');
-    }
-
-    if (tagsResult.status === 'fulfilled') {
-      setPaperlessTags(normalizePaperlessTags(tagsResult.value));
-    } else {
       setPaperlessTags([]);
-    }
-
-    if (correspondentsResult.status === 'fulfilled') {
-      setPaperlessCorrespondents(normalizePaperlessLookupOptions(correspondentsResult.value));
-    } else {
       setPaperlessCorrespondents([]);
-    }
-
-    if (documentTypesResult.status === 'fulfilled') {
-      setPaperlessDocumentTypes(normalizePaperlessLookupOptions(documentTypesResult.value));
-    } else {
       setPaperlessDocumentTypes([]);
     }
 
@@ -201,9 +208,7 @@ export default function DocumentsPage() {
 
   const downloadPaperlessDocument = useCallback(async (documentId: string, title: string) => {
     try {
-      const res = await fetch(apiUrl(`/api/services/paperless/documents/${documentId}/download`), {
-        headers: firmId ? { 'X-Firm-Id': firmId } : {},
-      });
+      const res = await fetch(firmApiUrl(`/workspaces/documents/${documentId}/download`));
       if (!res.ok) throw new Error(`Unable to download ${title}.`);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -215,7 +220,7 @@ export default function DocumentsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to download document.');
     }
-  }, [firmId]);
+  }, []);
 
   const openStoredDocument = useCallback(async (path: string) => {
     try {
@@ -236,7 +241,7 @@ export default function DocumentsPage() {
     setError('');
 
     try {
-      await serviceFetch(`/api/services/paperless/documents/${selectedDocument.id}`, {
+      await firmFetch(`/workspaces/documents/${selectedDocument.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           title: metadataDraft.title,
@@ -256,7 +261,7 @@ export default function DocumentsPage() {
 
   const handleUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files?.length || !uploadState.clientId || !firmId) return;
+    if (!files?.length || !uploadState.clientId) return;
 
     const client = clients.find((entry) => entry.id === uploadState.clientId);
     if (!client) return;
@@ -268,40 +273,18 @@ export default function DocumentsPage() {
     try {
       for (const file of Array.from(files)) {
         const base64Data = await toBase64(file);
-        const storagePath = `dashboard/${firmId}/${client.id}/${Date.now()}-${file.name}`;
-
-        await serviceFetch('/api/storage/upload', {
+        const result = await firmFetch<{ syncIssue?: { reason?: string } }>('/workspaces/documents/upload', {
           method: 'POST',
           body: JSON.stringify({
-            bucket: 'documents',
-            path: storagePath,
+            clientId: client.id,
+            filename: file.name,
             base64Data,
             contentType: file.type || 'application/octet-stream',
-          }),
-        });
-
-        await serviceFetch(`/api/clients/${client.id}/documents`, {
-          method: 'POST',
-          body: JSON.stringify({
             title: file.name,
-            type: file.type || 'Document',
-            status: 'uploaded',
-            paperlessDocId: storagePath,
           }),
         });
 
-        try {
-          await serviceFetch('/api/services/paperless/documents/upload', {
-            method: 'POST',
-            body: JSON.stringify({
-              filename: file.name,
-              base64Data,
-              contentType: file.type || 'application/octet-stream',
-              title: file.name,
-              tags: client.paperlessTag ? [client.paperlessTag] : [],
-            }),
-          });
-        } catch {
+        if (result.syncIssue) {
           partialSyncFailure = true;
         }
       }
@@ -319,7 +302,7 @@ export default function DocumentsPage() {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [clients, firmId, loadDocuments, uploadState.clientId]);
+  }, [clients, loadDocuments, uploadState.clientId]);
 
   return (
     <WorkspaceShell
@@ -522,7 +505,7 @@ export default function DocumentsPage() {
             <div className="space-y-4">
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                 <img
-                  src={apiUrl(`/api/services/paperless/documents/${selectedDocument.id}/thumb`)}
+                  src={firmApiUrl(`/workspaces/documents/${selectedDocument.id}/thumb`)}
                   alt={selectedDocument.title}
                   className="h-72 w-full object-contain"
                 />
