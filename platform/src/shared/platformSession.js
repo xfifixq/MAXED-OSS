@@ -15,12 +15,73 @@ function isPlatformAdminEmail(email) {
 }
 
 function extractPlatformTokenFromRequest(req) {
+  const cookieToken = parseCookieHeader(req.headers.cookie || "").maxed_session || null;
+
   return (
     req.headers["x-maxed-session"] ||
     req.headers["x-platform-session"] ||
     req.headers["authorization"]?.replace(/^Bearer\s+/i, "") ||
+    cookieToken ||
     null
   );
+}
+
+function parseCookieHeader(value) {
+  return String(value || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const eqIndex = part.indexOf("=");
+      if (eqIndex === -1) return acc;
+      const key = decodeURIComponent(part.slice(0, eqIndex).trim());
+      const val = decodeURIComponent(part.slice(eqIndex + 1).trim());
+      acc[key] = val;
+      return acc;
+    }, {});
+}
+
+function resolveCookieDomain(hostname) {
+  const host = String(hostname || "").split(":")[0].toLowerCase();
+  if (!host || host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return undefined;
+  }
+  if (host === "maxed.life" || host.endsWith(".maxed.life")) {
+    return ".maxed.life";
+  }
+  return undefined;
+}
+
+function buildPlatformSessionCookie(token, options = {}) {
+  const {
+    maxAgeSeconds = 30 * 24 * 60 * 60,
+    expiresAt = null,
+    domain,
+    secure = true,
+    httpOnly = true,
+    sameSite = "Lax",
+  } = options;
+
+  const parts = [
+    `maxed_session=${encodeURIComponent(token || "")}`,
+    "Path=/",
+    httpOnly ? "HttpOnly" : "",
+    secure ? "Secure" : "",
+    `SameSite=${sameSite}`,
+    typeof maxAgeSeconds === "number" ? `Max-Age=${maxAgeSeconds}` : "",
+    domain ? `Domain=${domain}` : "",
+    expiresAt ? `Expires=${new Date(expiresAt).toUTCString()}` : "",
+  ].filter(Boolean);
+
+  return parts.join("; ");
+}
+
+function buildClearedPlatformSessionCookie(options = {}) {
+  return buildPlatformSessionCookie("", {
+    ...options,
+    maxAgeSeconds: 0,
+    expiresAt: new Date(0),
+  });
 }
 
 function createPlatformSessionHelpers({
@@ -110,6 +171,14 @@ function createRequireAuth({
       return res.status(401).json({ error: "Unauthorized" });
     }
 
+    req.authContext = {
+      isService: true,
+      isPlatformAdmin: true,
+      firmId: req.headers["x-firm-id"] || null,
+      userId: null,
+      role: "service",
+    };
+
     return next();
   };
 }
@@ -120,6 +189,10 @@ module.exports = {
   hashOpaqueToken,
   isPlatformAdminEmail,
   extractPlatformTokenFromRequest,
+  parseCookieHeader,
+  resolveCookieDomain,
+  buildPlatformSessionCookie,
+  buildClearedPlatformSessionCookie,
   createPlatformSessionHelpers,
   createRequireAuth,
 };

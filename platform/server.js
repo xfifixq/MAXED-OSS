@@ -26,6 +26,11 @@ const {
   hashOpaqueToken,
   isPlatformAdminEmail,
 } = require("./src/shared/platformSession");
+const {
+  attachAuthContext,
+  requireFirmScope,
+  requireClientScope,
+} = require("./src/shared/tenantAccess");
 const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
@@ -49,6 +54,10 @@ const app = createPlatformApp({
   requireAuth,
   supabaseConnected: !!supabase,
 });
+app.use("/api", attachAuthContext);
+app.use("/api/firms/:firmId", requireFirmScope("firmId"));
+app.use("/api/firms/:id", requireFirmScope("id"));
+app.use("/api/clients/:clientId", requireClientScope(prisma));
 
 // ---------------------------------------------------------------------------
 // Authentication
@@ -506,7 +515,7 @@ async function provisionWorkspaceManagedService({ firmId, service, identity, sug
 }
 
 async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
-  const adminToken = await getMattermostToken(null);
+  const adminToken = await getMattermostToken(null, { allowSharedFallback: true });
   if (!adminToken) {
     const error = new Error("Mattermost admin auth unavailable");
     error.status = 502;
@@ -630,7 +639,7 @@ async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
 }
 
 async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
-  const session = await getMetabaseSession(null);
+  const session = await getMetabaseSession(null, { allowSharedFallback: true });
   if (!session) {
     const error = new Error("Metabase admin session unavailable");
     error.status = 502;
@@ -757,7 +766,7 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
 }
 
 async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion }) {
-  const adminHeaders = await invoiceNinjaAuth(null);
+  const adminHeaders = await invoiceNinjaAuth(null, { allowSharedFallback: true });
   if (!adminHeaders["X-API-TOKEN"]) {
     const error = new Error("Invoice Ninja admin API token unavailable");
     error.status = 502;
@@ -867,7 +876,7 @@ async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion })
 }
 
 async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
-  const adminHeaders = await kimaiAuth(null);
+  const adminHeaders = await kimaiAuth(null, { allowSharedFallback: true });
   if (!adminHeaders["X-AUTH-TOKEN"] && !adminHeaders.Authorization) {
     const error = new Error("Kimai admin API auth unavailable");
     error.status = 502;
@@ -1130,28 +1139,31 @@ async function ensurePortalAccessCredentialForFirm(firmId) {
 // ---------------------------------------------------------------------------
 // Service auth — looks up per-firm credentials, falls back to env vars
 // ---------------------------------------------------------------------------
-async function paperlessAuth(firmId) {
+async function paperlessAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "paperless");
   if (cred?.token) return { Authorization: `Token ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.PAPERLESS_API_TOKEN || null;
   return token ? { Authorization: `Token ${token}` } : {};
 }
 
-async function docusealAuth(firmId) {
+async function docusealAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "docuseal");
   if (cred?.token) return { "X-Auth-Token": cred.token, Authorization: `Bearer ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.DOCUSEAL_API_TOKEN || null;
   return token ? { "X-Auth-Token": token, Authorization: `Bearer ${token}` } : {};
 }
 
-async function n8nAuth(firmId) {
+async function n8nAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "n8n");
   if (cred?.token) return { "X-N8N-API-KEY": cred.token };
+  if (!allowSharedFallback) return {};
   const token = process.env.N8N_API_KEY || null;
   return token ? { "X-N8N-API-KEY": token } : {};
 }
 
-async function kimaiAuth(firmId) {
+async function kimaiAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "kimai");
   if (cred?.token) {
     return {
@@ -1160,6 +1172,7 @@ async function kimaiAuth(firmId) {
       "X-AUTH-TOKEN": cred.token,
     };
   }
+  if (!allowSharedFallback) return {};
   const token = process.env.KIMAI_API_TOKEN || null;
   if (!token) return {};
   return {
@@ -1169,7 +1182,7 @@ async function kimaiAuth(firmId) {
   };
 }
 
-async function invoiceNinjaAuth(firmId) {
+async function invoiceNinjaAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "invoiceninja");
   if (cred?.token) return { "X-API-TOKEN": cred.token, "X-Requested-With": "XMLHttpRequest" };
 
@@ -1180,6 +1193,9 @@ async function invoiceNinjaAuth(firmId) {
     }
   }
 
+  if (!allowSharedFallback) {
+    return { "X-Requested-With": "XMLHttpRequest" };
+  }
   const token = process.env.INVOICE_NINJA_API_TOKEN || null;
   return token
     ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" }
@@ -1250,7 +1266,7 @@ async function ensureInvoiceNinjaClient(firmId, clientId) {
   return { client, remoteClientId };
 }
 
-async function bigcapitalAuth(firmId) {
+async function bigcapitalAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "bigcapital");
   if (cred?.token) {
     const h = { Authorization: `Bearer ${cred.token}` };
@@ -1274,6 +1290,9 @@ async function bigcapitalAuth(firmId) {
     }
   }
 
+  if (!allowSharedFallback) {
+    return {};
+  }
   const token = process.env.BIGCAPITAL_API_TOKEN || null;
   if (!token) {
     return {};
@@ -1288,23 +1307,24 @@ async function bigcapitalAuth(firmId) {
   return headers;
 }
 
-async function twentyAuth(firmId) {
+async function twentyAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "twenty");
   if (cred?.token) return { Authorization: `Bearer ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.TWENTY_API_KEY || null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // Metabase & Mattermost: per-firm session caching
 const metabaseSessions = new Map();
-async function getMetabaseSession(firmId) {
+async function getMetabaseSession(firmId, { allowSharedFallback = false } = {}) {
   const cacheKey = firmId || "_global";
   const cached = metabaseSessions.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.session;
 
   const cred = await getServiceCredential(firmId, "metabase");
-  const email = cred?.username || process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL;
-  const password = cred?.password || process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  const email = cred?.username || (allowSharedFallback ? (process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL) : null);
+  const password = cred?.password || (allowSharedFallback ? (process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD) : null);
   if (!email || !password) return null;
   try {
     const r = await fetch(`${SERVICES.metabase}/api/session`, {
@@ -1498,14 +1518,14 @@ async function getBigcapitalSession(firmId, credOverride = null) {
   return null;
 }
 
-async function getMattermostToken(firmId) {
+async function getMattermostToken(firmId, { allowSharedFallback = false } = {}) {
   const cacheKey = firmId || "_global";
   const cached = mattermostSessions.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.token;
 
   const cred = await getServiceCredential(firmId, "mattermost");
-  const user = cred?.username || process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER;
-  const pass = cred?.password || process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  const user = cred?.username || (allowSharedFallback ? (process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER) : null);
+  const pass = cred?.password || (allowSharedFallback ? (process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD) : null);
   if (!user || !pass) return null;
   try {
     const r = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {

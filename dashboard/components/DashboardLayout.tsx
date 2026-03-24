@@ -1,20 +1,80 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { SessionProvider, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
-import { setFirmId, setPlatformSessionToken } from '@/lib/api';
+import { installApiFetchCredentials, setFirmId } from '@/lib/api';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
 function FirmIdSync({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState('');
+
   useEffect(() => {
-    const firmId = (session?.user as any)?.firmId;
-    const platformSessionToken = (session?.user as any)?.platformSessionToken;
-    if (firmId) setFirmId(firmId);
-    if (platformSessionToken) setPlatformSessionToken(platformSessionToken);
-  }, [session]);
+    installApiFetchCredentials();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function sync() {
+      if (status === 'loading') return;
+      if (status !== 'authenticated') {
+        if (active) setReady(true);
+        return;
+      }
+
+      const firmId = (session?.user as any)?.firmId;
+      if (firmId) setFirmId(firmId);
+
+      try {
+        const res = await fetch('/api/platform/session/bootstrap', {
+          method: 'POST',
+          credentials: 'include',
+        });
+
+        if (!res.ok) {
+          const payload = await res.json().catch(() => null);
+          throw new Error(payload?.error || 'Unable to establish a secure Maxed session.');
+        }
+
+        if (active) {
+          setError('');
+          setReady(true);
+        }
+      } catch (err) {
+        if (active) {
+          setError(err instanceof Error ? err.message : 'Unable to establish a secure Maxed session.');
+        }
+      }
+    }
+
+    sync();
+    return () => {
+      active = false;
+    };
+  }, [session, status]);
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
+        <div className="max-w-md rounded-2xl border border-red-200 bg-white p-6 text-sm text-red-700 shadow-sm">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'loading' || !ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 text-sm text-gray-500">
+        Establishing secure session...
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }
 

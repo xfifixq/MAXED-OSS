@@ -1,6 +1,39 @@
 const crypto = require("crypto");
-const { hashOpaqueToken, extractPlatformTokenFromRequest } = require("../shared/platformSession");
+const {
+  hashOpaqueToken,
+  extractPlatformTokenFromRequest,
+  resolveCookieDomain,
+  buildPlatformSessionCookie,
+  buildClearedPlatformSessionCookie,
+} = require("../shared/platformSession");
 const emitRuntimeEvent = require("../shared/emitRuntimeEvent");
+
+function applySessionCookie(req, res, token, expiresAt) {
+  const domain = resolveCookieDomain(req.headers.host);
+  const secure =
+    String(req.headers["x-forwarded-proto"] || "").toLowerCase() === "https" ||
+    process.env.NODE_ENV === "production";
+
+  res.setHeader("Set-Cookie", buildPlatformSessionCookie(token, {
+    expiresAt,
+    domain,
+    secure,
+    sameSite: secure ? "None" : "Lax",
+  }));
+}
+
+function clearSessionCookie(req, res) {
+  const domain = resolveCookieDomain(req.headers.host);
+  const secure =
+    String(req.headers["x-forwarded-proto"] || "").toLowerCase() === "https" ||
+    process.env.NODE_ENV === "production";
+
+  res.setHeader("Set-Cookie", buildClearedPlatformSessionCookie({
+    domain,
+    secure,
+    sameSite: secure ? "None" : "Lax",
+  }));
+}
 
 module.exports = function registerAuthRoutes(app, deps) {
   const {
@@ -38,6 +71,7 @@ module.exports = function registerAuthRoutes(app, deps) {
       }
 
       const { rawToken, session } = await issuePlatformSession(member);
+      applySessionCookie(req, res, rawToken, session.expiresAt);
 
       emitRuntimeEvent({
         type: "auth.login",
@@ -98,6 +132,7 @@ module.exports = function registerAuthRoutes(app, deps) {
     try {
       const rawToken = extractPlatformTokenFromRequest(req);
       if (!rawToken) {
+        clearSessionCookie(req, res);
         return res.json({ ok: true });
       }
 
@@ -112,6 +147,7 @@ module.exports = function registerAuthRoutes(app, deps) {
         actorId: req.platformSession?.teamMemberId || null,
       });
 
+      clearSessionCookie(req, res);
       return res.json({ ok: true });
     } catch (err) {
       return res.status(500).json({ error: err.message });

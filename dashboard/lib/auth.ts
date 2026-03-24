@@ -51,6 +51,7 @@ export const authOptions: NextAuthOptions = {
 
         // Dev fallback: accept hardcoded credentials when API is unreachable
         if (
+          process.env.NODE_ENV !== 'production' &&
           (credentials.email === 'admin@maxed.dev' || credentials.email === 'admin@maxed.life') &&
           credentials.password === 'maxed2024'
         ) {
@@ -92,8 +93,6 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).role = token.role;
         (session.user as any).firmName = token.firmName;
         (session.user as any).isPlatformAdmin = token.isPlatformAdmin;
-        (session.user as any).platformSessionToken = token.platformSessionToken;
-        (session.user as any).platformSessionExpiresAt = token.platformSessionExpiresAt;
       }
       return session;
     },

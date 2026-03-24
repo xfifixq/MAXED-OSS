@@ -1,6 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 const FIRM_STORAGE_KEY = 'maxed:firmId';
-const PLATFORM_SESSION_STORAGE_KEY = 'maxed:platformSessionToken';
 
 function readStoredFirmId(): string {
   if (typeof window === 'undefined') return '';
@@ -8,31 +7,12 @@ function readStoredFirmId(): string {
 }
 
 let _firmId = readStoredFirmId();
-let _platformSessionToken =
-  typeof window === 'undefined'
-    ? ''
-    : window.sessionStorage.getItem(PLATFORM_SESSION_STORAGE_KEY) || '';
 
 export function setFirmId(id: string) {
   _firmId = id;
   if (typeof window !== 'undefined') {
     window.sessionStorage.setItem(FIRM_STORAGE_KEY, id);
   }
-}
-
-export function setPlatformSessionToken(token: string) {
-  _platformSessionToken = token;
-  if (typeof window !== 'undefined') {
-    if (token) window.sessionStorage.setItem(PLATFORM_SESSION_STORAGE_KEY, token);
-    else window.sessionStorage.removeItem(PLATFORM_SESSION_STORAGE_KEY);
-  }
-}
-
-export function getPlatformSessionToken(): string {
-  if (!_platformSessionToken && typeof window !== 'undefined') {
-    _platformSessionToken = window.sessionStorage.getItem(PLATFORM_SESSION_STORAGE_KEY) || '';
-  }
-  return _platformSessionToken;
 }
 
 export function getFirmId(): string {
@@ -53,11 +33,37 @@ export function firmApiUrl(path: string): string {
 // Headers to include on all service proxy calls — tells the API which firm's credentials to use
 export function serviceHeaders(): Record<string, string> {
   const firmId = getFirmId();
-  const platformSessionToken = getPlatformSessionToken();
   return {
     ...(firmId ? { 'X-Firm-Id': firmId } : {}),
-    ...(platformSessionToken ? { 'X-Maxed-Session': platformSessionToken } : {}),
   };
+}
+
+export function installApiFetchCredentials() {
+  if (typeof window === 'undefined') return;
+  const marker = '__maxedFetchCredentialsInstalled';
+  if ((window as any)[marker]) return;
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    const shouldIncludeCredentials =
+      typeof requestUrl === 'string' &&
+      (requestUrl.startsWith(API_URL) || requestUrl.startsWith('/api/platform/session/'));
+
+    const nextInit = shouldIncludeCredentials && !init?.credentials
+      ? { ...init, credentials: 'include' as RequestCredentials }
+      : init;
+
+    return originalFetch(input as any, nextInit);
+  }) as typeof window.fetch;
+
+  (window as any)[marker] = true;
 }
 
 export async function apiFetch<T = any>(
@@ -69,12 +75,13 @@ export async function apiFetch<T = any>(
     : firmApiUrl(path);
 
   const res = await fetch(url, {
+    ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...serviceHeaders(),
       ...options?.headers,
     },
-    ...options,
   });
 
   if (!res.ok) {

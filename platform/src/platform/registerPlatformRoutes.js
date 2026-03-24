@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { getAuthContext } = require("../shared/tenantAccess");
 
 async function seedFirmDemoData(prisma, firmId) {
   const existingCounts = await Promise.all([
@@ -406,6 +407,11 @@ module.exports = function registerPlatformRoutes(app, deps) {
 
   app.post("/api/firms", async (req, res) => {
     try {
+      const authContext = getAuthContext(req);
+      if (!authContext.isService && !authContext.isPlatformAdmin) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         const firm = await tx.firm.create({ data: req.body });
         const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
@@ -428,7 +434,12 @@ module.exports = function registerPlatformRoutes(app, deps) {
 
   app.get("/api/firms", async (_req, res) => {
     try {
-      const firms = await prisma.firm.findMany();
+      const authContext = getAuthContext(_req);
+      const firms = await prisma.firm.findMany({
+        where: authContext.isService || authContext.isPlatformAdmin
+          ? undefined
+          : { id: authContext.firmId || undefined },
+      });
       res.json(firms);
     } catch (err) {
       res.status(500).json({ error: err.message });

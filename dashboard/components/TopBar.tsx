@@ -77,6 +77,19 @@ export default function TopBar() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/platform/session/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // Best-effort secure session cleanup.
+    }
+
+    await signOut({ callbackUrl: '/login' });
+  };
+
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3">
       <div className="flex items-center justify-between">
@@ -214,7 +227,7 @@ export default function TopBar() {
                   Settings
                 </a>
                 <button
-                  onClick={() => signOut({ callbackUrl: '/login' })}
+                  onClick={handleSignOut}
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
                   Sign out
