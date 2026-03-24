@@ -2925,6 +2925,268 @@ async function probeServiceAccess(firmId, service) {
   }
 }
 
+function stringifyConnectorDetail(detail) {
+  if (detail == null) return "";
+  if (typeof detail === "string") return detail;
+  if (typeof detail === "number" || typeof detail === "boolean") return String(detail);
+  if (typeof detail === "object") {
+    return Object.entries(detail)
+      .map(([key, value]) => `${key}: ${String(value)}`)
+      .join(" · ");
+  }
+  return "";
+}
+
+function workspaceIssueFromResult(service, operation, result) {
+  return {
+    service,
+    operation,
+    status: result?.status || 500,
+    reason:
+      result?.data?.error ||
+      result?.data?.message ||
+      (result?.status === 404 ? "route_not_found" : "upstream_rejected"),
+    detail: stringifyConnectorDetail(result?.data?.detail || result?.data),
+  };
+}
+
+function workspaceIssueFromError(service, operation, err) {
+  return {
+    service,
+    operation,
+    status: err?.status || 502,
+    reason: err?.message || "connector_failed",
+    detail: stringifyConnectorDetail(err?.detail),
+  };
+}
+
+async function buildServiceControlPlaneSnapshot(firmId, serviceKey) {
+  const credential = await getServiceCredential(firmId, serviceKey);
+  const configured = !!credential?.token || !!credential?.username || !!credential?.password;
+  const liveProbe = await probeServiceAccess(firmId, serviceKey);
+
+  return {
+    key: serviceKey,
+    name: SERVICE_CATALOG[serviceKey]?.name || serviceKey,
+    workspacePath: SERVICE_WORKSPACE_PATHS[serviceKey] || "/dashboard",
+    configured,
+    source: configured ? "firm" : "none",
+    health: !configured ? "disconnected" : liveProbe.ok ? "connected" : "degraded",
+    liveProbe,
+    access: SERVICE_ACCESS_CAPABILITIES[serviceKey] || null,
+    provisioning: SERVICE_PROVISIONING_ADAPTERS[serviceKey] || null,
+    identityShape: getServiceIdentityShape(serviceKey),
+  };
+}
+
+async function getFirmClientsWorkspaceData(firmId) {
+  return prisma.client.findMany({
+    where: { firmId },
+    include: { documents: true, invoices: true, scenarios: true, messages: true },
+  });
+}
+
+async function loadBookkeepingWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "bigcapital");
+  const [clients, headers] = await Promise.all([
+    getFirmClientsWorkspaceData(firmId),
+    bigcapitalAuth(firmId),
+  ]);
+  const issues = [];
+  let accounts = null;
+  let transactions = null;
+  let balanceSheet = null;
+  let profitLoss = null;
+
+  if (workspace.configured && headers.Authorization) {
+    try {
+      const result = await proxyFetchWithFallbacks(SERVICES.bigcapital, ["/api/accounts", "/api/v1/accounts"], { headers });
+      if (statusOk(result.status)) accounts = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "accounts", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "accounts", err));
+    }
+
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        ["/api/transactions?page=1&page_size=50", "/api/v1/transactions?page=1&page_size=50"],
+        { headers },
+      );
+      if (statusOk(result.status)) transactions = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "transactions", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "transactions", err));
+    }
+
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        ["/api/reports/balance-sheet", "/api/financial-statements/balance-sheet", "/api/v1/financial-statements/balance-sheet"],
+        { headers },
+      );
+      if (statusOk(result.status)) balanceSheet = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "balance_sheet", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "balance_sheet", err));
+    }
+
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        ["/api/reports/profit-loss-sheet", "/api/financial-statements/profit-loss-sheet", "/api/v1/financial-statements/profit-loss-sheet"],
+        { headers },
+      );
+      if (statusOk(result.status)) profitLoss = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "profit_loss", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "profit_loss", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "bookkeeping",
+      title: "Maxed Ledger",
+      actions: {
+        read: true,
+        review: true,
+      },
+    },
+    issues,
+    data: {
+      clients,
+      accounts,
+      transactions,
+      balanceSheet,
+      profitLoss,
+    },
+  };
+}
+
+async function loadTimeTrackingWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "kimai");
+  const headers = await kimaiAuth(firmId);
+  const issues = [];
+  let timesheets = null;
+  let projects = null;
+  let activities = null;
+  let customers = null;
+
+  if (workspace.configured && (headers["X-AUTH-TOKEN"] || headers.Authorization)) {
+    try {
+      const result = await proxyFetch(SERVICES.kimai, "/api/timesheets?page=1&size=50&order=DESC&orderBy=begin", { headers });
+      if (statusOk(result.status)) timesheets = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "timesheets", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("kimai", "timesheets", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.kimai, "/api/projects", { headers });
+      if (statusOk(result.status)) projects = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "projects", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("kimai", "projects", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.kimai, "/api/activities", { headers });
+      if (statusOk(result.status)) activities = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "activities", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("kimai", "activities", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.kimai, "/api/customers", { headers });
+      if (statusOk(result.status)) customers = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "customers", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("kimai", "customers", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "time_tracking",
+      title: "Maxed Time",
+      actions: {
+        read: true,
+        createTimesheet: workspace.configured,
+        createSetupRecords: workspace.configured,
+      },
+    },
+    issues,
+    data: {
+      timesheets,
+      projects,
+      activities,
+      customers,
+    },
+  };
+}
+
+async function loadInvoicingWorkspace(firmId) {
+  const workspace = await buildServiceControlPlaneSnapshot(firmId, "invoiceninja");
+  const [clients, headers] = await Promise.all([
+    getFirmClientsWorkspaceData(firmId),
+    invoiceNinjaAuth(firmId),
+  ]);
+  const issues = [];
+  let remoteClients = null;
+  let invoices = null;
+  let payments = null;
+
+  if (workspace.configured && headers["X-API-TOKEN"]) {
+    try {
+      const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/clients?per_page=100", { headers });
+      if (statusOk(result.status)) remoteClients = result.data;
+      else issues.push(workspaceIssueFromResult("invoiceninja", "clients", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("invoiceninja", "clients", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/invoices?page=1&per_page=50&sort=created_at|desc", { headers });
+      if (statusOk(result.status)) invoices = result.data;
+      else issues.push(workspaceIssueFromResult("invoiceninja", "invoices", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("invoiceninja", "invoices", err));
+    }
+
+    try {
+      const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/payments?page=1&per_page=50&sort=created_at|desc", { headers });
+      if (statusOk(result.status)) payments = result.data;
+      else issues.push(workspaceIssueFromResult("invoiceninja", "payments", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("invoiceninja", "payments", err));
+    }
+  }
+
+  return {
+    workspace: {
+      ...workspace,
+      module: "invoicing",
+      title: "Maxed Billing",
+      actions: {
+        read: true,
+        createInvoice: workspace.configured,
+        recordPayment: workspace.configured,
+      },
+    },
+    issues,
+    data: {
+      clients,
+      remoteClients,
+      invoices,
+      payments,
+    },
+  };
+}
+
 app.get("/bridge/:service", async (req, res) => {
   try {
     const service = req.params.service;
@@ -4346,6 +4608,189 @@ app.get("/api/firms/:firmId/control-plane/services", async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/bookkeeping", async (req, res) => {
+  try {
+    const workspace = await loadBookkeepingWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/time-tracking", async (req, res) => {
+  try {
+    const workspace = await loadTimeTrackingWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/time-tracking/timesheets", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.kimai, "/api/timesheets", {
+      method: "POST",
+      headers: await kimaiAuth(req.params.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/time-tracking/setup-records", async (req, res) => {
+  try {
+    const headers = await kimaiAuth(req.params.firmId);
+    const payload = req.body || {};
+    const issues = [];
+    const created = {};
+
+    if (payload.customerName?.trim()) {
+      const result = await proxyFetch(SERVICES.kimai, "/api/customers", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: payload.customerName.trim() }),
+      });
+      if (statusOk(result.status)) created.customer = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "create_customer", result));
+    }
+
+    if (payload.projectName?.trim() && payload.customerId) {
+      const result = await proxyFetch(SERVICES.kimai, "/api/projects", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: payload.projectName.trim(),
+          customer: Number(payload.customerId) || payload.customerId,
+        }),
+      });
+      if (statusOk(result.status)) created.project = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "create_project", result));
+    }
+
+    if (payload.activityName?.trim()) {
+      const result = await proxyFetch(SERVICES.kimai, "/api/activities", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: payload.activityName.trim() }),
+      });
+      if (statusOk(result.status)) created.activity = result.data;
+      else issues.push(workspaceIssueFromResult("kimai", "create_activity", result));
+    }
+
+    res.status(issues.length ? 207 : 201).json({ created, issues });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Kimai unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/invoicing", async (req, res) => {
+  try {
+    const workspace = await loadInvoicingWorkspace(req.params.firmId);
+    res.json(workspace);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/invoicing/invoices/:id", async (req, res) => {
+  try {
+    const result = await proxyFetch(
+      SERVICES.invoiceninja,
+      `/api/v1/invoices/${req.params.id}`,
+      { headers: await invoiceNinjaAuth(req.params.firmId) },
+    );
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.get("/api/firms/:firmId/workspaces/invoicing/invoices/:id/download", async (req, res) => {
+  try {
+    const upstream = await fetch(`${SERVICES.invoiceninja}/api/v1/invoices/${req.params.id}/download`, {
+      headers: await invoiceNinjaAuth(req.params.firmId),
+    });
+
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      return res.status(upstream.status).json({
+        error: "Invoice Ninja download failed",
+        detail,
+      });
+    }
+
+    const contentType = upstream.headers.get("content-type");
+    const contentDisposition = upstream.headers.get("content-disposition");
+    if (contentType) res.set("Content-Type", contentType);
+    if (contentDisposition) res.set("Content-Disposition", contentDisposition);
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/invoicing/invoices", async (req, res) => {
+  try {
+    const { clientId, amount, dueDate, description, status } = req.body || {};
+    if (!clientId || !amount || !dueDate) {
+      return res.status(400).json({ error: "clientId, amount, and dueDate are required" });
+    }
+
+    const { client, remoteClientId } = await ensureInvoiceNinjaClient(req.params.firmId, clientId);
+    const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/invoices", {
+      method: "POST",
+      headers: await invoiceNinjaAuth(req.params.firmId),
+      body: JSON.stringify({
+        client_id: remoteClientId,
+        due_date: new Date(dueDate).toISOString().slice(0, 10),
+        line_items: [
+          {
+            product_key: description || "Accounting services",
+            notes: description || "",
+            cost: Number(amount),
+            quantity: 1,
+          },
+        ],
+      }),
+    });
+
+    if (result.status >= 400) {
+      return res.status(result.status).json(result.data);
+    }
+
+    const invoiceNinjaId = invoiceNinjaResourceId(result.data);
+    const localInvoice = await prisma.invoice.create({
+      data: {
+        clientId: client.id,
+        amount: Number(amount),
+        status: status || "draft",
+        dueDate: new Date(dueDate),
+        invoiceNinjaId: invoiceNinjaId || null,
+      },
+    });
+
+    res.status(201).json({ localInvoice, remote: result.data });
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
+  }
+});
+
+app.post("/api/firms/:firmId/workspaces/invoicing/payments", async (req, res) => {
+  try {
+    const result = await proxyFetch(SERVICES.invoiceninja, "/api/v1/payments", {
+      method: "POST",
+      headers: await invoiceNinjaAuth(req.params.firmId),
+      body: JSON.stringify(req.body),
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.status || 502).json({ error: "Invoice Ninja unavailable", detail: err.message });
   }
 });
 

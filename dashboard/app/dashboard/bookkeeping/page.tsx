@@ -10,7 +10,7 @@ import {
   WorkspaceSkeleton,
 } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   findStatementAmount,
   formatCurrency,
@@ -38,6 +38,30 @@ const EMPTY_LEDGER: LedgerState = {
   profitLoss: [],
 };
 
+type BookkeepingWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+      status?: number;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    clients?: unknown;
+    accounts?: unknown;
+    transactions?: unknown;
+    balanceSheet?: unknown;
+    profitLoss?: unknown;
+  };
+};
+
 export default function BookkeepingPage() {
   const { isReady } = useFirmReady();
   const [ledger, setLedger] = useState<LedgerState>(EMPTY_LEDGER);
@@ -56,33 +80,24 @@ export default function BookkeepingPage() {
     setWarning('');
 
     try {
-      const results = await Promise.allSettled([
-        firmFetch('/clients'),
-        serviceFetch('/api/services/bigcapital/accounts'),
-        serviceFetch('/api/services/bigcapital/transactions'),
-        serviceFetch('/api/services/bigcapital/balance-sheet'),
-        serviceFetch('/api/services/bigcapital/profit-loss'),
-      ]);
+      const payload = await firmFetch<BookkeepingWorkspacePayload>('/workspaces/bookkeeping');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
 
-      const [clientsPayload, accountsPayload, transactionsPayload, balanceSheetPayload, profitLossPayload] = results;
-      const bigcapitalFailures = [accountsPayload, transactionsPayload, balanceSheetPayload, profitLossPayload]
-        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-        .map((result) => result.reason instanceof Error ? result.reason.message : 'Bigcapital connector unavailable.');
-
-      if (clientsPayload.status !== 'fulfilled') {
-        throw new Error(clientsPayload.reason instanceof Error ? clientsPayload.reason.message : 'Unable to load ledger data.');
-      }
-
-      if (bigcapitalFailures.length) {
-        setWarning(`Bigcapital needs repair before live ledger data is trustworthy. ${bigcapitalFailures[0]}`);
+      if (issue) {
+        setWarning(
+          `Bigcapital needs repair before live ledger data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`,
+        );
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Bigcapital is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
       }
 
       setLedger({
-        clients: normalizeFirmClients(clientsPayload.value),
-        accounts: accountsPayload.status === 'fulfilled' ? normalizeBigcapitalAccounts(accountsPayload.value) : [],
-        transactions: transactionsPayload.status === 'fulfilled' ? normalizeBigcapitalTransactions(transactionsPayload.value) : [],
-        balanceSheet: balanceSheetPayload.status === 'fulfilled' ? normalizeBigcapitalStatement(balanceSheetPayload.value) : [],
-        profitLoss: profitLossPayload.status === 'fulfilled' ? normalizeBigcapitalStatement(profitLossPayload.value) : [],
+        clients: normalizeFirmClients(payload.data?.clients),
+        accounts: normalizeBigcapitalAccounts(payload.data?.accounts),
+        transactions: normalizeBigcapitalTransactions(payload.data?.transactions),
+        balanceSheet: normalizeBigcapitalStatement(payload.data?.balanceSheet),
+        profitLoss: normalizeBigcapitalStatement(payload.data?.profitLoss),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load ledger data.');

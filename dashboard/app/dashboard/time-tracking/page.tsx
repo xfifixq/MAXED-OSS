@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatDateTime,
   formatDurationMinutes,
@@ -26,6 +26,29 @@ type DraftSetup = {
   projectName: string;
   activityName: string;
   customerId: string;
+};
+
+type TimeTrackingWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+      status?: number;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    timesheets?: unknown;
+    projects?: unknown;
+    activities?: unknown;
+    customers?: unknown;
+  };
 };
 
 function currentLocalDateTime() {
@@ -68,27 +91,23 @@ export default function TimeTrackingPage() {
     setWarning('');
 
     try {
-      const results = await Promise.allSettled([
-        serviceFetch('/api/services/kimai/timesheets'),
-        serviceFetch('/api/services/kimai/projects'),
-        serviceFetch('/api/services/kimai/activities'),
-        serviceFetch('/api/services/kimai/customers'),
-      ]);
+      const payload = await firmFetch<TimeTrackingWorkspacePayload>('/workspaces/time-tracking');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
 
-      const [timesheetPayload, projectsPayload, activitiesPayload, customersPayload] = results;
-      const failures = results
-        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-        .map((result) => result.reason instanceof Error ? result.reason.message : 'Kimai connector unavailable.');
-
-      if (failures.length) {
-        setWarning(`Kimai needs repair before live time tracking is available. ${failures[0]}`);
+      if (issue) {
+        setWarning(
+          `Kimai needs repair before live time tracking is available. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`,
+        );
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Kimai is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
       }
 
-      const normalizedProjects = projectsPayload.status === 'fulfilled' ? normalizeKimaiProjects(projectsPayload.value) : [];
-      const normalizedActivities = activitiesPayload.status === 'fulfilled' ? normalizeKimaiActivities(activitiesPayload.value) : [];
-      const normalizedCustomers = customersPayload.status === 'fulfilled' ? normalizeKimaiCustomers(customersPayload.value) : [];
+      const normalizedProjects = normalizeKimaiProjects(payload.data?.projects);
+      const normalizedActivities = normalizeKimaiActivities(payload.data?.activities);
+      const normalizedCustomers = normalizeKimaiCustomers(payload.data?.customers);
 
-      setTimesheets(timesheetPayload.status === 'fulfilled' ? normalizeKimaiTimesheets(timesheetPayload.value) : []);
+      setTimesheets(normalizeKimaiTimesheets(payload.data?.timesheets));
       setProjects(normalizedProjects);
       setActivities(normalizedActivities);
       setCustomers(normalizedCustomers);
@@ -121,7 +140,7 @@ export default function TimeTrackingPage() {
     setError('');
 
     try {
-      await serviceFetch('/api/services/kimai/timesheets', {
+      await firmFetch('/workspaces/time-tracking/timesheets', {
         method: 'POST',
         body: JSON.stringify({
           project: Number(draft.project) || draft.project,
@@ -151,32 +170,16 @@ export default function TimeTrackingPage() {
     setError('');
 
     try {
-      if (setupDraft.customerName.trim()) {
-        await serviceFetch('/api/services/kimai/customers', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: setupDraft.customerName.trim(),
-          }),
-        });
-      }
+      const result = await firmFetch<{ issues?: Array<{ reason?: string; detail?: string; status?: number }> }>('/workspaces/time-tracking/setup-records', {
+        method: 'POST',
+        body: JSON.stringify(setupDraft),
+      });
 
-      if (setupDraft.projectName.trim() && setupDraft.customerId) {
-        await serviceFetch('/api/services/kimai/projects', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: setupDraft.projectName.trim(),
-            customer: Number(setupDraft.customerId) || setupDraft.customerId,
-          }),
-        });
-      }
-
-      if (setupDraft.activityName.trim()) {
-        await serviceFetch('/api/services/kimai/activities', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: setupDraft.activityName.trim(),
-          }),
-        });
+      if (result.issues?.length) {
+        const firstIssue = result.issues[0];
+        throw new Error(
+          `${firstIssue.reason || 'Kimai setup failed'}${firstIssue.status ? ` (HTTP ${firstIssue.status})` : ''}${firstIssue.detail ? ` · ${firstIssue.detail}` : ''}`,
+        );
       }
 
       setSetupDraft({

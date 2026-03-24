@@ -29,6 +29,26 @@ type StatsPayload = {
   totalRevenue?: number;
 };
 
+type BookkeepingReportingPayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    balanceSheet?: unknown;
+    profitLoss?: unknown;
+  };
+};
+
 export default function ReportingPage() {
   const { isReady } = useFirmReady();
   const [loading, setLoading] = useState(true);
@@ -55,11 +75,10 @@ export default function ReportingPage() {
       firmFetch<StatsPayload>('/stats'),
       serviceFetch('/api/services/metabase/dashboards'),
       serviceFetch('/api/services/metabase/questions'),
-      serviceFetch('/api/services/bigcapital/balance-sheet'),
-      serviceFetch('/api/services/bigcapital/profit-loss'),
+      firmFetch<BookkeepingReportingPayload>('/workspaces/bookkeeping'),
     ]);
 
-    const [statsResult, dashboardsResult, questionsResult, balanceResult, profitResult] = results;
+    const [statsResult, dashboardsResult, questionsResult, bookkeepingResult] = results;
 
     if (statsResult.status === 'fulfilled') {
       setStats(statsResult.value || {});
@@ -84,15 +103,19 @@ export default function ReportingPage() {
       setQuestions([]);
     }
 
-    if (balanceResult.status === 'fulfilled') {
-      setBalanceSheet(normalizeBigcapitalStatement(balanceResult.value));
+    if (bookkeepingResult.status === 'fulfilled') {
+      setBalanceSheet(normalizeBigcapitalStatement(bookkeepingResult.value.data?.balanceSheet));
+      setProfitLoss(normalizeBigcapitalStatement(bookkeepingResult.value.data?.profitLoss));
+
+      const issue = bookkeepingResult.value.issues?.[0];
+      const probeReason = bookkeepingResult.value.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      if (issue) {
+        setWarning(`Bigcapital reporting data needs repair. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`);
+      } else if (bookkeepingResult.value.workspace?.configured && bookkeepingResult.value.workspace?.health !== 'connected') {
+        setWarning(`Bigcapital reporting data is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
     } else {
       setBalanceSheet([]);
-    }
-
-    if (profitResult.status === 'fulfilled') {
-      setProfitLoss(normalizeBigcapitalStatement(profitResult.value));
-    } else {
       setProfitLoss([]);
     }
 

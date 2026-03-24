@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { WorkspaceEmpty, WorkspaceError, WorkspaceMetric, WorkspacePanel, WorkspaceShell, WorkspaceSkeleton } from '@/components/WorkspaceShell';
-import { apiUrl } from '@/lib/api';
+import { firmApiUrl } from '@/lib/api';
 import { useFirmReady } from '@/lib/useFirmReady';
-import { firmFetch, serviceFetch } from '@/lib/service-client';
+import { firmFetch } from '@/lib/service-client';
 import {
   formatCurrency,
   formatDate,
@@ -31,14 +31,38 @@ type DraftPayment = {
   date: string;
 };
 
+type InvoicingWorkspacePayload = {
+  workspace?: {
+    configured?: boolean;
+    health?: string;
+    liveProbe?: {
+      reason?: string;
+      status?: number;
+    };
+  };
+  issues?: Array<{
+    operation?: string;
+    reason?: string;
+    status?: number;
+    detail?: string;
+  }>;
+  data?: {
+    clients?: unknown;
+    remoteClients?: unknown;
+    invoices?: unknown;
+    payments?: unknown;
+  };
+};
+
 export default function InvoicingPage() {
-  const { isReady } = useFirmReady();
+  const { firmId, isReady } = useFirmReady();
   const searchParams = useSearchParams();
   const preferredClientId = searchParams.get('clientId') || '';
   const [loading, setLoading] = useState(true);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [clients, setClients] = useState<ReturnType<typeof normalizeFirmClients>>([]);
   const [remoteClients, setRemoteClients] = useState<ReturnType<typeof normalizeInvoiceNinjaClients>>([]);
   const [remoteInvoices, setRemoteInvoices] = useState<ReturnType<typeof normalizeInvoiceNinjaInvoices>>([]);
@@ -64,50 +88,39 @@ export default function InvoicingPage() {
 
     setLoading(true);
     setError('');
+    setWarning('');
 
-    const results = await Promise.allSettled([
-      firmFetch('/clients'),
-      serviceFetch('/api/services/invoiceninja/clients'),
-      serviceFetch('/api/services/invoiceninja/invoices'),
-      serviceFetch('/api/services/invoiceninja/payments'),
-    ]);
+    try {
+      const payload = await firmFetch<InvoicingWorkspacePayload>('/workspaces/invoicing');
+      const issue = payload.issues?.[0];
+      const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
+      const normalizedClients = normalizeFirmClients(payload.data?.clients);
+      const invoices = normalizeInvoiceNinjaInvoices(payload.data?.invoices);
 
-    const [localClientsResult, remoteClientsResult, invoicesResult, paymentsResult] = results;
+      if (issue) {
+        setWarning(
+          `Invoice Ninja needs repair before live billing data is trustworthy. ${issue.operation || 'connector'} failed: ${issue.reason || 'unknown'}${issue.status ? ` (HTTP ${issue.status})` : ''}${issue.detail ? ` · ${issue.detail}` : ''}`,
+        );
+      } else if (payload.workspace?.configured && payload.workspace?.health !== 'connected') {
+        setWarning(`Invoice Ninja is mapped in Maxed, but the live connector still needs repair: ${probeReason || 'unknown issue'}.`);
+      }
 
-    if (localClientsResult.status === 'fulfilled') {
-      const normalizedClients = normalizeFirmClients(localClientsResult.value);
       setClients(normalizedClients);
       const nextClientId = preferredClientId || normalizedClients[0]?.id || '';
       setDraft((current) => ({ ...current, clientId: current.clientId || nextClientId }));
-    } else {
-      setError(localClientsResult.reason instanceof Error ? localClientsResult.reason.message : 'Unable to load billing workspace.');
-    }
-
-    if (remoteClientsResult.status === 'fulfilled') {
-      setRemoteClients(normalizeInvoiceNinjaClients(remoteClientsResult.value));
-    } else {
-      setRemoteClients([]);
-    }
-
-    if (invoicesResult.status === 'fulfilled') {
-      const invoices = normalizeInvoiceNinjaInvoices(invoicesResult.value);
+      setRemoteClients(normalizeInvoiceNinjaClients(payload.data?.remoteClients));
       setRemoteInvoices(invoices);
       setSelectedInvoiceId((current) => current || invoices[0]?.id || '');
       setPaymentDraft((current) => ({
         ...current,
         invoiceId: current.invoiceId || invoices.find((invoice) => invoice.balanceDue > 0)?.id || '',
       }));
-    } else {
-      setRemoteInvoices([]);
+      setPayments(normalizeInvoiceNinjaPayments(payload.data?.payments));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load billing workspace.');
+    } finally {
+      setLoading(false);
     }
-
-    if (paymentsResult.status === 'fulfilled') {
-      setPayments(normalizeInvoiceNinjaPayments(paymentsResult.value));
-    } else {
-      setPayments([]);
-    }
-
-    setLoading(false);
   }, [isReady, preferredClientId]);
 
   useEffect(() => {
@@ -118,7 +131,7 @@ export default function InvoicingPage() {
     if (!selectedInvoiceId || !isReady) return;
 
     try {
-      const payload = await serviceFetch(`/api/services/invoiceninja/invoices/${selectedInvoiceId}`);
+      const payload = await firmFetch(`/workspaces/invoicing/invoices/${selectedInvoiceId}`);
       setSelectedInvoiceDetail((payload as { data?: Record<string, unknown> }).data || (payload as Record<string, unknown>));
     } catch {
       setSelectedInvoiceDetail(null);
@@ -149,9 +162,10 @@ export default function InvoicingPage() {
     setError('');
 
     try {
-      await serviceFetch(`/api/services/invoiceninja/firm-clients/${draft.clientId}/invoices`, {
+      await firmFetch('/workspaces/invoicing/invoices', {
         method: 'POST',
         body: JSON.stringify({
+          clientId: draft.clientId,
           amount: Number(draft.amount),
           dueDate: draft.dueDate,
           status: draft.status,
@@ -180,7 +194,7 @@ export default function InvoicingPage() {
 
     try {
       const invoice = remoteInvoices.find((entry) => entry.id === paymentDraft.invoiceId);
-      await serviceFetch('/api/services/invoiceninja/payments', {
+      await firmFetch('/workspaces/invoicing/payments', {
         method: 'POST',
         body: JSON.stringify({
           amount: Number(paymentDraft.amount),
@@ -207,7 +221,8 @@ export default function InvoicingPage() {
 
   const downloadInvoice = useCallback(async (invoiceId: string, label: string) => {
     try {
-      const res = await fetch(apiUrl(`/api/services/invoiceninja/invoices/${invoiceId}/download`));
+      if (!firmId) throw new Error('Firm session missing.');
+      const res = await fetch(firmApiUrl(`/workspaces/invoicing/invoices/${invoiceId}/download`));
       if (!res.ok) throw new Error(`Unable to download ${label}.`);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -219,7 +234,7 @@ export default function InvoicingPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to download invoice PDF.');
     }
-  }, []);
+  }, [firmId]);
 
   return (
     <WorkspaceShell
@@ -242,6 +257,9 @@ export default function InvoicingPage() {
       }
     >
       {error ? <WorkspaceError message={error} onRetry={loadBilling} /> : null}
+      {warning ? (
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">{warning}</div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr,1.05fr]">
         <WorkspacePanel title="Issue invoice" description="Create an Invoice Ninja client on demand, then issue a bill against that client.">
