@@ -2083,6 +2083,7 @@ async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion })
     },
   });
   credentialCache.delete(`${firmId}:invoiceninja`);
+  invoiceNinjaSessions.delete(firmId);
 
   if (supportsFirmServiceAccounts) {
     await prisma.firmServiceAccount.updateMany({
@@ -2177,12 +2178,12 @@ async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
       service: "kimai",
       username: email,
       password: suggestion.password,
-      token: process.env.KIMAI_API_TOKEN || null,
+      token: null,
     },
     update: {
       username: email,
       password: suggestion.password,
-      token: process.env.KIMAI_API_TOKEN || undefined,
+      token: null,
     },
   });
   credentialCache.delete(`${firmId}:kimai`);
@@ -2205,7 +2206,7 @@ async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
       email,
       username,
       brokerReady: false,
-      tokenMode: credential.token ? "shared_admin_token" : "password_only",
+      tokenMode: credential.token ? "user_api_token" : "password_only_requires_user_token_or_admin_fallback",
       provisioningVerified: Boolean(userId),
     },
   };
@@ -2420,6 +2421,7 @@ async function kimaiAuth(firmId) {
   const cred = await getServiceCredential(firmId, "kimai");
   if (cred?.token) {
     return {
+      Authorization: `Bearer ${cred.token}`,
       "X-AUTH-USER": cred.username || "admin@maxed.dev",
       "X-AUTH-TOKEN": cred.token,
     };
@@ -2427,7 +2429,8 @@ async function kimaiAuth(firmId) {
   const token = process.env.KIMAI_API_TOKEN || null;
   if (!token) return {};
   return {
-    "X-AUTH-USER": process.env.KIMAI_API_USER || "admin@maxed.dev",
+    Authorization: `Bearer ${token}`,
+    "X-AUTH-USER": process.env.KIMAI_API_USER || process.env.KIMAI_ADMIN_EMAIL || "admin@maxed.dev",
     "X-AUTH-TOKEN": token,
   };
 }
@@ -2435,6 +2438,14 @@ async function kimaiAuth(firmId) {
 async function invoiceNinjaAuth(firmId) {
   const cred = await getServiceCredential(firmId, "invoiceninja");
   if (cred?.token) return { "X-API-TOKEN": cred.token, "X-Requested-With": "XMLHttpRequest" };
+
+  if (cred?.username && cred?.password) {
+    const token = await getInvoiceNinjaLoginToken(firmId, cred);
+    if (token) {
+      return { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" };
+    }
+  }
+
   const token = process.env.INVOICE_NINJA_API_TOKEN || null;
   return token
     ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" }
@@ -2509,13 +2520,37 @@ async function bigcapitalAuth(firmId) {
   const cred = await getServiceCredential(firmId, "bigcapital");
   if (cred?.token) {
     const h = { Authorization: `Bearer ${cred.token}` };
-    if (cred.metadata) h["x-tenant-id"] = cred.metadata;
+    if (cred.metadata) {
+      h["x-tenant-id"] = cred.metadata;
+      h["organization-id"] = cred.metadata;
+    }
     return h;
   }
+
+  if (cred?.username && cred?.password) {
+    const session = await getBigcapitalSession(firmId, cred);
+    if (session?.token) {
+      const headers = { Authorization: `Bearer ${session.token}` };
+      const organizationId = session.organizationId || cred.metadata || null;
+      if (organizationId) {
+        headers["x-tenant-id"] = organizationId;
+        headers["organization-id"] = organizationId;
+      }
+      return headers;
+    }
+  }
+
   const token = process.env.BIGCAPITAL_API_TOKEN || null;
-  const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (process.env.BIGCAPITAL_TENANT_ID) headers["x-tenant-id"] = process.env.BIGCAPITAL_TENANT_ID;
+  if (!token) {
+    return {};
+  }
+
+  const headers = { Authorization: `Bearer ${token}` };
+  const organizationId = process.env.BIGCAPITAL_ORGANIZATION_ID || process.env.BIGCAPITAL_TENANT_ID || null;
+  if (organizationId) {
+    headers["x-tenant-id"] = organizationId;
+    headers["organization-id"] = organizationId;
+  }
   return headers;
 }
 
@@ -2553,9 +2588,181 @@ async function getMetabaseSession(firmId) {
 }
 
 const mattermostSessions = new Map();
+const bigcapitalSessions = new Map();
+const invoiceNinjaSessions = new Map();
 const supportsFirmServiceAccounts = Boolean(prisma.firmServiceAccount);
 const supportsProvisioningRuns = Boolean(prisma.serviceProvisioningRun);
 const supportsBrokerSessions = Boolean(prisma.serviceBrokerSession);
+
+function extractInvoiceNinjaToken(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  return String(
+    payload.token ||
+    payload.api_token ||
+    payload.data?.token ||
+    payload.data?.api_token ||
+    payload.data?.company_token?.token ||
+    payload.data?.company_token?.name ||
+    payload.data?.companyToken?.token ||
+    payload.company_token?.token ||
+    payload.companyToken?.token ||
+    payload.user?.company_token?.token ||
+    ""
+  ).trim() || null;
+}
+
+async function getInvoiceNinjaLoginToken(firmId, credOverride = null) {
+  const cacheKey = firmId || "_global";
+  const cached = invoiceNinjaSessions.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached.token;
+
+  const cred = credOverride || await getServiceCredential(firmId, "invoiceninja");
+  const email = cred?.username || null;
+  const password = cred?.password || null;
+  if (!email || !password) return null;
+
+  const attempts = [
+    { path: "/api/v1/login?include=token,company,user", body: { email, password } },
+    { path: "/api/v1/login?include=token,company,user", body: { username: email, password } },
+    { path: "/api/v1/login?include=token", body: { email, password } },
+    { path: "/api/v1/login?include=token", body: { username: email, password } },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const response = await fetch(`${SERVICES.invoiceninja}${attempt.path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify(attempt.body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) continue;
+
+      const token = extractInvoiceNinjaToken(payload);
+      if (!token) continue;
+
+      invoiceNinjaSessions.set(cacheKey, {
+        token,
+        expires: Date.now() + 12 * 60 * 60 * 1000,
+      });
+      return token;
+    } catch {}
+  }
+
+  return null;
+}
+
+function extractBigcapitalToken(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  return String(
+    payload.token ||
+    payload.accessToken ||
+    payload.access_token ||
+    payload.jwt ||
+    payload.data?.token ||
+    payload.data?.accessToken ||
+    payload.data?.access_token ||
+    payload.data?.jwt ||
+    payload.result?.token ||
+    payload.result?.accessToken ||
+    payload.result?.access_token ||
+    payload.result?.jwt ||
+    ""
+  ).trim() || null;
+}
+
+function extractBigcapitalOrganizationId(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  return String(
+    payload.organizationId ||
+    payload.organization_id ||
+    payload.tenantId ||
+    payload.tenant_id ||
+    payload.data?.organizationId ||
+    payload.data?.organization_id ||
+    payload.data?.tenantId ||
+    payload.data?.tenant_id ||
+    payload.organization?.organizationId ||
+    payload.organization?.organization_id ||
+    payload.organization?.tenantId ||
+    payload.organization?.tenant_id ||
+    payload.data?.organization?.organizationId ||
+    payload.data?.organization?.organization_id ||
+    payload.data?.organization?.tenantId ||
+    payload.data?.organization?.tenant_id ||
+    ""
+  ).trim() || null;
+}
+
+async function getBigcapitalSession(firmId, credOverride = null) {
+  const cacheKey = firmId || "_global";
+  const cached = bigcapitalSessions.get(cacheKey);
+  if (cached && Date.now() < cached.expires) return cached;
+
+  const cred = credOverride || await getServiceCredential(firmId, "bigcapital");
+  const email = cred?.username || null;
+  const password = cred?.password || null;
+  if (!email || !password) return null;
+
+  const loginAttempts = [
+    { path: "/api/auth/login", body: { email, password } },
+    { path: "/api/auth/login", body: { username: email, password } },
+    { path: "/api/auth/signin", body: { email, password } },
+    { path: "/api/auth/signin", body: { username: email, password } },
+    { path: "/auth/login", body: { email, password } },
+    { path: "/auth/login", body: { username: email, password } },
+  ];
+
+  for (const attempt of loginAttempts) {
+    try {
+      const response = await fetch(`${SERVICES.bigcapital}${attempt.path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(attempt.body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) continue;
+
+      const token = extractBigcapitalToken(payload);
+      if (!token) continue;
+
+      let organizationId =
+        extractBigcapitalOrganizationId(payload) ||
+        cred?.metadata ||
+        process.env.BIGCAPITAL_ORGANIZATION_ID ||
+        process.env.BIGCAPITAL_TENANT_ID ||
+        null;
+
+      if (!organizationId) {
+        try {
+          const orgResponse = await fetch(`${SERVICES.bigcapital}/api/organization/current`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const orgPayload = await orgResponse.json().catch(() => null);
+          if (orgResponse.ok) {
+            organizationId = extractBigcapitalOrganizationId(orgPayload);
+          }
+        } catch {}
+      }
+
+      const session = {
+        token,
+        organizationId,
+        expires: Date.now() + 12 * 60 * 60 * 1000,
+      };
+      bigcapitalSessions.set(cacheKey, session);
+      return session;
+    } catch {}
+  }
+
+  return null;
+}
 
 async function getMattermostToken(firmId) {
   const cacheKey = firmId || "_global";
@@ -3606,6 +3813,8 @@ app.put("/api/firms/:firmId/credentials/:service", async (req, res) => {
     // Clear session caches for session-based services
     if (service === "metabase") metabaseSessions.delete(firmId);
     if (service === "mattermost") mattermostSessions.delete(firmId);
+    if (service === "bigcapital") bigcapitalSessions.delete(firmId);
+    if (service === "invoiceninja") invoiceNinjaSessions.delete(firmId);
     res.json({ ok: true, service: cred.service });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3621,6 +3830,8 @@ app.delete("/api/firms/:firmId/credentials/:service", async (req, res) => {
     credentialCache.delete(`${firmId}:${service}`);
     if (service === "metabase") metabaseSessions.delete(firmId);
     if (service === "mattermost") mattermostSessions.delete(firmId);
+    if (service === "bigcapital") bigcapitalSessions.delete(firmId);
+    if (service === "invoiceninja") invoiceNinjaSessions.delete(firmId);
     res.json({ ok: true });
   } catch (err) {
     if (err.code === "P2025") return res.json({ ok: true }); // Already deleted
