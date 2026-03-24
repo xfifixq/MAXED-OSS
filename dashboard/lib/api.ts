@@ -20,11 +20,25 @@ export function setFirmId(id: string) {
   }
 }
 
+export function clearFirmId() {
+  _firmId = '';
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(FIRM_STORAGE_KEY);
+  }
+}
+
 export function setPlatformSessionToken(token: string) {
   _platformSessionToken = token;
   if (typeof window !== 'undefined') {
     if (token) window.sessionStorage.setItem(PLATFORM_SESSION_STORAGE_KEY, token);
     else window.sessionStorage.removeItem(PLATFORM_SESSION_STORAGE_KEY);
+  }
+}
+
+export function clearPlatformSessionToken() {
+  _platformSessionToken = '';
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(PLATFORM_SESSION_STORAGE_KEY);
   }
 }
 
@@ -60,6 +74,55 @@ export function serviceHeaders(): Record<string, string> {
   };
 }
 
+export function installApiFetchCredentials() {
+  if (typeof window === 'undefined') return;
+
+  const marker = '__maxedFetchCredentialsInstalled';
+  const windowWithMarker = window as Window & {
+    __maxedFetchCredentialsInstalled?: boolean;
+  };
+
+  if (windowWithMarker[marker]) return;
+
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+    const shouldAugment =
+      typeof requestUrl === 'string' &&
+      requestUrl.startsWith(API_URL);
+
+    if (!shouldAugment) {
+      return originalFetch(input as RequestInfo, init);
+    }
+
+    const headers = new Headers(
+      init?.headers || (input instanceof Request ? input.headers : undefined),
+    );
+    const platformSessionToken = getPlatformSessionToken();
+    if (platformSessionToken && !headers.has('X-Maxed-Session')) {
+      headers.set('X-Maxed-Session', platformSessionToken);
+    }
+
+    if (!headers.has('Content-Type') && init?.body && !(init.body instanceof FormData)) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    return originalFetch(input as RequestInfo, {
+      ...init,
+      credentials: init?.credentials || 'include',
+      headers,
+    });
+  }) as typeof window.fetch;
+
+  windowWithMarker[marker] = true;
+}
+
 export async function apiFetch<T = any>(
   path: string,
   options?: RequestInit
@@ -69,6 +132,7 @@ export async function apiFetch<T = any>(
     : firmApiUrl(path);
 
   const res = await fetch(url, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...serviceHeaders(),

@@ -116,6 +116,58 @@ function isPlatformAdminEmail(email) {
   return email === "admin@maxed.dev" || email === "admin@maxed.life";
 }
 
+function resolveCookieDomain(host) {
+  const hostname = String(host || "").split(":")[0].toLowerCase();
+  if (!hostname || hostname === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+    return undefined;
+  }
+  if (hostname === "maxed.life" || hostname.endsWith(".maxed.life")) {
+    return ".maxed.life";
+  }
+  return undefined;
+}
+
+function readCookie(req, name) {
+  const cookieHeader = req.headers.cookie || "";
+  for (const part of cookieHeader.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+  return "";
+}
+
+function isSecureRequest(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || req.protocol || "").toLowerCase();
+  return forwardedProto.includes("https") || process.env.NODE_ENV === "production";
+}
+
+function setPlatformSessionCookie(req, res, token) {
+  const secure = isSecureRequest(req);
+  res.cookie("maxed_session", token, {
+    httpOnly: true,
+    secure,
+    sameSite: secure ? "none" : "lax",
+    path: "/",
+    domain: resolveCookieDomain(req.headers.host),
+    maxAge: PLATFORM_SESSION_TTL_MS,
+  });
+}
+
+function clearPlatformSessionCookie(req, res) {
+  const secure = isSecureRequest(req);
+  res.cookie("maxed_session", "", {
+    httpOnly: true,
+    secure,
+    sameSite: secure ? "none" : "lax",
+    path: "/",
+    domain: resolveCookieDomain(req.headers.host),
+    expires: new Date(0),
+    maxAge: 0,
+  });
+}
+
 async function issuePlatformSession(member) {
   const rawToken = generateOpaqueToken(32);
   const tokenHash = hashOpaqueToken(rawToken);
@@ -164,9 +216,10 @@ async function resolvePlatformSessionFromRequest(req) {
     req.headers["x-maxed-session"] ||
     req.headers["x-platform-session"] ||
     req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+  const cookieToken = readCookie(req, "maxed_session");
 
-  if (!headerToken) return null;
-  return resolvePlatformSession(headerToken);
+  if (!headerToken && !cookieToken) return null;
+  return resolvePlatformSession(headerToken || cookieToken);
 }
 
 app.post("/api/auth/login", async (req, res) => {
@@ -195,6 +248,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     const { rawToken, session } = await issuePlatformSession(member);
+    setPlatformSessionCookie(req, res, rawToken);
 
     res.json({
       id: member.id,
@@ -246,7 +300,10 @@ app.post("/api/auth/logout", async (req, res) => {
     const rawToken =
       req.headers["x-maxed-session"] ||
       req.headers["x-platform-session"] ||
-      req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+      req.headers["authorization"]?.replace(/^Bearer\s+/i, "") ||
+      readCookie(req, "maxed_session");
+
+    clearPlatformSessionCookie(req, res);
     if (!rawToken) return res.json({ ok: true });
 
     await prisma.platformSession.deleteMany({

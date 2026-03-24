@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
+import { apiUrl, clearFirmId, clearPlatformSessionToken } from '@/lib/api';
 import { useNotifications } from '@/lib/notifications';
+import { clearBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -76,6 +78,29 @@ export default function TopBar() {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  const handleSignOut = async () => {
+    const platformSessionToken = (session?.user as any)?.platformSessionToken;
+
+    try {
+      await fetch(apiUrl('/api/auth/logout'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: platformSessionToken
+          ? {
+              Authorization: `Bearer ${platformSessionToken}`,
+            }
+          : undefined,
+      });
+    } catch {
+      // Best-effort platform session cleanup.
+    }
+
+    clearBrowserPlatformSessionCookie();
+    clearPlatformSessionToken();
+    clearFirmId();
+    await signOut({ callbackUrl: '/login' });
+  };
 
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3">
@@ -214,7 +239,7 @@ export default function TopBar() {
                   Settings
                 </a>
                 <button
-                  onClick={() => signOut({ callbackUrl: '/login' })}
+                  onClick={handleSignOut}
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                 >
                   Sign out

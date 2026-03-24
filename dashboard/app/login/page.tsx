@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { signIn } from 'next-auth/react';
+import { getSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { setFirmId, setPlatformSessionToken } from '@/lib/api';
+import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,6 +34,19 @@ export default function LoginPage() {
     if (result?.error) {
       setError('Invalid email or password.');
     } else if (result?.ok) {
+      const session = await getSession();
+      const firmId = (session?.user as any)?.firmId;
+      const platformSessionToken = (session?.user as any)?.platformSessionToken;
+
+      if (firmId) {
+        setFirmId(firmId);
+      }
+
+      if (platformSessionToken) {
+        setPlatformSessionToken(platformSessionToken);
+        setBrowserPlatformSessionCookie(platformSessionToken);
+      }
+
       router.push(callbackUrl);
     }
   };
