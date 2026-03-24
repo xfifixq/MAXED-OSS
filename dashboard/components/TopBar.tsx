@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { clearFirmId } from '@/lib/api';
 import { useNotifications } from '@/lib/notifications';
+import { clearBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -88,6 +89,7 @@ export default function TopBar() {
       // Best-effort secure session cleanup.
     }
 
+    clearBrowserPlatformSessionCookie();
     clearFirmId();
     await signOut({ callbackUrl: '/login' });
   };

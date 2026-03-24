@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -46,6 +47,8 @@ export default function RegisterPage() {
       return '';
     }
 
+    setBrowserPlatformSessionCookie(token);
+
     await fetch('/api/platform/session/bootstrap', {
       method: 'POST',
       credentials: 'include',
@@ -70,6 +73,10 @@ export default function RegisterPage() {
 
     if (!res.ok) {
       const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (platformSessionToken) {
+        setBrowserPlatformSessionCookie(platformSessionToken);
+        return;
+      }
       throw new Error(payload?.error || 'Unable to establish secure Maxed session.');
     }
   };

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { SessionProvider, signOut, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
 import { apiUrl, clearFirmId, installApiFetchCredentials, setFirmId } from '@/lib/api';
+import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
@@ -41,6 +42,10 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
         });
 
         if (!res.ok) {
+          if (platformSessionToken) {
+            setBrowserPlatformSessionCookie(platformSessionToken);
+          }
+
           const fallback = await fetch(apiUrl('/api/auth/session'), {
             credentials: 'include',
           }).catch(() => null);
