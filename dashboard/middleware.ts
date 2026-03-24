@@ -1,17 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getToken } from 'next-auth/jwt';
-
-const NEXTAUTH_SECRET =
-  process.env.NEXTAUTH_SECRET ||
-  process.env.MAXED_API_KEY ||
-  'maxed-dev-secret-change-me';
+import { resolveNextAuthToken } from '@/lib/nextauth-token';
 
 export async function middleware(request: NextRequest) {
-  const token = await getToken({
-    req: request,
-    secret: NEXTAUTH_SECRET,
-  });
+  const token = await resolveNextAuthToken(request);
+  const hasPlatformSessionToken =
+    (typeof token?.platformSessionToken === 'string' && token.platformSessionToken.length > 0) ||
+    !!request.cookies.get('maxed_session')?.value;
 
   const { pathname } = request.nextUrl;
 
@@ -26,7 +21,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Redirect unauthenticated users to login
-  if (!token && pathname.startsWith('/dashboard')) {
+  if ((!token || !hasPlatformSessionToken) && pathname.startsWith('/dashboard')) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(loginUrl);

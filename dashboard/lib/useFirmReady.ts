@@ -2,31 +2,29 @@
 
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { setFirmId, setPlatformSessionToken } from './api';
+import { clearFirmId, setFirmId } from './api';
 
 /**
  * Hook that returns the authenticated firm's ID and a ready flag.
- * The dashboard layout primes the platform session before any workspace renders.
+ * Service pages should wait for isReady before making API calls
+ * to avoid the race condition where _firmId is still the default '1'.
  */
 export function useFirmReady() {
   const { data: session, status } = useSession();
   const [firmId, setFirmIdState] = useState<string | null>(null);
-
   useEffect(() => {
-    const id = (session?.user as any)?.firmId;
-    const platformSessionToken = (session?.user as any)?.platformSessionToken;
+    if (status !== 'authenticated') {
+      clearFirmId();
+      setFirmIdState(null);
+      return;
+    }
 
+    const id = (session?.user as any)?.firmId;
     if (id) {
       setFirmId(id);
       setFirmIdState(id);
-    } else {
-      setFirmIdState(null);
     }
-
-    if (platformSessionToken) {
-      setPlatformSessionToken(platformSessionToken);
-    }
-  }, [session]);
+  }, [session, status]);
 
   return {
     firmId,

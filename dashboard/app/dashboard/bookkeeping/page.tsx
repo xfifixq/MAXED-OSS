@@ -18,9 +18,26 @@ import {
   formatNumber,
   normalizeFirmClients,
   normalizeBigcapitalAccounts,
+  normalizeBigcapitalManualJournals,
   normalizeBigcapitalStatement,
   normalizeBigcapitalTransactions,
 } from '@/lib/service-adapters';
+
+type DraftAccount = {
+  name: string;
+  code: string;
+  accountType: string;
+  currencyCode: string;
+};
+
+type DraftJournal = {
+  date: string;
+  reference: string;
+  description: string;
+  amount: string;
+  debitAccountId: string;
+  creditAccountId: string;
+};
 
 type LedgerState = {
   clients: ReturnType<typeof normalizeFirmClients>;
@@ -28,6 +45,7 @@ type LedgerState = {
   transactions: ReturnType<typeof normalizeBigcapitalTransactions>;
   balanceSheet: ReturnType<typeof normalizeBigcapitalStatement>;
   profitLoss: ReturnType<typeof normalizeBigcapitalStatement>;
+  manualJournals: ReturnType<typeof normalizeBigcapitalManualJournals>;
 };
 
 const EMPTY_LEDGER: LedgerState = {
@@ -36,6 +54,7 @@ const EMPTY_LEDGER: LedgerState = {
   transactions: [],
   balanceSheet: [],
   profitLoss: [],
+  manualJournals: [],
 };
 
 type BookkeepingWorkspacePayload = {
@@ -59,8 +78,20 @@ type BookkeepingWorkspacePayload = {
     transactions?: unknown;
     balanceSheet?: unknown;
     profitLoss?: unknown;
+    manualJournals?: unknown;
   };
 };
+
+const ACCOUNT_TYPE_OPTIONS = [
+  'asset',
+  'liability',
+  'equity',
+  'income',
+  'expense',
+  'bank',
+  'accounts_receivable',
+  'accounts_payable',
+] as const;
 
 export default function BookkeepingPage() {
   const { isReady } = useFirmReady();
@@ -68,9 +99,26 @@ export default function BookkeepingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [savingJournal, setSavingJournal] = useState(false);
+  const [publishingJournalId, setPublishingJournalId] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
   const [contactFilter, setContactFilter] = useState('');
+  const [accountDraft, setAccountDraft] = useState<DraftAccount>({
+    name: '',
+    code: '',
+    accountType: 'expense',
+    currencyCode: 'USD',
+  });
+  const [journalDraft, setJournalDraft] = useState<DraftJournal>({
+    date: new Date().toISOString().slice(0, 10),
+    reference: '',
+    description: 'Manual adjustment',
+    amount: '',
+    debitAccountId: '',
+    creditAccountId: '',
+  });
 
   const loadLedger = useCallback(async () => {
     if (!isReady) return;
@@ -98,6 +146,7 @@ export default function BookkeepingPage() {
         transactions: normalizeBigcapitalTransactions(payload.data?.transactions),
         balanceSheet: normalizeBigcapitalStatement(payload.data?.balanceSheet),
         profitLoss: normalizeBigcapitalStatement(payload.data?.profitLoss),
+        manualJournals: normalizeBigcapitalManualJournals(payload.data?.manualJournals),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load ledger data.');
@@ -109,6 +158,19 @@ export default function BookkeepingPage() {
   useEffect(() => {
     loadLedger();
   }, [loadLedger]);
+
+  useEffect(() => {
+    if (!ledger.accounts.length) return;
+    setJournalDraft((current) => {
+      const debitAccountId = current.debitAccountId || ledger.accounts[0]?.id || '';
+      const creditFallback = ledger.accounts.find((account) => account.id !== debitAccountId)?.id || ledger.accounts[0]?.id || '';
+      return {
+        ...current,
+        debitAccountId,
+        creditAccountId: current.creditAccountId || creditFallback,
+      };
+    });
+  }, [ledger.accounts]);
 
   const totals = useMemo(() => {
     const assets = findStatementAmount(ledger.balanceSheet, [/asset/]);
@@ -200,6 +262,78 @@ export default function BookkeepingPage() {
         hasDocumentTag: Boolean(client.paperlessTag),
       })),
     [ledger.clients],
+  );
+
+  const createAccount = useCallback(async () => {
+    if (!accountDraft.name.trim()) return;
+
+    setSavingAccount(true);
+    setError('');
+
+    try {
+      await firmFetch('/workspaces/bookkeeping/accounts', {
+        method: 'POST',
+        body: JSON.stringify(accountDraft),
+      });
+      setAccountDraft({
+        name: '',
+        code: '',
+        accountType: 'expense',
+        currencyCode: 'USD',
+      });
+      await loadLedger();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create account.');
+    } finally {
+      setSavingAccount(false);
+    }
+  }, [accountDraft, loadLedger]);
+
+  const createManualJournal = useCallback(async () => {
+    if (!journalDraft.debitAccountId || !journalDraft.creditAccountId || !journalDraft.amount) return;
+
+    setSavingJournal(true);
+    setError('');
+
+    try {
+      await firmFetch('/workspaces/bookkeeping/manual-journals', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...journalDraft,
+          amount: Number(journalDraft.amount),
+        }),
+      });
+      setJournalDraft((current) => ({
+        ...current,
+        reference: '',
+        description: 'Manual adjustment',
+        amount: '',
+      }));
+      await loadLedger();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create manual journal.');
+    } finally {
+      setSavingJournal(false);
+    }
+  }, [journalDraft, loadLedger]);
+
+  const publishManualJournal = useCallback(
+    async (journalId: string) => {
+      setPublishingJournalId(journalId);
+      setError('');
+
+      try {
+        await firmFetch(`/workspaces/bookkeeping/manual-journals/${journalId}/publish`, {
+          method: 'POST',
+        });
+        await loadLedger();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to publish manual journal.');
+      } finally {
+        setPublishingJournalId('');
+      }
+    },
+    [loadLedger],
   );
 
   return (
@@ -411,6 +545,180 @@ export default function BookkeepingPage() {
             </div>
           )}
         </WorkspacePanel>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <WorkspacePanel title="Adjusting entries" description="Create accounts and post manual journals without leaving Maxed.">
+          {loading ? (
+            <WorkspaceSkeleton rows={4} />
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Create account</p>
+                  <p className="mt-1 text-sm text-slate-500">Add a new ledger account to the chart from the Maxed workspace.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Account name</label>
+                  <input
+                    className="input mt-2"
+                    value={accountDraft.name}
+                    onChange={(event) => setAccountDraft((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="Payroll tax expense"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Code</label>
+                    <input
+                      className="input mt-2"
+                      value={accountDraft.code}
+                      onChange={(event) => setAccountDraft((current) => ({ ...current, code: event.target.value }))}
+                      placeholder="6100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Type</label>
+                    <select
+                      className="input mt-2"
+                      value={accountDraft.accountType}
+                      onChange={(event) => setAccountDraft((current) => ({ ...current, accountType: event.target.value }))}
+                    >
+                      {ACCOUNT_TYPE_OPTIONS.map((type) => (
+                        <option key={type} value={type}>
+                          {type.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button onClick={createAccount} disabled={savingAccount || !accountDraft.name.trim()} className="btn-primary w-full disabled:opacity-60">
+                  {savingAccount ? 'Creating account...' : 'Create account'}
+                </button>
+              </div>
+
+              <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Post manual journal</p>
+                  <p className="mt-1 text-sm text-slate-500">Create a two-sided adjusting entry directly from Maxed.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Date</label>
+                    <input
+                      type="date"
+                      className="input mt-2"
+                      value={journalDraft.date}
+                      onChange={(event) => setJournalDraft((current) => ({ ...current, date: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Amount</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="input mt-2"
+                      value={journalDraft.amount}
+                      onChange={(event) => setJournalDraft((current) => ({ ...current, amount: event.target.value }))}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Memo</label>
+                  <input
+                    className="input mt-2"
+                    value={journalDraft.description}
+                    onChange={(event) => setJournalDraft((current) => ({ ...current, description: event.target.value }))}
+                    placeholder="Accrue payroll taxes"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Debit account</label>
+                    <select
+                      className="input mt-2"
+                      value={journalDraft.debitAccountId}
+                      onChange={(event) => setJournalDraft((current) => ({ ...current, debitAccountId: event.target.value }))}
+                    >
+                      {ledger.accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700">Credit account</label>
+                    <select
+                      className="input mt-2"
+                      value={journalDraft.creditAccountId}
+                      onChange={(event) => setJournalDraft((current) => ({ ...current, creditAccountId: event.target.value }))}
+                    >
+                      {ledger.accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  onClick={createManualJournal}
+                  disabled={savingJournal || !journalDraft.debitAccountId || !journalDraft.creditAccountId || !journalDraft.amount}
+                  className="btn-primary w-full disabled:opacity-60"
+                >
+                  {savingJournal ? 'Posting journal...' : 'Post manual journal'}
+                </button>
+              </div>
+            </div>
+          )}
+        </WorkspacePanel>
+
+        <WorkspacePanel title="Recent manual journals" description="Review and publish draft adjusting entries created in Bigcapital.">
+          {loading ? (
+            <WorkspaceSkeleton rows={4} />
+          ) : ledger.manualJournals.length === 0 ? (
+            <WorkspaceEmpty title="No manual journals yet" message="Adjusting entries created in Maxed or Bigcapital will appear here." />
+          ) : (
+            <div className="space-y-3">
+              {ledger.manualJournals.slice(0, 10).map((journal) => {
+                const isPublished = /publish/.test(journal.status.toLowerCase()) || Boolean(journal.publishedAt);
+                return (
+                  <div key={journal.id} className="rounded-2xl border border-slate-200 px-4 py-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-900">{journal.description}</p>
+                          <span className={isPublished ? 'badge-green' : 'badge-yellow'}>
+                            {isPublished ? 'Published' : 'Draft'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {journal.reference || 'No reference'} · {formatDate(journal.date)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm font-semibold text-slate-950">{formatCurrency(journal.amount)}</p>
+                        {!isPublished ? (
+                          <button
+                            onClick={() => publishManualJournal(journal.id)}
+                            disabled={publishingJournalId === journal.id}
+                            className="btn-secondary disabled:opacity-60"
+                          >
+                            {publishingJournalId === journal.id ? 'Publishing...' : 'Publish'}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </WorkspacePanel>
+
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">

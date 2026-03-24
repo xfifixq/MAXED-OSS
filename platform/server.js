@@ -1,101 +1,71 @@
 require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
+const createPlatformApp = require("./src/runtime/createPlatformApp");
+const registerPlatformRoutes = require("./src/platform/registerPlatformRoutes");
 const registerOpenFrameRoutes = require("./src/openframe/registerOpenFrameRoutes");
-const { PrismaClient } = require("@prisma/client");
+const {
+  SERVICES,
+  PUBLIC_SERVICES,
+  SERVICE_CATALOG,
+  SERVICE_WORKSPACE_PATHS,
+  SERVICE_ACCESS_CAPABILITIES,
+  SERVICE_PROVISIONING_ADAPTERS,
+  SERVICE_DEFAULT_TOKENS,
+  slugifyName,
+  generateStrongPassword,
+  getPublicServiceUrl,
+  buildPublicServiceUrl,
+  getMaxedWorkspaceUrl,
+  getServiceIdentityShape,
+  buildCanonicalIdentity,
+  buildSuggestedServiceCredential,
+} = require("./src/openframe/serviceRegistry");
+const { prisma, supabase, LOCAL_STORAGE_ROOT } = require("./src/shared/platformData");
+const {
+  createPlatformSessionHelpers,
+  createRequireAuth,
+  hashOpaqueToken,
+  isPlatformAdminEmail,
+} = require("./src/shared/platformSession");
+const {
+  attachAuthContext,
+  requireFirmScope,
+  requireClientScope,
+} = require("./src/shared/tenantAccess");
+const { checkDatabaseReadiness } = require("./src/shared/readiness");
 const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
 
-const prisma = new PrismaClient();
-const app = express();
 const PORT = process.env.PORT || 4000;
-const PLATFORM_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BROKER_SESSION_TTL_MS = 15 * 60 * 1000;
-const LOCAL_STORAGE_ROOT = path.resolve(process.env.LOCAL_STORAGE_ROOT || path.join(__dirname, "storage"));
-
-// ---------------------------------------------------------------------------
-// Production Security
-// ---------------------------------------------------------------------------
-app.set("trust proxy", 1);
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({
-  origin: process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim())
-    : ["https://app.maxed.life", "https://portal.maxed.life", "http://localhost:3005", "http://localhost:3006"],
-  credentials: true,
-}));
-app.use(express.json({ limit: "10mb" }));
-
-// Rate limiting: 200 requests per minute per IP
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later" },
-});
-app.use("/api", limiter);
-
-// ---------------------------------------------------------------------------
-// Supabase client (optional — used when SUPABASE_URL is configured)
-// ---------------------------------------------------------------------------
-let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  const { createClient } = require("@supabase/supabase-js");
-  supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-  console.log("Supabase client initialized");
-}
-
-// Expose supabase status on health check
-app.get("/api/supabase/status", (_req, res) => {
-  res.json({ connected: !!supabase });
-});
+const { issuePlatformSession, resolvePlatformSessionFromRequest } =
+  createPlatformSessionHelpers({ prisma });
 
 // ---------------------------------------------------------------------------
 // API Key Authentication Middleware
 // ---------------------------------------------------------------------------
 const API_KEY = process.env.MAXED_API_KEY || "";
 
-async function requireAuth(req, res, next) {
-  // Skip auth in development if no key is configured
-  if (!API_KEY) return next();
-
-  const platformSession = await resolvePlatformSessionFromRequest(req);
-  if (platformSession) {
-    req.platformSession = platformSession;
-    return next();
-  }
-
-  const key =
-    req.headers["x-api-key"] ||
-    req.headers["authorization"]?.replace("Bearer ", "");
-
-  if (key !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  next();
-}
-
-// Apply auth to all /api routes except health and auth endpoints
-app.use("/api", (req, res, next) => {
-  if (req.path === "/auth/login" || req.path === "/auth/verify" || req.path === "/register" || req.path === "/auth/forgot-password" || req.path === "/auth/reset-password") {
-    return next();
-  }
-  return requireAuth(req, res, next);
+const requireAuth = createRequireAuth({
+  apiKey: API_KEY,
+  resolvePlatformSessionFromRequest,
 });
 
-// ---------------------------------------------------------------------------
-// Health
-// ---------------------------------------------------------------------------
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", platform: "Maxed OpenCPA", version: "0.1.0" });
+const app = createPlatformApp({
+  requireAuth,
+  supabaseConnected: !!supabase,
+  readinessCheck: async () => {
+    const details = await checkDatabaseReadiness(prisma);
+    return {
+      ...details,
+      supabase: supabase ? "configured" : "disabled",
+    };
+  },
 });
+app.use("/api", attachAuthContext);
+app.use("/api/firms/:firmId", requireFirmScope("firmId"));
+app.use("/api/firms/:id", requireFirmScope("id"));
+app.use("/api/clients/:clientId", requireClientScope(prisma));
 
 // ---------------------------------------------------------------------------
 // Authentication
@@ -103,890 +73,6 @@ app.get("/health", (_req, res) => {
 const bcryptAvailable = (() => {
   try { require("bcryptjs"); return true; } catch { return false; }
 })();
-
-function generateOpaqueToken(bytes = 32) {
-  return crypto.randomBytes(bytes).toString("hex");
-}
-
-function hashOpaqueToken(token) {
-  return crypto.createHash("sha256").update(String(token)).digest("hex");
-}
-
-function isPlatformAdminEmail(email) {
-  return email === "admin@maxed.dev" || email === "admin@maxed.life";
-}
-
-function resolveCookieDomain(host) {
-  const hostname = String(host || "").split(":")[0].toLowerCase();
-  if (!hostname || hostname === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
-    return undefined;
-  }
-  if (hostname === "maxed.life" || hostname.endsWith(".maxed.life")) {
-    return ".maxed.life";
-  }
-  return undefined;
-}
-
-function readCookie(req, name) {
-  const cookieHeader = req.headers.cookie || "";
-  for (const part of cookieHeader.split(";")) {
-    const [key, ...rest] = part.trim().split("=");
-    if (key === name) {
-      return decodeURIComponent(rest.join("="));
-    }
-  }
-  return "";
-}
-
-function isSecureRequest(req) {
-  const forwardedProto = String(req.headers["x-forwarded-proto"] || req.protocol || "").toLowerCase();
-  return forwardedProto.includes("https") || process.env.NODE_ENV === "production";
-}
-
-function setPlatformSessionCookie(req, res, token) {
-  const secure = isSecureRequest(req);
-  res.cookie("maxed_session", token, {
-    httpOnly: true,
-    secure,
-    sameSite: secure ? "none" : "lax",
-    path: "/",
-    domain: resolveCookieDomain(req.headers.host),
-    maxAge: PLATFORM_SESSION_TTL_MS,
-  });
-}
-
-function clearPlatformSessionCookie(req, res) {
-  const secure = isSecureRequest(req);
-  res.cookie("maxed_session", "", {
-    httpOnly: true,
-    secure,
-    sameSite: secure ? "none" : "lax",
-    path: "/",
-    domain: resolveCookieDomain(req.headers.host),
-    expires: new Date(0),
-    maxAge: 0,
-  });
-}
-
-async function issuePlatformSession(member) {
-  const rawToken = generateOpaqueToken(32);
-  const tokenHash = hashOpaqueToken(rawToken);
-  const session = await prisma.platformSession.create({
-    data: {
-      tokenHash,
-      teamMemberId: member.id,
-      firmId: member.firmId,
-      role: member.role,
-      isPlatformAdmin: isPlatformAdminEmail(member.email),
-      expiresAt: new Date(Date.now() + PLATFORM_SESSION_TTL_MS),
-    },
-  });
-
-  return {
-    rawToken,
-    session,
-  };
-}
-
-async function resolvePlatformSession(rawToken) {
-  if (!rawToken) return null;
-  const tokenHash = hashOpaqueToken(rawToken);
-  const session = await prisma.platformSession.findUnique({
-    where: { tokenHash },
-    include: {
-      teamMember: {
-        include: { firm: true },
-      },
-    },
-  });
-
-  if (!session) return null;
-  if (new Date(session.expiresAt).getTime() <= Date.now()) return null;
-
-  await prisma.platformSession.update({
-    where: { id: session.id },
-    data: { lastSeenAt: new Date() },
-  }).catch(() => {});
-
-  return session;
-}
-
-async function resolvePlatformSessionFromRequest(req) {
-  const headerToken =
-    req.headers["x-maxed-session"] ||
-    req.headers["x-platform-session"] ||
-    req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
-  const cookieToken = readCookie(req, "maxed_session");
-
-  if (!headerToken && !cookieToken) return null;
-  return resolvePlatformSession(headerToken || cookieToken);
-}
-
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password required" });
-    }
-
-    const member = await prisma.teamMember.findFirst({
-      where: { email },
-      include: { firm: true },
-    });
-
-    if (!member) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // Check password hash if bcryptjs is available
-    if (bcryptAvailable && member.passwordHash) {
-      const bcrypt = require("bcryptjs");
-      const valid = await bcrypt.compare(password, member.passwordHash);
-      if (!valid) {
-        return res.status(401).json({ error: "Invalid credentials" });
-      }
-    }
-
-    const { rawToken, session } = await issuePlatformSession(member);
-    setPlatformSessionCookie(req, res, rawToken);
-
-    res.json({
-      id: member.id,
-      email: member.email,
-      name: member.name,
-      role: member.role,
-      firmId: member.firmId,
-      firmName: member.firm.name,
-      isPlatformAdmin: isPlatformAdminEmail(member.email),
-      platformSessionToken: rawToken,
-      platformSessionExpiresAt: session.expiresAt,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/auth/session", async (req, res) => {
-  try {
-    const session = await resolvePlatformSessionFromRequest(req);
-    if (!session) return res.status(401).json({ error: "Platform session invalid" });
-
-    return res.json({
-      sessionId: session.id,
-      firmId: session.firmId,
-      teamMemberId: session.teamMemberId,
-      role: session.role,
-      isPlatformAdmin: session.isPlatformAdmin,
-      expiresAt: session.expiresAt,
-      user: {
-        id: session.teamMember.id,
-        name: session.teamMember.name,
-        email: session.teamMember.email,
-        role: session.teamMember.role,
-      },
-      firm: {
-        id: session.teamMember.firm.id,
-        name: session.teamMember.firm.name,
-        email: session.teamMember.firm.email,
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/auth/logout", async (req, res) => {
-  try {
-    const rawToken =
-      req.headers["x-maxed-session"] ||
-      req.headers["x-platform-session"] ||
-      req.headers["authorization"]?.replace(/^Bearer\s+/i, "") ||
-      readCookie(req, "maxed_session");
-
-    clearPlatformSessionCookie(req, res);
-    if (!rawToken) return res.json({ ok: true });
-
-    await prisma.platformSession.deleteMany({
-      where: { tokenHash: hashOpaqueToken(rawToken) },
-    });
-    return res.json({ ok: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// Client portal login
-app.post("/api/clients/login", async (req, res) => {
-  try {
-    const { email, accessCode } = req.body;
-    if (!email || !accessCode) {
-      return res.status(400).json({ error: "Email and access code required" });
-    }
-
-    const normalizedEmail = String(email).trim().toLowerCase();
-    const normalizedCode = String(accessCode).trim().toUpperCase();
-    const portalCredential = await prisma.serviceCredential.findFirst({
-      where: {
-        service: "clientportal",
-        token: normalizedCode,
-      },
-      include: { firm: true },
-    });
-
-    if (!portalCredential?.firm) {
-      return res.status(401).json({ error: "Invalid email or access code" });
-    }
-
-    let client = await prisma.client.findFirst({
-      where: {
-        firmId: portalCredential.firmId,
-        email: normalizedEmail,
-      },
-      include: { firm: true },
-    });
-
-    if (!client) {
-      const inferredName = normalizedEmail.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-      client = await prisma.client.create({
-        data: {
-          firmId: portalCredential.firmId,
-          email: normalizedEmail,
-          name: inferredName || normalizedEmail,
-        },
-        include: { firm: true },
-      });
-    }
-
-    res.json({
-      clientId: client.id,
-      name: client.name,
-      email: client.email,
-      firmId: client.firmId,
-      firmName: client.firm?.name || null,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Registration — Create firm + admin user in one step
-// ---------------------------------------------------------------------------
-app.post("/api/register", async (req, res) => {
-  try {
-    const { firmName, firmEmail, firmPhone, adminName, adminEmail, adminPassword } = req.body;
-
-    if (!firmName || !firmEmail || !adminName || !adminEmail || !adminPassword) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-
-    if (adminPassword.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
-
-    // Check if email already exists
-    const existing = await prisma.teamMember.findFirst({
-      where: { email: adminEmail },
-    });
-    if (existing) {
-      return res.status(409).json({ error: "An account with this email already exists" });
-    }
-
-    const bcrypt = require("bcryptjs");
-    const passwordHash = await bcrypt.hash(adminPassword, 12);
-
-    // Create firm + admin in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      const firm = await tx.firm.create({
-        data: {
-          name: firmName,
-          email: firmEmail,
-          phone: firmPhone || null,
-        },
-      });
-
-      const member = await tx.teamMember.create({
-        data: {
-          firmId: firm.id,
-          name: adminName,
-          email: adminEmail,
-          role: "admin",
-          passwordHash,
-        },
-      });
-
-      const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
-
-      return { firm, member, portalCredential };
-    });
-
-    const provisioning = await provisionFirmServices({
-      firmId: result.firm.id,
-      requestedById: result.member.id,
-    });
-
-    res.status(201).json({
-      firmId: result.firm.id,
-      firmName: result.firm.name,
-      userId: result.member.id,
-      email: result.member.email,
-      portalAccessCode: result.portalCredential.token,
-      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
-      provisioning,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Firms
-// ---------------------------------------------------------------------------
-app.post("/api/firms", async (req, res) => {
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const firm = await tx.firm.create({ data: req.body });
-      const portalCredential = await ensurePortalAccessCredential(tx, firm.id);
-      return { firm, portalCredential };
-    });
-    const provisioning = await provisionFirmServices({
-      firmId: result.firm.id,
-      requestedById: null,
-    });
-    res.status(201).json({
-      ...result.firm,
-      portalAccessCode: result.portalCredential.token,
-      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
-      provisioning,
-    });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms", async (_req, res) => {
-  try {
-    const firms = await prisma.firm.findMany();
-    res.json(firms);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms/:id", async (req, res) => {
-  try {
-    const firm = await prisma.firm.findUnique({
-      where: { id: req.params.id },
-      include: { clients: true, teamMembers: true },
-    });
-    if (!firm) return res.status(404).json({ error: "Firm not found" });
-    const portalCredential = await ensurePortalAccessCredentialForFirm(firm.id);
-    res.json({
-      ...firm,
-      portalAccessCode: portalCredential?.token || null,
-      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms/:id/portal-access", async (req, res) => {
-  try {
-    const firm = await prisma.firm.findUnique({
-      where: { id: req.params.id },
-      select: { id: true, name: true },
-    });
-    if (!firm) return res.status(404).json({ error: "Firm not found" });
-    const portalCredential = await ensurePortalAccessCredentialForFirm(firm.id);
-    res.json({
-      firmId: firm.id,
-      firmName: firm.name,
-      portalAccessCode: portalCredential?.token || null,
-      portalUrl: process.env.CLIENT_PORTAL_PUBLIC_URL || "https://portal.maxed.life",
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Clients
-// ---------------------------------------------------------------------------
-app.post("/api/firms/:firmId/clients", async (req, res) => {
-  try {
-    const client = await prisma.client.create({
-      data: { ...req.body, firmId: req.params.firmId },
-    });
-    res.status(201).json(client);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms/:firmId/clients", async (req, res) => {
-  try {
-    const clients = await prisma.client.findMany({
-      where: { firmId: req.params.firmId },
-      include: { documents: true, invoices: true, scenarios: true, messages: true },
-    });
-    res.json(clients);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms/:firmId/clients/:clientId", async (req, res) => {
-  try {
-    const client = await prisma.client.findFirst({
-      where: { id: req.params.clientId, firmId: req.params.firmId },
-      include: { documents: true, invoices: true, scenarios: true, messages: true },
-    });
-    if (!client) return res.status(404).json({ error: "Client not found" });
-    res.json(client);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put("/api/firms/:firmId/clients/:clientId", async (req, res) => {
-  try {
-    const existing = await prisma.client.findFirst({
-      where: { id: req.params.clientId, firmId: req.params.firmId },
-      select: { id: true },
-    });
-    if (!existing) return res.status(404).json({ error: "Client not found" });
-
-    const client = await prisma.client.update({
-      where: { id: req.params.clientId },
-      data: req.body,
-    });
-    res.json(client);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.delete("/api/firms/:firmId/clients/:clientId", async (req, res) => {
-  try {
-    const existing = await prisma.client.findFirst({
-      where: { id: req.params.clientId, firmId: req.params.firmId },
-      select: { id: true },
-    });
-    if (!existing) return res.status(404).json({ error: "Client not found" });
-
-    await prisma.client.delete({ where: { id: req.params.clientId } });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Scenarios
-// ---------------------------------------------------------------------------
-app.post("/api/clients/:clientId/scenarios", async (req, res) => {
-  try {
-    const scenario = await prisma.scenario.create({
-      data: { ...req.body, clientId: req.params.clientId },
-    });
-    res.status(201).json(scenario);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/clients/:clientId/scenarios", async (req, res) => {
-  try {
-    const scenarios = await prisma.scenario.findMany({
-      where: { clientId: req.params.clientId },
-    });
-    res.json(scenarios);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Documents
-// ---------------------------------------------------------------------------
-app.post("/api/clients/:clientId/documents", async (req, res) => {
-  try {
-    const document = await prisma.document.create({
-      data: { ...req.body, clientId: req.params.clientId },
-    });
-    res.status(201).json(document);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/clients/:clientId/documents", async (req, res) => {
-  try {
-    const documents = await prisma.document.findMany({
-      where: { clientId: req.params.clientId },
-    });
-    res.json(documents);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Invoices
-// ---------------------------------------------------------------------------
-app.post("/api/clients/:clientId/invoices", async (req, res) => {
-  try {
-    const invoice = await prisma.invoice.create({
-      data: { ...req.body, clientId: req.params.clientId },
-    });
-    res.status(201).json(invoice);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/clients/:clientId/invoices", async (req, res) => {
-  try {
-    const invoices = await prisma.invoice.findMany({
-      where: { clientId: req.params.clientId },
-    });
-    res.json(invoices);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Messages
-// ---------------------------------------------------------------------------
-app.post("/api/clients/:clientId/messages", async (req, res) => {
-  try {
-    const message = await prisma.message.create({
-      data: { ...req.body, clientId: req.params.clientId },
-    });
-    res.status(201).json(message);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get("/api/clients/:clientId/messages", async (req, res) => {
-  try {
-    const messages = await prisma.message.findMany({
-      where: { clientId: req.params.clientId },
-      orderBy: { createdAt: "asc" },
-    });
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Client Portal – Dashboard Summary
-// ---------------------------------------------------------------------------
-app.get("/api/clients/:clientId/dashboard", async (req, res) => {
-  try {
-    const { clientId } = req.params;
-
-    const [outstandingInvoices, pendingDocuments, recentMessages] =
-      await Promise.all([
-        prisma.invoice
-          .count({
-            where: {
-              clientId,
-              status: { in: ["draft", "sent", "pending"] },
-            },
-          })
-          .catch(() => 0),
-        prisma.document
-          .count({
-            where: { clientId, status: { in: ["pending", "review"] } },
-          })
-          .catch(() => 0),
-        prisma.message
-          .count({
-            where: {
-              clientId,
-              createdAt: {
-                gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-              },
-            },
-          })
-          .catch(() => 0),
-      ]);
-
-    res.json({ outstandingInvoices, pendingDocuments, recentMessages });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Client Portal – Proposals (DocuSeal submissions for client)
-// ---------------------------------------------------------------------------
-app.get("/api/clients/:clientId/proposals", async (req, res) => {
-  try {
-    const { clientId } = req.params;
-
-    // Try to get the client to find their email and firmId for matching submissions
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
-      select: { name: true, email: true, firmId: true },
-    });
-
-    // Try fetching submissions from DocuSeal
-    const headers = await docusealAuth(client?.firmId);
-    if (headers["X-Auth-Token"]) {
-      try {
-        const dsUrl =
-          process.env.DOCUSEAL_URL ||
-          process.env.DOCUSEAL_API_URL ||
-          "http://localhost:3003";
-        const submissionsRes = await fetch(`${dsUrl}/api/submissions`, {
-          headers: { ...headers, Accept: "application/json" },
-        });
-        if (submissionsRes.ok) {
-          const allSubmissions = await submissionsRes.json();
-          const submissions = Array.isArray(allSubmissions)
-            ? allSubmissions
-            : allSubmissions.data || [];
-
-          // Filter by client email if available
-          const clientEmail = client?.email?.toLowerCase();
-          const filtered = clientEmail
-            ? submissions.filter((s) =>
-                (s.submitters || []).some(
-                  (sub) => sub.email?.toLowerCase() === clientEmail
-                )
-              )
-            : [];
-
-          const proposals = filtered.map((s) => ({
-            id: String(s.id),
-            title: s.template?.name || s.name || "Proposal",
-            status: s.status === "completed" ? "signed" : "pending",
-            createdAt: s.created_at || s.createdAt || new Date().toISOString(),
-            signUrl:
-              (s.submitters || []).find(
-                (sub) => sub.email?.toLowerCase() === clientEmail
-              )?.embed_src || null,
-          }));
-
-          return res.json(proposals);
-        }
-      } catch {
-        // DocuSeal unavailable, fall through
-      }
-    }
-
-    // Fallback: return empty array
-    res.json([]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-async function seedFirmDemoData(firmId) {
-  const existingCounts = await Promise.all([
-    prisma.client.count({ where: { firmId } }),
-    prisma.workflow.count({ where: { firmId } }),
-    prisma.message.count({ where: { client: { firmId } } }),
-  ]);
-
-  if (existingCounts.some((count) => count > 0)) {
-    return { seeded: false };
-  }
-
-  const firm = await prisma.firm.findUnique({
-    where: { id: firmId },
-    select: { id: true, name: true },
-  });
-
-  if (!firm) {
-    const error = new Error("Firm not found");
-    error.status = 404;
-    throw error;
-  }
-
-  const clientTemplates = [
-    { name: "Northwind Fitness Studio", email: "owner@northwindfit.com", phone: "(555) 210-4100", businessType: "Fitness", annualRevenue: 540000, employeeCount: 11 },
-    { name: "Pine & Ledger Realty", email: "ops@pineledger.com", phone: "(555) 210-4200", businessType: "Real Estate", annualRevenue: 1680000, employeeCount: 19 },
-    { name: "Harbor Pediatric Group", email: "billing@harborpediatrics.com", phone: "(555) 210-4300", businessType: "Healthcare", annualRevenue: 2240000, employeeCount: 27 },
-    { name: "Oakline Creative Co.", email: "finance@oaklinecreative.com", phone: "(555) 210-4400", businessType: "Marketing Agency", annualRevenue: 780000, employeeCount: 14 },
-  ];
-
-  const createdClients = [];
-  for (const client of clientTemplates) {
-    createdClients.push(await prisma.client.create({ data: { firmId, ...client } }));
-  }
-
-  const workflows = [
-    { name: "Q2 close review", status: "active" },
-    { name: "1099 cleanup", status: "active" },
-    { name: "Sales tax catch-up", status: "pending" },
-  ];
-  for (const workflow of workflows) {
-    await prisma.workflow.create({ data: { firmId, ...workflow } });
-  }
-
-  const documents = [
-    { clientId: createdClients[0].id, title: "March bookkeeping packet", type: "bookkeeping", status: "uploaded" },
-    { clientId: createdClients[1].id, title: "Property sale closing file", type: "closing_statement", status: "in_review" },
-    { clientId: createdClients[2].id, title: "Payroll tax notice", type: "tax_notice", status: "uploaded" },
-    { clientId: createdClients[3].id, title: "Estimated payment worksheet", type: "tax_planning", status: "draft" },
-  ];
-  for (const document of documents) {
-    await prisma.document.create({ data: document });
-  }
-
-  const invoices = [
-    { clientId: createdClients[0].id, amount: 1800, status: "sent", dueDate: new Date("2026-03-25") },
-    { clientId: createdClients[1].id, amount: 2400, status: "draft", dueDate: new Date("2026-03-29") },
-    { clientId: createdClients[2].id, amount: 3200, status: "paid", dueDate: new Date("2026-03-10"), paidDate: new Date("2026-03-08") },
-    { clientId: createdClients[3].id, amount: 1250, status: "sent", dueDate: new Date("2026-03-27") },
-  ];
-  for (const invoice of invoices) {
-    await prisma.invoice.create({ data: invoice });
-  }
-
-  const scenarios = [
-    { clientId: createdClients[0].id, question: "Should the studio move payroll in-house or stay outsourced?", optionChosen: null, outcome: null, projectedImpact: 6200 },
-    { clientId: createdClients[1].id, question: "How should the brokerage classify repair reimbursements this quarter?", optionChosen: null, outcome: null, projectedImpact: 4100 },
-  ];
-  for (const scenario of scenarios) {
-    await prisma.scenario.create({ data: scenario });
-  }
-
-  const messages = [
-    { clientId: createdClients[0].id, senderType: "client", content: `Can ${firm.name} review our trainer contractor agreements before payroll closes?` },
-    { clientId: createdClients[1].id, senderType: "client", content: "The March rent roll is uploaded. Need confirmation before the lender meeting." },
-    { clientId: createdClients[2].id, senderType: "firm", content: "We received the payroll notice and added it to this week's follow-up list." },
-    { clientId: createdClients[3].id, senderType: "client", content: "Please send the next estimated tax payment amount once the books are final." },
-  ];
-  for (const message of messages) {
-    await prisma.message.create({ data: message });
-  }
-
-  return {
-    seeded: true,
-    counts: {
-      clients: createdClients.length,
-      workflows: workflows.length,
-      documents: documents.length,
-      invoices: invoices.length,
-      scenarios: scenarios.length,
-      messages: messages.length,
-    },
-  };
-}
-
-async function getFirmDashboardSummary(firmId) {
-  const [recentClients, recentMessages, workflows, openInvoices, reviewDocs, scenarios] = await Promise.all([
-    prisma.client.findMany({
-      where: { firmId },
-      orderBy: { createdAt: "desc" },
-      take: 4,
-      select: { id: true, name: true, businessType: true, annualRevenue: true },
-    }),
-    prisma.message.findMany({
-      where: { client: { firmId } },
-      orderBy: { createdAt: "desc" },
-      take: 4,
-      select: { id: true, content: true, createdAt: true, client: { select: { name: true } } },
-    }),
-    prisma.workflow.findMany({
-      where: { firmId, status: { in: ["active", "pending"] } },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-      select: { id: true, name: true, status: true },
-    }),
-    prisma.invoice.findMany({
-      where: { client: { firmId }, status: { in: ["draft", "sent", "pending"] } },
-      orderBy: { dueDate: "asc" },
-      take: 3,
-      select: { id: true, status: true, dueDate: true, client: { select: { name: true } } },
-    }),
-    prisma.document.findMany({
-      where: { client: { firmId }, status: { in: ["uploaded", "in_review", "draft"] } },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-      select: { id: true, title: true, status: true, client: { select: { name: true } } },
-    }),
-    prisma.scenario.findMany({
-      where: { client: { firmId }, resolvedAt: null },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-      select: { id: true, question: true, client: { select: { id: true, name: true } } },
-    }),
-  ]);
-
-  const todoItems = [
-    ...workflows.map((workflow) => ({
-      id: `workflow-${workflow.id}`,
-      title: workflow.name,
-      detail: workflow.status === "pending" ? "Pending workflow follow-up" : "Active workflow in progress",
-      kind: "workflow",
-      href: "/dashboard/workflows",
-    })),
-    ...openInvoices.map((invoice) => ({
-      id: `invoice-${invoice.id}`,
-      title: `Invoice follow-up for ${invoice.client.name}`,
-      detail: `Status: ${invoice.status} | Due ${new Date(invoice.dueDate).toLocaleDateString("en-US")}`,
-      kind: "invoice",
-      href: "/dashboard/invoicing",
-    })),
-    ...reviewDocs.map((document) => ({
-      id: `document-${document.id}`,
-      title: `${document.client.name}: ${document.title}`,
-      detail: `Document status: ${document.status}`,
-      kind: "document",
-      href: "/dashboard/documents",
-    })),
-    ...scenarios.map((scenario) => ({
-      id: `scenario-${scenario.id}`,
-      title: `${scenario.client.name} planning review`,
-      detail: scenario.question,
-      kind: "scenario",
-      href: `/dashboard/clients/${scenario.client.id}`,
-    })),
-  ].slice(0, 6);
-
-  return {
-    recentClients: recentClients.map((client) => ({
-      ...client,
-      href: `/dashboard/clients/${client.id}`,
-    })),
-    todoItems,
-    recentMessages: recentMessages.map((message) => ({
-      id: message.id,
-      clientName: message.client.name,
-      content: message.content,
-      createdAt: message.createdAt,
-      href: "/dashboard/chat",
-    })),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Firm Stats
-// ---------------------------------------------------------------------------
-app.get("/api/firms/:firmId/dashboard-summary", async (req, res) => {
-  try {
-    res.json(await getFirmDashboardSummary(req.params.firmId));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/firms/:firmId/demo-data", async (req, res) => {
-  try {
-    res.json(await seedFirmDemoData(req.params.firmId));
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
 
 async function getFirmStatsPayload(firmId) {
   const clients = await prisma.client.findMany({
@@ -1023,382 +109,6 @@ async function getFirmStatsPayload(firmId) {
     scenarioCount,
     totalRevenue,
   };
-}
-
-app.get("/api/firms/:firmId/stats", async (req, res) => {
-  try {
-    res.json(await getFirmStatsPayload(req.params.firmId));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Service proxy configuration
-// ---------------------------------------------------------------------------
-const SERVICES = {
-  paperless: process.env.PAPERLESS_URL || "http://localhost:8000",
-  docuseal: process.env.DOCUSEAL_URL || "http://localhost:3003",
-  invoiceninja: process.env.INVOICE_NINJA_URL || "http://localhost:8080",
-  n8n: process.env.N8N_URL || "http://localhost:5678",
-  kimai: process.env.KIMAI_URL || "http://localhost:8001",
-  mattermost: process.env.MATTERMOST_URL || "http://localhost:8065",
-  metabase: process.env.METABASE_URL || "http://localhost:3002",
-  twenty: process.env.TWENTY_URL || "http://localhost:3004",
-  bigcapital: process.env.BIGCAPITAL_URL || "http://localhost:3000",
-};
-
-const PUBLIC_SERVICES = {
-  paperless: process.env.PAPERLESS_PUBLIC_URL || "https://docs.maxed.life",
-  docuseal: process.env.DOCUSEAL_PUBLIC_URL || "https://sign.maxed.life",
-  invoiceninja: process.env.INVOICE_NINJA_PUBLIC_URL || "https://billing.maxed.life",
-  n8n: process.env.N8N_PUBLIC_URL || "https://flow.maxed.life",
-  kimai: process.env.KIMAI_PUBLIC_URL || "https://time.maxed.life",
-  bigcapital: process.env.BIGCAPITAL_PUBLIC_URL || "https://books.maxed.life",
-  twenty: process.env.TWENTY_PUBLIC_URL || "https://crm.maxed.life",
-  metabase: process.env.METABASE_PUBLIC_URL || "https://reports.maxed.life",
-  mattermost: process.env.MATTERMOST_PUBLIC_URL || "https://chat.maxed.life",
-};
-
-const SERVICE_CATALOG = {
-  paperless: {
-    key: "paperless",
-    name: "Paperless",
-    provisioningMode: "embedded",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "firm_credentials",
-    isolationNote: "Separate firm credentials exist, but this still runs inside a shared Paperless instance.",
-    preferredAction: "signin_or_admin",
-    setupPath: "",
-    adminPath: "",
-    note: "Paperless can stay embedded once firm credentials exist.",
-  },
-  docuseal: {
-    key: "docuseal",
-    name: "DocuSeal",
-    provisioningMode: "embedded",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "firm_credentials",
-    isolationNote: "Separate firm credentials and tokens exist, but DocuSeal still sits behind one shared Maxed deployment.",
-    preferredAction: "signin_or_admin",
-    setupPath: "",
-    adminPath: "",
-    note: "DocuSeal remains embedded when the workspace is already initialized.",
-  },
-  invoiceninja: {
-    key: "invoiceninja",
-    name: "Invoice Ninja",
-    provisioningMode: "bootstrap_then_admin",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "shared_instance_admin_managed",
-    isolationNote: "CPA staff users can be separate, but Invoice Ninja still needs strong company-level admin discipline inside one shared instance.",
-    preferredAction: "setup_then_user_management",
-    setupPath: "/setup",
-    adminPath: "/#/settings/user_management",
-    note: "Invoice Ninja needs first-run setup before CPA staff users can be created from User Management.",
-  },
-  n8n: {
-    key: "n8n",
-    name: "n8n",
-    provisioningMode: "embedded",
-    controlPlaneManaged: true,
-    core: false,
-    isolationTier: "admin_backend_only",
-    isolationNote: "n8n should stay a Maxed backend automation surface, not a CPA-facing shared workspace.",
-    preferredAction: "setup_owner_then_api_key",
-    setupPath: "/setup",
-    adminPath: "",
-    note: "n8n exposes an owner setup flow on fresh instances and can stay embedded for that workflow.",
-  },
-  kimai: {
-    key: "kimai",
-    name: "Kimai",
-    provisioningMode: "bootstrap_then_admin",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "shared_instance_admin_managed",
-    isolationNote: "Kimai users can be separate per firm, but it still operates inside one shared instance and needs admin oversight.",
-    preferredAction: "first_admin_then_users",
-    setupPath: "",
-    adminPath: "/en/admin/user/",
-    note: "Kimai may require a first super-admin from bootstrap or CLI before normal user provisioning works.",
-  },
-  mattermost: {
-    key: "mattermost",
-    name: "Mattermost",
-    provisioningMode: "config_or_signup",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "shared_instance_team_scoped",
-    isolationNote: "Mattermost should be treated as team-scoped inside one shared server, not as a fully isolated per-firm tenant.",
-    preferredAction: "enable_signup_or_admin_create",
-    setupPath: "/signup_email",
-    adminPath: "/admin_console/user_management/users",
-    note: "Mattermost public signup depends on server-wide account creation settings.",
-  },
-  metabase: {
-    key: "metabase",
-    name: "Metabase",
-    provisioningMode: "bootstrap_then_admin",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "admin_backend_only",
-    isolationNote: "Metabase should stay a reporting backend and admin surface. Do not treat the upstream UI as a CPA tenant boundary.",
-    preferredAction: "setup_then_invite",
-    setupPath: "/setup",
-    adminPath: "/admin/people",
-    note: "Metabase requires the first admin during setup, and only after that can firm users be invited.",
-  },
-  twenty: {
-    key: "twenty",
-    name: "Twenty CRM",
-    provisioningMode: "embedded",
-    controlPlaneManaged: true,
-    core: false,
-    isolationTier: "workspace_scoped",
-    isolationNote: "Twenty is closer to a real workspace boundary, but Maxed should still own the CPA-facing experience.",
-    preferredAction: "signup",
-    setupPath: "/sign-up",
-    adminPath: "",
-    note: "Twenty remains embedded because its signup flow already behaves correctly in Maxed.",
-  },
-  bigcapital: {
-    key: "bigcapital",
-    name: "Bigcapital",
-    provisioningMode: "embedded",
-    controlPlaneManaged: true,
-    core: true,
-    isolationTier: "workspace_scoped",
-    isolationNote: "Bigcapital is closer to a firm workspace boundary, but should still be treated as infrastructure behind Maxed.",
-    preferredAction: "signup_or_admin",
-    setupPath: "/auth/register",
-    adminPath: "/admin/users",
-    note: "Bigcapital keeps a direct signup flow through Maxed's embedded path.",
-  },
-};
-
-const SERVICE_WORKSPACE_PATHS = {
-  paperless: "/dashboard/documents",
-  docuseal: "/dashboard/proposals",
-  invoiceninja: "/dashboard/invoicing",
-  n8n: "/dashboard/workflows",
-  kimai: "/dashboard/time-tracking",
-  bigcapital: "/dashboard/bookkeeping",
-  twenty: "/dashboard/crm",
-  metabase: "/dashboard/reporting",
-  mattermost: "/dashboard/chat",
-};
-
-const SERVICE_ACCESS_CAPABILITIES = {
-  paperless: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  docuseal: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  invoiceninja: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  n8n: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_owner_handoff",
-  },
-  kimai: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  bigcapital: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  twenty: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  metabase: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-  mattermost: {
-    browserSessionBroker: false,
-    cpaMode: "maxed_native_only",
-    adminMode: "setup_and_exception_handoff",
-  },
-};
-
-const SERVICE_PROVISIONING_ADAPTERS = {
-  paperless: {
-    key: "paperless",
-    automatic: true,
-    strategy: "maxed_managed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  docuseal: {
-    key: "docuseal",
-    automatic: true,
-    strategy: "maxed_managed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  invoiceninja: {
-    key: "invoiceninja",
-    automatic: true,
-    strategy: "bootstrap_then_maxed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  n8n: {
-    key: "n8n",
-    automatic: true,
-    strategy: "owner_then_api_key_seed",
-    canBrokerBrowserSession: false,
-  },
-  kimai: {
-    key: "kimai",
-    automatic: true,
-    strategy: "bootstrap_then_maxed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  bigcapital: {
-    key: "bigcapital",
-    automatic: true,
-    strategy: "workspace_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  twenty: {
-    key: "twenty",
-    automatic: true,
-    strategy: "workspace_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  metabase: {
-    key: "metabase",
-    automatic: true,
-    strategy: "bootstrap_then_maxed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-  mattermost: {
-    key: "mattermost",
-    automatic: true,
-    strategy: "bootstrap_then_maxed_identity_seed",
-    canBrokerBrowserSession: false,
-  },
-};
-
-const SERVICE_DEFAULT_TOKENS = {
-  paperless: "PAPERLESS_API_TOKEN",
-  docuseal: "DOCUSEAL_API_TOKEN",
-  n8n: "N8N_API_KEY",
-  bigcapital: "BIGCAPITAL_API_TOKEN",
-  twenty: "TWENTY_API_KEY",
-};
-
-function getPublicServiceUrl(service) {
-  return PUBLIC_SERVICES[service] || null;
-}
-
-function buildPublicServiceUrl(service, path = "") {
-  const baseUrl = getPublicServiceUrl(service);
-  if (!baseUrl) return null;
-  if (!path) return baseUrl;
-  return `${String(baseUrl).replace(/\/$/, "")}${path}`;
-}
-
-function getMaxedWorkspaceUrl(service) {
-  const workspacePath = SERVICE_WORKSPACE_PATHS[service] || "/dashboard";
-  return `https://app.maxed.life${workspacePath}`;
-}
-
-function getServiceIdentityShape(serviceKey) {
-  switch (serviceKey) {
-    case "invoiceninja":
-    case "kimai":
-    case "metabase":
-      return {
-        accountType: "bootstrap_admin_then_cpa_user",
-        bootstrapRequired: true,
-        summary: "Shared admin bootstraps the workspace, then creates a dedicated CPA user.",
-      };
-    case "mattermost":
-    case "bigcapital":
-    case "twenty":
-      return {
-        accountType: "direct_cpa_user_or_admin_create",
-        bootstrapRequired: false,
-        summary: "CPA user can usually sign up directly, or be created by an admin using the same email identity.",
-      };
-    case "n8n":
-      return {
-        accountType: "workspace_owner_plus_api_key",
-        bootstrapRequired: true,
-        summary: "Owner bootstraps the workspace, then Maxed stores the API key used for automation.",
-      };
-    default:
-      return {
-        accountType: "admin_managed_cpa_user",
-        bootstrapRequired: false,
-        summary: "Admin creates or confirms the CPA user, then Maxed stores the resulting credentials.",
-      };
-  }
-}
-
-function buildCanonicalIdentity(firm, teamMembers = []) {
-  const sortedMembers = [...teamMembers].sort((a, b) => {
-    if (a.role === "admin" && b.role !== "admin") return -1;
-    if (a.role !== "admin" && b.role === "admin") return 1;
-    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-  });
-  const primaryMember = sortedMembers.find((member) => member.role !== "admin") || sortedMembers[0] || null;
-  const fallbackEmail = String(firm.email || "").trim().toLowerCase();
-  const primaryEmail = primaryMember?.email || fallbackEmail || `${slugifyName(firm.name)}@maxed.local`;
-
-  return {
-    primaryMember: primaryMember
-      ? {
-          id: primaryMember.id,
-          name: primaryMember.name,
-          email: primaryMember.email,
-          role: primaryMember.role,
-        }
-      : null,
-    canonicalEmail: primaryEmail,
-    canonicalUsername: primaryEmail.split("@")[0] || slugifyName(firm.name) || "firm",
-    bootstrapRoleLabel: "Platform bootstrap admin",
-    cpaRoleLabel: primaryMember?.role === "admin" ? "Firm admin user" : "Primary CPA user",
-  };
-}
-
-function buildSuggestedServiceCredential(firm, identity, service) {
-  const baseEmail = String(identity.canonicalEmail || firm.email || "").trim().toLowerCase();
-  const emailParts = baseEmail.includes("@") ? baseEmail.split("@") : [slugifyName(firm.name), "maxed.local"];
-  const localPart = emailParts[0] || slugifyName(firm.name) || "firm";
-  const domainPart = emailParts[1] || "maxed.local";
-  const slug = slugifyName(firm.name) || "firm";
-
-  const defaults = {
-    username: baseEmail || `${localPart}@${domainPart}`,
-    password: generateStrongPassword(),
-    token: "",
-    metadata: "",
-  };
-
-  if (service === "mattermost") defaults.metadata = baseEmail || "";
-  if (service === "bigcapital") defaults.metadata = slug;
-  if (service === "n8n") defaults.username = baseEmail || `${slug}@${domainPart}`;
-
-  return defaults;
 }
 
 async function ensureFirmServiceAccountPlan(firmId) {
@@ -1813,7 +523,7 @@ async function provisionWorkspaceManagedService({ firmId, service, identity, sug
 }
 
 async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
-  const adminToken = await getMattermostToken(null);
+  const adminToken = await getMattermostToken(null, { allowSharedFallback: true });
   if (!adminToken) {
     const error = new Error("Mattermost admin auth unavailable");
     error.status = 502;
@@ -1937,7 +647,7 @@ async function provisionMattermostUser({ firmId, firm, identity, suggestion }) {
 }
 
 async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
-  const session = await getMetabaseSession(null);
+  const session = await getMetabaseSession(null, { allowSharedFallback: true });
   if (!session) {
     const error = new Error("Metabase admin session unavailable");
     error.status = 502;
@@ -2064,7 +774,7 @@ async function provisionMetabaseUser({ firmId, firm, identity, suggestion }) {
 }
 
 async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion }) {
-  const adminHeaders = await invoiceNinjaAuth(null);
+  const adminHeaders = await invoiceNinjaAuth(null, { allowSharedFallback: true });
   if (!adminHeaders["X-API-TOKEN"]) {
     const error = new Error("Invoice Ninja admin API token unavailable");
     error.status = 502;
@@ -2174,7 +884,7 @@ async function provisionInvoiceNinjaUser({ firmId, firm, identity, suggestion })
 }
 
 async function provisionKimaiUser({ firmId, firm, identity, suggestion }) {
-  const adminHeaders = await kimaiAuth(null);
+  const adminHeaders = await kimaiAuth(null, { allowSharedFallback: true });
   if (!adminHeaders["X-AUTH-TOKEN"] && !adminHeaders.Authorization) {
     const error = new Error("Kimai admin API auth unavailable");
     error.status = 502;
@@ -2365,23 +1075,6 @@ function generatePortalAccessCode() {
   return Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
 }
 
-function generateStrongPassword(length = 20) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
-  let password = "";
-  for (let i = 0; i < length; i += 1) {
-    password += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return password;
-}
-
-function slugifyName(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 24);
-}
-
 function normalizeCredentialField(value) {
   if (typeof value !== "string") return value ?? undefined;
   const trimmed = value.trim();
@@ -2451,40 +1144,34 @@ async function ensurePortalAccessCredentialForFirm(firmId) {
   return credential;
 }
 
-// Extract firmId from X-Firm-Id header on all service proxy routes
-app.use("/api/services", (req, _res, next) => {
-  req.firmId = req.headers["x-firm-id"] || null;
-  if (!req.firmId && req.path !== "/urls" && req.path !== "/catalog" && req.path !== "/status" && req.path !== "/diagnose") {
-    console.warn(`[service-proxy] Request to ${req.path} without X-Firm-Id header`);
-  }
-  next();
-});
-
 // ---------------------------------------------------------------------------
 // Service auth — looks up per-firm credentials, falls back to env vars
 // ---------------------------------------------------------------------------
-async function paperlessAuth(firmId) {
+async function paperlessAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "paperless");
   if (cred?.token) return { Authorization: `Token ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.PAPERLESS_API_TOKEN || null;
   return token ? { Authorization: `Token ${token}` } : {};
 }
 
-async function docusealAuth(firmId) {
+async function docusealAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "docuseal");
   if (cred?.token) return { "X-Auth-Token": cred.token, Authorization: `Bearer ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.DOCUSEAL_API_TOKEN || null;
   return token ? { "X-Auth-Token": token, Authorization: `Bearer ${token}` } : {};
 }
 
-async function n8nAuth(firmId) {
+async function n8nAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "n8n");
   if (cred?.token) return { "X-N8N-API-KEY": cred.token };
+  if (!allowSharedFallback) return {};
   const token = process.env.N8N_API_KEY || null;
   return token ? { "X-N8N-API-KEY": token } : {};
 }
 
-async function kimaiAuth(firmId) {
+async function kimaiAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "kimai");
   if (cred?.token) {
     return {
@@ -2493,6 +1180,7 @@ async function kimaiAuth(firmId) {
       "X-AUTH-TOKEN": cred.token,
     };
   }
+  if (!allowSharedFallback) return {};
   const token = process.env.KIMAI_API_TOKEN || null;
   if (!token) return {};
   return {
@@ -2502,7 +1190,7 @@ async function kimaiAuth(firmId) {
   };
 }
 
-async function invoiceNinjaAuth(firmId) {
+async function invoiceNinjaAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "invoiceninja");
   if (cred?.token) return { "X-API-TOKEN": cred.token, "X-Requested-With": "XMLHttpRequest" };
 
@@ -2513,6 +1201,9 @@ async function invoiceNinjaAuth(firmId) {
     }
   }
 
+  if (!allowSharedFallback) {
+    return { "X-Requested-With": "XMLHttpRequest" };
+  }
   const token = process.env.INVOICE_NINJA_API_TOKEN || null;
   return token
     ? { "X-API-TOKEN": token, "X-Requested-With": "XMLHttpRequest" }
@@ -2583,7 +1274,7 @@ async function ensureInvoiceNinjaClient(firmId, clientId) {
   return { client, remoteClientId };
 }
 
-async function bigcapitalAuth(firmId) {
+async function bigcapitalAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "bigcapital");
   if (cred?.token) {
     const h = { Authorization: `Bearer ${cred.token}` };
@@ -2607,6 +1298,9 @@ async function bigcapitalAuth(firmId) {
     }
   }
 
+  if (!allowSharedFallback) {
+    return {};
+  }
   const token = process.env.BIGCAPITAL_API_TOKEN || null;
   if (!token) {
     return {};
@@ -2621,23 +1315,24 @@ async function bigcapitalAuth(firmId) {
   return headers;
 }
 
-async function twentyAuth(firmId) {
+async function twentyAuth(firmId, { allowSharedFallback = false } = {}) {
   const cred = await getServiceCredential(firmId, "twenty");
   if (cred?.token) return { Authorization: `Bearer ${cred.token}` };
+  if (!allowSharedFallback) return {};
   const token = process.env.TWENTY_API_KEY || null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // Metabase & Mattermost: per-firm session caching
 const metabaseSessions = new Map();
-async function getMetabaseSession(firmId) {
+async function getMetabaseSession(firmId, { allowSharedFallback = false } = {}) {
   const cacheKey = firmId || "_global";
   const cached = metabaseSessions.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.session;
 
   const cred = await getServiceCredential(firmId, "metabase");
-  const email = cred?.username || process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL;
-  const password = cred?.password || process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  const email = cred?.username || (allowSharedFallback ? (process.env.METABASE_EMAIL || process.env.SERVICE_ADMIN_EMAIL) : null);
+  const password = cred?.password || (allowSharedFallback ? (process.env.METABASE_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD) : null);
   if (!email || !password) return null;
   try {
     const r = await fetch(`${SERVICES.metabase}/api/session`, {
@@ -2831,14 +1526,14 @@ async function getBigcapitalSession(firmId, credOverride = null) {
   return null;
 }
 
-async function getMattermostToken(firmId) {
+async function getMattermostToken(firmId, { allowSharedFallback = false } = {}) {
   const cacheKey = firmId || "_global";
   const cached = mattermostSessions.get(cacheKey);
   if (cached && Date.now() < cached.expires) return cached.token;
 
   const cred = await getServiceCredential(firmId, "mattermost");
-  const user = cred?.username || process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER;
-  const pass = cred?.password || process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD;
+  const user = cred?.username || (allowSharedFallback ? (process.env.MATTERMOST_USER || process.env.MATTERMOST_ADMIN_USER) : null);
+  const pass = cred?.password || (allowSharedFallback ? (process.env.MATTERMOST_PASSWORD || process.env.SERVICE_ADMIN_PASSWORD) : null);
   if (!user || !pass) return null;
   try {
     const r = await fetch(`${SERVICES.mattermost}/api/v4/users/login`, {
@@ -3055,6 +1750,7 @@ async function loadBookkeepingWorkspace(firmId) {
   let transactions = null;
   let balanceSheet = null;
   let profitLoss = null;
+  let manualJournals = null;
 
   if (workspace.configured && headers.Authorization) {
     try {
@@ -3100,6 +1796,18 @@ async function loadBookkeepingWorkspace(firmId) {
     } catch (err) {
       issues.push(workspaceIssueFromError("bigcapital", "profit_loss", err));
     }
+
+    try {
+      const result = await proxyFetchWithFallbacks(
+        SERVICES.bigcapital,
+        ["/api/manual-journals?page=1&page_size=20", "/api/v1/manual-journals?page=1&page_size=20"],
+        { headers },
+      );
+      if (statusOk(result.status)) manualJournals = result.data;
+      else issues.push(workspaceIssueFromResult("bigcapital", "manual_journals", result));
+    } catch (err) {
+      issues.push(workspaceIssueFromError("bigcapital", "manual_journals", err));
+    }
   }
 
   return {
@@ -3110,6 +1818,8 @@ async function loadBookkeepingWorkspace(firmId) {
       actions: {
         read: true,
         review: true,
+        createAccount: true,
+        createJournal: true,
       },
     },
     issues,
@@ -3119,6 +1829,7 @@ async function loadBookkeepingWorkspace(firmId) {
       transactions,
       balanceSheet,
       profitLoss,
+      manualJournals,
     },
   };
 }
@@ -3398,6 +2109,7 @@ async function loadWorkflowsWorkspace(firmId) {
       actions: {
         read: true,
         toggleWorkflow: true,
+        createWorkflow: true,
       },
     },
     issues,
@@ -3576,6 +2288,8 @@ async function loadReportingWorkspace(firmId) {
       title: "Maxed Analytics",
       actions: {
         read: true,
+        inspectDashboards: true,
+        inspectQuestions: true,
       },
     },
     issues,
@@ -3599,6 +2313,7 @@ app.get("/bridge/:service", async (req, res) => {
       adminMode: "setup_and_exception_handoff",
     };
     const maxedWorkspaceUrl = getMaxedWorkspaceUrl(service);
+    const mode = req.query.mode === "direct" ? "direct" : "maxed";
     if (!serviceUrl) {
       return res.status(404).send(bridgePage({
         title: "Workspace Unavailable",
@@ -3631,20 +2346,22 @@ app.get("/bridge/:service", async (req, res) => {
       }));
     }
 
-    if (!accessCapability.browserSessionBroker) {
+    if (mode === "direct") {
       return res.status(200).send(bridgePage({
-        title: "Open In Maxed",
-        message: "This workspace is Maxed-managed. CPA access stays in Maxed, and upstream access remains an admin exception path.",
-        redirectUrl: maxedWorkspaceUrl,
+        title: "Opening Live Module",
+        message: accessCapability.browserSessionBroker
+          ? "Maxed is handing off to the live workspace for this firm."
+          : "Maxed is opening the full upstream module for advanced actions that are not yet surfaced natively in the Maxed workspace.",
+        redirectUrl: serviceUrl,
         autoRedirect: true,
       }));
     }
 
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).send(bridgePage({
-      title: "Opening Workspace",
-      message: "Maxed is handing off to the live workspace for this firm.",
-      redirectUrl: serviceUrl,
+      title: "Open In Maxed",
+      message: "This workspace is Maxed-managed. CPA access stays in Maxed, and upstream access remains an admin exception path.",
+      redirectUrl: maxedWorkspaceUrl,
       autoRedirect: true,
     }));
   } catch (err) {
@@ -3720,101 +2437,18 @@ async function writeManagedStorageObject({ bucket = "documents", relativePath, b
   };
 }
 
-// ---------------------------------------------------------------------------
-// Admin — Manage team members (admin creates accounts for users)
-// ---------------------------------------------------------------------------
-app.post("/api/firms/:firmId/team", async (req, res) => {
-  try {
-    const { name, email, role, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required" });
-    }
-    const bcrypt = require("bcryptjs");
-    const passwordHash = await bcrypt.hash(password, 12);
-    const member = await prisma.teamMember.create({
-      data: {
-        firmId: req.params.firmId,
-        name,
-        email,
-        role: role || "staff",
-        passwordHash,
-      },
-    });
-    res.status(201).json({ id: member.id, name: member.name, email: member.email, role: member.role });
-  } catch (err) {
-    if (err.code === "P2002") {
-      return res.status(409).json({ error: "A team member with this email already exists" });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/firms/:firmId/team", async (req, res) => {
-  try {
-    const members = await prisma.teamMember.findMany({
-      where: { firmId: req.params.firmId },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
-    });
-    res.json(members);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete("/api/firms/:firmId/team/:memberId", async (req, res) => {
-  try {
-    await prisma.teamMember.delete({ where: { id: req.params.memberId } });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Password Reset — request + confirm flow
-// ---------------------------------------------------------------------------
-const resetTokens = new Map(); // In-memory store: token -> { email, expires }
-
-app.post("/api/auth/forgot-password", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email required" });
-
-  const member = await prisma.teamMember.findFirst({ where: { email } });
-  if (!member) {
-    // Don't reveal whether the email exists
-    return res.json({ ok: true, message: "If an account exists, a reset link has been generated." });
-  }
-
-  const token = crypto.randomBytes(32).toString("hex");
-  resetTokens.set(token, { email, expires: Date.now() + 3600000 }); // 1 hour
-
-  // In production, you'd send an email. For now, log and return the token.
-  console.log(`Password reset token for ${email}: ${token}`);
-  console.log(`Reset URL: https://app.maxed.life/reset-password?token=${token}`);
-
-  res.json({ ok: true, message: "If an account exists, a reset link has been generated.", token });
-});
-
-app.post("/api/auth/reset-password", async (req, res) => {
-  const { token, newPassword } = req.body;
-  if (!token || !newPassword) return res.status(400).json({ error: "Token and new password required" });
-  if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters" });
-
-  const entry = resetTokens.get(token);
-  if (!entry || entry.expires < Date.now()) {
-    return res.status(400).json({ error: "Invalid or expired reset token" });
-  }
-
-  const bcrypt = require("bcryptjs");
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-
-  await prisma.teamMember.updateMany({
-    where: { email: entry.email },
-    data: { passwordHash },
-  });
-
-  resetTokens.delete(token);
-  res.json({ ok: true, message: "Password has been reset. You can now log in." });
+registerPlatformRoutes(app, {
+  prisma,
+  bcryptAvailable,
+  issuePlatformSession,
+  isPlatformAdminEmail,
+  resolvePlatformSessionFromRequest,
+  hashOpaqueToken,
+  ensurePortalAccessCredential,
+  ensurePortalAccessCredentialForFirm,
+  provisionFirmServices,
+  docusealAuth,
+  getFirmStatsPayload,
 });
 
 registerOpenFrameRoutes(app, {
@@ -3883,9 +2517,17 @@ registerOpenFrameRoutes(app, {
   loadReportingWorkspace,
 });
 
-// ---------------------------------------------------------------------------
-// Start
-// ---------------------------------------------------------------------------
-app.listen(PORT, () => {
-  console.log(`Maxed platform API running on http://localhost:${PORT}`);
-});
+function start(port = PORT) {
+  return app.listen(port, () => {
+    console.log(`Maxed platform API running on http://localhost:${port}`);
+  });
+}
+
+if (require.main === module) {
+  start(PORT);
+}
+
+module.exports = {
+  app,
+  start,
+};

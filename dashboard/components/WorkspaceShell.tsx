@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { bridgeUrl, getFirmId } from '@/lib/api';
 import { useServiceStatus } from '@/lib/useServiceStatus';
 
 function cx(...parts: Array<string | false | null | undefined>) {
@@ -57,7 +58,11 @@ export function WorkspaceShell({
   children: ReactNode;
 }) {
   const { statuses } = useServiceStatus();
-  const tone = service ? statusTone(statuses[service]?.health) : null;
+  const serviceStatus = service ? statuses[service] : null;
+  const tone = service ? statusTone(serviceStatus?.health) : null;
+  const liveModuleUrl = service && serviceStatus?.configured && getFirmId()
+    ? bridgeUrl(service, { mode: 'direct' })
+    : '';
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -82,7 +87,21 @@ export function WorkspaceShell({
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300 sm:text-[15px]">{description}</p>
               </div>
             </div>
-            {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+            {actions || liveModuleUrl ? (
+              <div className="flex flex-wrap items-center gap-3">
+                {actions}
+                {liveModuleUrl ? (
+                  <a
+                    href={liveModuleUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-secondary border-white/15 bg-white/10 text-white hover:bg-white/15"
+                  >
+                    Open Live Module
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {metrics ? <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{metrics}</div> : null}

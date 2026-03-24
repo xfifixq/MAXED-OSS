@@ -1,6 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 const FIRM_STORAGE_KEY = 'maxed:firmId';
-const PLATFORM_SESSION_STORAGE_KEY = 'maxed:platformSessionToken';
 
 function readStoredFirmId(): string {
   if (typeof window === 'undefined') return '';
@@ -8,10 +7,6 @@ function readStoredFirmId(): string {
 }
 
 let _firmId = readStoredFirmId();
-let _platformSessionToken =
-  typeof window === 'undefined'
-    ? ''
-    : window.sessionStorage.getItem(PLATFORM_SESSION_STORAGE_KEY) || '';
 
 export function setFirmId(id: string) {
   _firmId = id;
@@ -27,28 +22,6 @@ export function clearFirmId() {
   }
 }
 
-export function setPlatformSessionToken(token: string) {
-  _platformSessionToken = token;
-  if (typeof window !== 'undefined') {
-    if (token) window.sessionStorage.setItem(PLATFORM_SESSION_STORAGE_KEY, token);
-    else window.sessionStorage.removeItem(PLATFORM_SESSION_STORAGE_KEY);
-  }
-}
-
-export function clearPlatformSessionToken() {
-  _platformSessionToken = '';
-  if (typeof window !== 'undefined') {
-    window.sessionStorage.removeItem(PLATFORM_SESSION_STORAGE_KEY);
-  }
-}
-
-export function getPlatformSessionToken(): string {
-  if (!_platformSessionToken && typeof window !== 'undefined') {
-    _platformSessionToken = window.sessionStorage.getItem(PLATFORM_SESSION_STORAGE_KEY) || '';
-  }
-  return _platformSessionToken;
-}
-
 export function getFirmId(): string {
   if (!_firmId) {
     _firmId = readStoredFirmId();
@@ -60,6 +33,15 @@ export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
+export function bridgeUrl(service: string, options?: { firmId?: string; mode?: 'maxed' | 'direct' }): string {
+  const params = new URLSearchParams();
+  const firmId = options?.firmId || getFirmId();
+  if (firmId) params.set('firmId', firmId);
+  if (options?.mode) params.set('mode', options.mode);
+  const query = params.toString();
+  return `${API_URL}/bridge/${service}${query ? `?${query}` : ''}`;
+}
+
 export function firmApiUrl(path: string): string {
   return `${API_URL}/api/firms/${getFirmId()}${path}`;
 }
@@ -67,22 +49,15 @@ export function firmApiUrl(path: string): string {
 // Headers to include on all service proxy calls — tells the API which firm's credentials to use
 export function serviceHeaders(): Record<string, string> {
   const firmId = getFirmId();
-  const platformSessionToken = getPlatformSessionToken();
   return {
     ...(firmId ? { 'X-Firm-Id': firmId } : {}),
-    ...(platformSessionToken ? { 'X-Maxed-Session': platformSessionToken } : {}),
   };
 }
 
 export function installApiFetchCredentials() {
   if (typeof window === 'undefined') return;
-
   const marker = '__maxedFetchCredentialsInstalled';
-  const windowWithMarker = window as Window & {
-    __maxedFetchCredentialsInstalled?: boolean;
-  };
-
-  if (windowWithMarker[marker]) return;
+  if ((window as any)[marker]) return;
 
   const originalFetch = window.fetch.bind(window);
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -93,34 +68,18 @@ export function installApiFetchCredentials() {
           ? input.toString()
           : input.url;
 
-    const shouldAugment =
+    const shouldIncludeCredentials =
       typeof requestUrl === 'string' &&
-      requestUrl.startsWith(API_URL);
+      (requestUrl.startsWith(API_URL) || requestUrl.startsWith('/api/platform/session/'));
 
-    if (!shouldAugment) {
-      return originalFetch(input as RequestInfo, init);
-    }
+    const nextInit = shouldIncludeCredentials && !init?.credentials
+      ? { ...init, credentials: 'include' as RequestCredentials }
+      : init;
 
-    const headers = new Headers(
-      init?.headers || (input instanceof Request ? input.headers : undefined),
-    );
-    const platformSessionToken = getPlatformSessionToken();
-    if (platformSessionToken && !headers.has('X-Maxed-Session')) {
-      headers.set('X-Maxed-Session', platformSessionToken);
-    }
-
-    if (!headers.has('Content-Type') && init?.body && !(init.body instanceof FormData)) {
-      headers.set('Content-Type', 'application/json');
-    }
-
-    return originalFetch(input as RequestInfo, {
-      ...init,
-      credentials: init?.credentials || 'include',
-      headers,
-    });
+    return originalFetch(input as any, nextInit);
   }) as typeof window.fetch;
 
-  windowWithMarker[marker] = true;
+  (window as any)[marker] = true;
 }
 
 export async function apiFetch<T = any>(
@@ -132,13 +91,13 @@ export async function apiFetch<T = any>(
     : firmApiUrl(path);
 
   const res = await fetch(url, {
+    ...options,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...serviceHeaders(),
       ...options?.headers,
     },
-    ...options,
   });
 
   if (!res.ok) {

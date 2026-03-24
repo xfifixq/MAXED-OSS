@@ -3,24 +3,88 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getSession, signIn } from 'next-auth/react';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { setFirmId, setPlatformSessionToken } from '@/lib/api';
 import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 export default function LoginPage() {
   const router = useRouter();
   const callbackUrl = '/dashboard';
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const primePlatformSession = async () => {
+    // Try server-side proxy first (uses internal URL, avoids CORS/DNS issues)
+    let loginRes = await fetch('/api/platform/session/prime', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }).catch(() => null);
+
+    // Fallback: call the platform API directly from the browser
+    if (!loginRes?.ok) {
+      loginRes = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      }).catch(() => null);
+    }
+
+    if (!loginRes?.ok) {
+      return '';
+    }
+
+    const loginPayload = (await loginRes.json().catch(() => null)) as { platformSessionToken?: string } | null;
+    const token = loginPayload?.platformSessionToken;
+    if (!token) {
+      return '';
+    }
+
+    setBrowserPlatformSessionCookie(token);
+
+    await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch(() => null);
+
+    return token;
+  };
+
+  const bootstrapPlatformSession = async (platformSessionToken?: string) => {
+    const res = await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+      headers: platformSessionToken
+        ? {
+            Authorization: `Bearer ${platformSessionToken}`,
+          }
+        : undefined,
+    });
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (platformSessionToken) {
+        setBrowserPlatformSessionCookie(platformSessionToken);
+        return;
+      }
+      throw new Error(payload?.error || 'Unable to establish secure Maxed session.');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    const primedPlatformToken = await primePlatformSession();
 
     const result = await signIn('credentials', {
       email,
@@ -34,19 +98,17 @@ export default function LoginPage() {
     if (result?.error) {
       setError('Invalid email or password.');
     } else if (result?.ok) {
-      const session = await getSession();
-      const firmId = (session?.user as any)?.firmId;
-      const platformSessionToken = (session?.user as any)?.platformSessionToken;
-
-      if (firmId) {
-        setFirmId(firmId);
+      try {
+        await bootstrapPlatformSession(primedPlatformToken);
+      } catch {
+        // Platform session bootstrap failed — proceed if we have a primed token
+        // (cookie was already set in primePlatformSession). If not, the middleware
+        // will redirect back to login when no session exists at all.
+        if (!primedPlatformToken) {
+          setError('Platform session unavailable. Check that the platform API is running.');
+          return;
+        }
       }
-
-      if (platformSessionToken) {
-        setPlatformSessionToken(platformSessionToken);
-        setBrowserPlatformSessionCookie(platformSessionToken);
-      }
-
       router.push(callbackUrl);
     }
   };

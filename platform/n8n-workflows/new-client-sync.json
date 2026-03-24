@@ -108,7 +108,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://localhost:4000/api/firms/{{ $json.body.firmId }}/clients",
+        "url": "=http://maxed-api:4102/api/firms/{{ $json.body.firmId }}/clients",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

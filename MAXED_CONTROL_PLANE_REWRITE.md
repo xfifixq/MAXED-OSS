@@ -111,11 +111,28 @@ Completed in the current Maxed rewrite:
   - chat
   - CRM
 - The browser-side CPA UI no longer depends on raw Bigcapital, Kimai, Invoice Ninja, Paperless, Mattermost, Twenty, DocuSeal, n8n, or Metabase proxy calls for those workspaces.
-- The backend control plane is now decomposed into extracted OpenFrame route modules under `platform/src/openframe/`, with `platform/server.js` acting as the composition root instead of keeping those surfaces inline.
+- The backend runtime is now decomposed by role:
+  - `platform/src/runtime/` for app bootstrap and middleware
+  - `platform/src/platform/` for auth, firm, client, team, and portal routes
+  - `platform/src/openframe/` for service registry, control-plane, workspace, storage, and legacy adapter routes
+- `platform/server.js` now acts as the composition root and shared helper layer instead of defining API routes inline.
+- Maxed now has separate deployables for:
+  - `maxed-gateway`
+  - `maxed-auth`
+  - `maxed-api`
+  - `maxed-external-api`
+  - `maxed-stream`
+  - `maxed-config`
+- Shared runtime code now lives in `platform/src/shared/` for:
+  - Prisma and Supabase bootstrap
+  - platform session issuance and resolution
+  - internal port and URL mapping
+  - HTTP gateway proxying
+  - runtime event shipping
+- Nginx, Docker Compose, and PM2 now target the gateway boundary instead of routing browser traffic straight to the API process.
 
 Still deferred:
 
-- Split the remaining non-OpenFrame legacy platform CRUD/auth surfaces out of `platform/server.js`.
 - Move provisioning and connector definitions out of the monolith into a formal registry.
 - Add deeper Maxed-owned workflow coverage where the current UI is still read-heavy or thin compared with the upstream systems.
 

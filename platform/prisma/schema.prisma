@@ -61,6 +61,7 @@ model TeamMember {
   createdAt    DateTime @default(now())
   serviceAccounts FirmServiceAccount[]
   platformSessions PlatformSession[]
+  passwordResetTokens PasswordResetToken[]
   provisioningRuns ServiceProvisioningRun[] @relation("ProvisioningRequestedBy")
 }
 
@@ -216,4 +217,17 @@ model ServiceBrokerSession {
 
   @@index([firmId, service])
   @@index([platformSessionId])
+}
+
+model PasswordResetToken {
+  id           String     @id @default(uuid())
+  tokenHash     String     @unique
+  teamMemberId  String
+  teamMember    TeamMember @relation(fields: [teamMemberId], references: [id])
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime   @default(now())
+
+  @@index([teamMemberId])
+  @@index([expiresAt])
 }

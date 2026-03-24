@@ -1,3 +1,10 @@
+const { canAccessFirm } = require("../shared/tenantAccess");
+
+function extractFirmIdFromStoragePath(relativePath) {
+  const match = String(relativePath || "").match(/^dashboard\/([^/]+)\//);
+  return match ? match[1] : null;
+}
+
 module.exports = function registerStorageRoutes(app, deps) {
   const {
     supabase,
@@ -11,6 +18,11 @@ module.exports = function registerStorageRoutes(app, deps) {
       const { bucket = "documents", path: relativePath, base64Data, contentType } = req.body;
       if (!relativePath || !base64Data) {
         return res.status(400).json({ error: "path and base64Data required" });
+      }
+
+      const firmId = extractFirmIdFromStoragePath(relativePath);
+      if (firmId && !canAccessFirm(req, firmId)) {
+        return res.status(403).json({ error: "Forbidden" });
       }
 
       const buffer = Buffer.from(base64Data, "base64");
@@ -31,6 +43,11 @@ module.exports = function registerStorageRoutes(app, deps) {
     try {
       const { bucket = "documents", path: relativePath } = req.query;
       if (!relativePath) return res.status(400).json({ error: "path required" });
+
+      const firmId = extractFirmIdFromStoragePath(relativePath);
+      if (firmId && !canAccessFirm(req, firmId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
 
       if (supabase) {
         const { data } = supabase.storage.from(String(bucket)).getPublicUrl(String(relativePath));
@@ -54,6 +71,11 @@ module.exports = function registerStorageRoutes(app, deps) {
     try {
       const { bucket = "documents", path: relativePath } = req.query;
       if (!relativePath) return res.status(400).json({ error: "path required" });
+
+      const firmId = extractFirmIdFromStoragePath(relativePath);
+      if (firmId && !canAccessFirm(req, firmId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
 
       const target = resolveStorageTarget(bucket, relativePath);
       await deps.fs.access(target.absolutePath);

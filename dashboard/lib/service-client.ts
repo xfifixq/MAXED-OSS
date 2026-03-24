@@ -41,7 +41,7 @@ function buildHeaders(options?: RequestInit) {
 export async function serviceFetch<T = unknown>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(apiUrl(path), {
     ...options,
-    credentials: options?.credentials || 'include',
+    credentials: 'include',
     headers: buildHeaders(options),
   });
 
@@ -64,7 +64,7 @@ export async function serviceFetch<T = unknown>(path: string, options?: RequestI
 export async function firmFetch<T = unknown>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(firmApiUrl(path), {
     ...options,
-    credentials: options?.credentials || 'include',
+    credentials: 'include',
     headers: buildHeaders(options),
   });
 

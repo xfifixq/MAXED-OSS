@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -23,7 +24,62 @@ export default function RegisterPage() {
   const [adminPassword, setAdminPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
+
+  const primePlatformSession = async (userEmail: string, userPassword: string) => {
+    const loginRes = await fetch(`${API}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: userEmail,
+        password: userPassword,
+      }),
+      credentials: 'include',
+    });
+
+    if (!loginRes.ok) {
+      return '';
+    }
+
+    const loginPayload = (await loginRes.json().catch(() => null)) as { platformSessionToken?: string } | null;
+    const token = loginPayload?.platformSessionToken;
+    if (!token) {
+      return '';
+    }
+
+    setBrowserPlatformSessionCookie(token);
+
+    await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch(() => null);
+
+    return token;
+  };
+
+  const bootstrapPlatformSession = async (platformSessionToken?: string) => {
+    const res = await fetch('/api/platform/session/bootstrap', {
+      method: 'POST',
+      credentials: 'include',
+      headers: platformSessionToken
+        ? {
+            Authorization: `Bearer ${platformSessionToken}`,
+          }
+        : undefined,
+    });
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (platformSessionToken) {
+        setBrowserPlatformSessionCookie(platformSessionToken);
+        return;
+      }
+      throw new Error(payload?.error || 'Unable to establish secure Maxed session.');
+    }
+  };
 
   const handleStep1 = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +128,8 @@ export default function RegisterPage() {
         return;
       }
 
+      const primedPlatformToken = await primePlatformSession(adminEmail, adminPassword);
+
       // Auto sign in after registration
       const result = await signIn('credentials', {
         email: adminEmail,
@@ -81,6 +139,7 @@ export default function RegisterPage() {
       });
 
       if (result?.ok) {
+        await bootstrapPlatformSession(primedPlatformToken);
         router.push('/dashboard');
       } else {
         // Registration succeeded but auto-login failed, redirect to login

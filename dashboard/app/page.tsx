@@ -4,8 +4,11 @@ import { authOptions } from '@/lib/auth';
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
+  const platformSessionToken = typeof (session?.user as any)?.platformSessionToken === 'string'
+    ? (session?.user as any).platformSessionToken
+    : '';
 
-  if (session) {
+  if (session && platformSessionToken) {
     redirect('/dashboard');
   } else {
     redirect('/login');

@@ -2,7 +2,7 @@
 
 type JsonRecord = Record<string, unknown>;
 
-const COLLECTION_KEYS = ['data', 'results', 'items', 'documents', 'accounts', 'transactions', 'templates', 'submissions', 'workflows', 'executions', 'dashboards', 'questions'];
+const COLLECTION_KEYS = ['data', 'results', 'items', 'documents', 'accounts', 'transactions', 'templates', 'submissions', 'workflows', 'executions', 'dashboards', 'questions', 'manualJournals', 'journals'];
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {};
@@ -435,6 +435,16 @@ export interface StatementLine {
   amount: number;
 }
 
+export interface ManualJournal {
+  id: string;
+  date: string | null;
+  reference: string;
+  description: string;
+  status: string;
+  publishedAt: string | null;
+  amount: number;
+}
+
 export function normalizeBigcapitalAccounts(value: unknown): LedgerAccount[] {
   return uniqueById(
     extractCollection(value, ['accounts', 'data', 'results']).map((item) => ({
@@ -509,6 +519,26 @@ export function normalizeBigcapitalStatement(value: unknown): StatementLine[] {
   });
 }
 
+export function normalizeBigcapitalManualJournals(value: unknown): ManualJournal[] {
+  return uniqueById(
+    extractCollection(value, ['manualJournals', 'journals', 'data', 'results']).map((item) => {
+      const entries = extractCollection(item.entries || item.lines, ['entries', 'lines']);
+      const debitTotal = entries.reduce((sum, entry) => sum + numberValue(entry.debit || entry.debit_amount), 0);
+      const creditTotal = entries.reduce((sum, entry) => sum + numberValue(entry.credit || entry.credit_amount), 0);
+
+      return {
+        id: stringValue(item.id || item.manual_journal_id || item.journal_id),
+        date: dateValue(item.date || item.journal_date || item.created_at),
+        reference: stringValue(item.reference_no || item.reference || item.journal_number || item.number),
+        description: stringValue(item.description || item.note || item.memo || 'Manual journal'),
+        status: stringValue(item.status || (item.published_at ? 'published' : 'draft') || 'draft'),
+        publishedAt: dateValue(item.published_at || item.publishedAt),
+        amount: numberValue(item.amount || item.total || item.base_total || Math.max(debitTotal, creditTotal)),
+      };
+    }),
+  );
+}
+
 export function findStatementAmount(lines: StatementLine[], matchers: RegExp[]) {
   const line = lines.find((entry) => matchers.some((matcher) => matcher.test(entry.label.toLowerCase())));
   return line?.amount || 0;
@@ -535,6 +565,19 @@ export interface MetabaseDashboardDetail {
   name: string;
   description: string;
   cards: Array<{ id: string; name: string; display: string }>;
+}
+
+export interface MetabaseQuestionDetail {
+  id: string;
+  name: string;
+  description: string;
+  display: string;
+  collectionId: string;
+}
+
+export interface MetabaseQueryPreview {
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
 }
 
 export function normalizeMetabaseDashboards(value: unknown): MetabaseDashboard[] {
@@ -580,6 +623,50 @@ export function normalizeMetabaseDashboardDetail(value: unknown): MetabaseDashbo
     name: stringValue(record.name || record.title || 'Dashboard'),
     description: stringValue(record.description),
     cards,
+  };
+}
+
+export function normalizeMetabaseQuestionDetail(value: unknown): MetabaseQuestionDetail | null {
+  const record = asRecord(value);
+  const id = stringValue(record.id);
+  if (!id) return null;
+
+  return {
+    id,
+    name: stringValue(record.name || record.title || 'Saved question'),
+    description: stringValue(record.description),
+    display: stringValue(record.display || record.visualization_type || 'table'),
+    collectionId: stringValue(record.collection_id || record.collectionId),
+  };
+}
+
+export function normalizeMetabaseQueryPreview(value: unknown): MetabaseQueryPreview {
+  if (Array.isArray(value)) {
+    const rows = value
+      .map((row) => asRecord(row))
+      .filter((row) => Object.keys(row).length > 0);
+    const columns = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+    return { columns, rows };
+  }
+
+  const record = asRecord(value);
+  const data = asRecord(record.data);
+  const cols = Array.isArray(data.cols) ? data.cols.map((col) => stringValue(asRecord(col).name || asRecord(col).display_name)) : [];
+  const rows = Array.isArray(data.rows)
+    ? data.rows.map((row) => {
+        if (Array.isArray(row)) {
+          return row.reduce<Record<string, unknown>>((acc, cell, index) => {
+            acc[cols[index] || `column_${index + 1}`] = cell;
+            return acc;
+          }, {});
+        }
+        return asRecord(row);
+      })
+    : extractCollection(value, ['rows', 'data', 'results']);
+
+  return {
+    columns: cols.length ? cols : Array.from(new Set(rows.flatMap((row) => Object.keys(row)))),
+    rows,
   };
 }
 

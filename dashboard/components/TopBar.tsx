@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
-import { apiUrl, clearFirmId, clearPlatformSessionToken } from '@/lib/api';
+import { clearFirmId } from '@/lib/api';
 import { useNotifications } from '@/lib/notifications';
 import { clearBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 
@@ -80,24 +80,16 @@ export default function TopBar() {
   }, []);
 
   const handleSignOut = async () => {
-    const platformSessionToken = (session?.user as any)?.platformSessionToken;
-
     try {
-      await fetch(apiUrl('/api/auth/logout'), {
+      await fetch('/api/platform/session/logout', {
         method: 'POST',
         credentials: 'include',
-        headers: platformSessionToken
-          ? {
-              Authorization: `Bearer ${platformSessionToken}`,
-            }
-          : undefined,
       });
     } catch {
-      // Best-effort platform session cleanup.
+      // Best-effort secure session cleanup.
     }
 
     clearBrowserPlatformSessionCookie();
-    clearPlatformSessionToken();
     clearFirmId();
     await signOut({ callbackUrl: '/login' });
   };

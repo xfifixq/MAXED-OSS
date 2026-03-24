@@ -3,18 +3,8 @@
 import { useEffect, useState } from 'react';
 import { SessionProvider, signOut, useSession } from 'next-auth/react';
 import { NotificationProvider } from '@/lib/notifications';
-import {
-  apiUrl,
-  clearFirmId,
-  clearPlatformSessionToken,
-  installApiFetchCredentials,
-  setFirmId,
-  setPlatformSessionToken,
-} from '@/lib/api';
-import {
-  clearBrowserPlatformSessionCookie,
-  setBrowserPlatformSessionCookie,
-} from '@/lib/platform-session-client';
+import { apiUrl, clearFirmId, installApiFetchCredentials, setFirmId } from '@/lib/api';
+import { setBrowserPlatformSessionCookie } from '@/lib/platform-session-client';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 
@@ -30,50 +20,46 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    async function syncPlatformSession() {
-      if (status === 'loading') {
-        if (active) setReady(false);
-        return;
-      }
-
+    async function sync() {
+      if (status === 'loading') return;
       if (status !== 'authenticated') {
         clearFirmId();
-        clearPlatformSessionToken();
-        clearBrowserPlatformSessionCookie();
-        if (active) {
-          setError('');
-          setReady(true);
-        }
+        if (active) setReady(true);
         return;
       }
 
       const firmId = (session?.user as any)?.firmId;
       const platformSessionToken = (session?.user as any)?.platformSessionToken;
-
-      if (!firmId || !platformSessionToken) {
-        clearFirmId();
-        clearPlatformSessionToken();
-        clearBrowserPlatformSessionCookie();
-        if (active) {
-          setError('Platform session unavailable. Sign in again to continue.');
-          setReady(false);
-        }
-        await signOut({ redirect: true, callbackUrl: '/login' });
-        return;
-      }
-
-      setFirmId(firmId);
-      setPlatformSessionToken(platformSessionToken);
-      setBrowserPlatformSessionCookie(platformSessionToken);
+      if (firmId) setFirmId(firmId);
 
       try {
-        const res = await fetch(apiUrl('/api/auth/session'), {
+        const res = await fetch('/api/platform/session/bootstrap', {
+          method: 'POST',
           credentials: 'include',
+          headers: platformSessionToken
+            ? { Authorization: `Bearer ${platformSessionToken}` }
+            : undefined,
         });
 
         if (!res.ok) {
+          if (platformSessionToken) {
+            setBrowserPlatformSessionCookie(platformSessionToken);
+          }
+
+          const fallback = await fetch(apiUrl('/api/auth/session'), {
+            credentials: 'include',
+          }).catch(() => null);
+
+          if (fallback?.ok) {
+            if (active) {
+              setError('');
+              setReady(true);
+            }
+            return;
+          }
+
           const payload = await res.json().catch(() => null);
-          throw new Error(payload?.error || 'Unable to establish Maxed session.');
+          throw new Error(payload?.error || 'Unable to establish a secure Maxed session.');
         }
 
         if (active) {
@@ -81,20 +67,15 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
           setReady(true);
         }
       } catch (err) {
-        clearFirmId();
-        clearPlatformSessionToken();
-        clearBrowserPlatformSessionCookie();
-
         if (active) {
-          setError(err instanceof Error ? err.message : 'Unable to establish Maxed session.');
-          setReady(false);
+          clearFirmId();
+          setError(err instanceof Error ? err.message : 'Unable to establish a secure Maxed session.');
         }
-
         await signOut({ redirect: true, callbackUrl: '/login' });
       }
     }
 
-    syncPlatformSession();
+    sync();
     return () => {
       active = false;
     };
@@ -113,7 +94,7 @@ function FirmIdSync({ children }: { children: React.ReactNode }) {
   if (status === 'loading' || !ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 text-sm text-gray-500">
-        Establishing Maxed session...
+        Establishing secure session...
       </div>
     );
   }

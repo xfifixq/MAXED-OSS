@@ -19,6 +19,8 @@ import {
   normalizeBigcapitalStatement,
   normalizeMetabaseDashboardDetail,
   normalizeMetabaseDashboards,
+  normalizeMetabaseQueryPreview,
+  normalizeMetabaseQuestionDetail,
   normalizeMetabaseQuestions,
 } from '@/lib/service-adapters';
 
@@ -65,6 +67,11 @@ export default function ReportingPage() {
   const [profitLoss, setProfitLoss] = useState<ReturnType<typeof normalizeBigcapitalStatement>>([]);
   const [selectedDashboardId, setSelectedDashboardId] = useState('');
   const [selectedDashboard, setSelectedDashboard] = useState<ReturnType<typeof normalizeMetabaseDashboardDetail>>(null);
+  const [selectedQuestionId, setSelectedQuestionId] = useState('');
+  const [selectedQuestion, setSelectedQuestion] = useState<ReturnType<typeof normalizeMetabaseQuestionDetail>>(null);
+  const [questionPreview, setQuestionPreview] = useState<ReturnType<typeof normalizeMetabaseQueryPreview>>({ columns: [], rows: [] });
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
+  const [runningQuestion, setRunningQuestion] = useState(false);
   const [dashboardSearch, setDashboardSearch] = useState('');
   const [questionSearch, setQuestionSearch] = useState('');
 
@@ -80,16 +87,21 @@ export default function ReportingPage() {
       const issue = payload.issues?.[0];
       const probeReason = payload.workspace?.liveProbe?.reason?.replace(/_/g, ' ');
       const nextDashboards = normalizeMetabaseDashboards(payload.data?.dashboards);
+      const nextQuestions = normalizeMetabaseQuestions(payload.data?.questions);
 
       setStats(payload.data?.stats || {});
       setDashboards(nextDashboards);
-      setQuestions(normalizeMetabaseQuestions(payload.data?.questions));
+      setQuestions(nextQuestions);
       setBalanceSheet(normalizeBigcapitalStatement(payload.data?.balanceSheet));
       setProfitLoss(normalizeBigcapitalStatement(payload.data?.profitLoss));
 
       setSelectedDashboardId((current) => {
         if (current && nextDashboards.some((dashboard) => dashboard.id === current)) return current;
         return nextDashboards[0]?.id || '';
+      });
+      setSelectedQuestionId((current) => {
+        if (current && nextQuestions.some((question) => question.id === current)) return current;
+        return nextQuestions[0]?.id || '';
       });
 
       if (issue) {
@@ -106,6 +118,9 @@ export default function ReportingPage() {
       setBalanceSheet([]);
       setProfitLoss([]);
       setSelectedDashboardId('');
+      setSelectedQuestionId('');
+      setSelectedQuestion(null);
+      setQuestionPreview({ columns: [], rows: [] });
     }
 
     setLoading(false);
@@ -132,6 +147,53 @@ export default function ReportingPage() {
   useEffect(() => {
     loadSelectedDashboard();
   }, [loadSelectedDashboard]);
+
+  const loadSelectedQuestion = useCallback(async () => {
+    if (!selectedQuestionId || !isReady) {
+      setSelectedQuestion(null);
+      setQuestionPreview({ columns: [], rows: [] });
+      return;
+    }
+
+    setLoadingQuestion(true);
+    try {
+      const [detailPayload, previewPayload] = await Promise.all([
+        firmFetch(`/workspaces/reporting/questions/${selectedQuestionId}`),
+        firmFetch(`/workspaces/reporting/questions/${selectedQuestionId}/query`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        }),
+      ]);
+      setSelectedQuestion(normalizeMetabaseQuestionDetail(detailPayload));
+      setQuestionPreview(normalizeMetabaseQueryPreview(previewPayload));
+    } catch {
+      setSelectedQuestion(null);
+      setQuestionPreview({ columns: [], rows: [] });
+    } finally {
+      setLoadingQuestion(false);
+    }
+  }, [isReady, selectedQuestionId]);
+
+  useEffect(() => {
+    loadSelectedQuestion();
+  }, [loadSelectedQuestion]);
+
+  const runSelectedQuestion = useCallback(async () => {
+    if (!selectedQuestionId) return;
+
+    setRunningQuestion(true);
+    try {
+      const payload = await firmFetch(`/workspaces/reporting/questions/${selectedQuestionId}/query`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setQuestionPreview(normalizeMetabaseQueryPreview(payload));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to run saved question.');
+    } finally {
+      setRunningQuestion(false);
+    }
+  }, [selectedQuestionId]);
 
   const totals = useMemo(() => {
     const revenue = findStatementAmount(profitLoss, [/\brevenue\b/, /\bincome\b/]);
@@ -299,7 +361,15 @@ export default function ReportingPage() {
           ) : (
             <div className="space-y-3">
               {filteredQuestions.slice(0, 10).map((question) => (
-                <div key={question.id} className="rounded-2xl border border-slate-200 px-4 py-3">
+                <button
+                  key={question.id}
+                  onClick={() => setSelectedQuestionId(question.id)}
+                  className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
+                    question.id === selectedQuestionId
+                      ? 'border-brand-300 bg-brand-50'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-medium text-slate-900">{question.name}</p>
@@ -312,8 +382,103 @@ export default function ReportingPage() {
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-slate-400">
                     Updated {formatDateTime(question.updatedAt)}
                   </p>
-                </div>
+                </button>
               ))}
+            </div>
+          )}
+        </WorkspacePanel>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[0.92fr,1.08fr]">
+        <WorkspacePanel
+          title="Selected question"
+          description="Inspect a saved question and rerun it from inside Maxed."
+          action={
+            <button onClick={runSelectedQuestion} disabled={runningQuestion || !selectedQuestionId} className="btn-secondary disabled:opacity-60">
+              {runningQuestion ? 'Refreshing...' : 'Refresh question'}
+            </button>
+          }
+        >
+          {loading || loadingQuestion ? (
+            <WorkspaceSkeleton rows={4} />
+          ) : !selectedQuestion ? (
+            <WorkspaceEmpty title="No question selected" message="Choose a saved question above to inspect its definition and latest rows." />
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-base font-semibold text-slate-900">{selectedQuestion.name}</p>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {selectedQuestion.display}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">{selectedQuestion.description || 'Saved question surfaced through the Maxed analytics workspace.'}</p>
+              </div>
+              {questionPreview.rows.length === 0 ? (
+                <WorkspaceEmpty title="No preview rows" message="Run the saved question to inspect its current result set." />
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {questionPreview.columns.slice(0, 6).map((column) => (
+                            <th key={column} className="table-header">
+                              {column}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {questionPreview.rows.slice(0, 8).map((row, index) => (
+                          <tr key={`${selectedQuestion.id}-${index}`} className="hover:bg-slate-50">
+                            {questionPreview.columns.slice(0, 6).map((column) => (
+                              <td key={column} className="table-cell text-slate-600">
+                                {String(row[column] ?? '—')}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </WorkspacePanel>
+
+        <WorkspacePanel title="Finance statement detail" description="Balance sheet and profit-and-loss lines remain available alongside saved analytics assets.">
+          {loading ? (
+            <WorkspaceSkeleton rows={6} />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-900">Balance sheet</p>
+                {balanceSheet.length === 0 ? (
+                  <WorkspaceEmpty title="No balance sheet lines" message="Connect Bigcapital to surface live balance sheet detail here." />
+                ) : (
+                  balanceSheet.slice(0, 8).map((line) => (
+                    <div key={`${line.label}-${line.amount}`} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+                      <p className="font-medium text-slate-900">{line.label}</p>
+                      <p className="text-sm font-semibold text-slate-950">{formatCurrency(line.amount)}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-900">Profit and loss</p>
+                {profitLoss.length === 0 ? (
+                  <WorkspaceEmpty title="No P&L lines" message="Connect Bigcapital to surface live income statement detail here." />
+                ) : (
+                  profitLoss.slice(0, 8).map((line) => (
+                    <div key={`${line.label}-${line.amount}`} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+                      <p className="font-medium text-slate-900">{line.label}</p>
+                      <p className="text-sm font-semibold text-slate-950">{formatCurrency(line.amount)}</p>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </WorkspacePanel>

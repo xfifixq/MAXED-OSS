@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 
-// Production service URLs — override with .env.local for local development
+// Production service URLs. `NEXT_PUBLIC_API_URL` is the Maxed gateway boundary.
 const PROD_URLS = {
   NEXT_PUBLIC_API_URL: 'https://api.maxed.life',
   NEXT_PUBLIC_BIGCAPITAL_URL: 'https://books.maxed.life',
