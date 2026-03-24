@@ -4,7 +4,9 @@ import { resolveNextAuthToken } from '@/lib/nextauth-token';
 
 export async function middleware(request: NextRequest) {
   const token = await resolveNextAuthToken(request);
-  const hasPlatformSessionToken = typeof token?.platformSessionToken === 'string' && token.platformSessionToken.length > 0;
+  const hasPlatformSessionToken =
+    (typeof token?.platformSessionToken === 'string' && token.platformSessionToken.length > 0) ||
+    !!request.cookies.get('maxed_session')?.value;
 
   const { pathname } = request.nextUrl;
 

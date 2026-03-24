@@ -18,14 +18,24 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const primePlatformSession = async () => {
-    const loginRes = await fetch(`${API_URL}/api/auth/login`, {
+    // Try server-side proxy first (uses internal URL, avoids CORS/DNS issues)
+    let loginRes = await fetch('/api/platform/session/prime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
-      credentials: 'include',
-    });
+    }).catch(() => null);
 
-    if (!loginRes.ok) {
+    // Fallback: call the platform API directly from the browser
+    if (!loginRes?.ok) {
+      loginRes = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      }).catch(() => null);
+    }
+
+    if (!loginRes?.ok) {
       return '';
     }
 
@@ -90,9 +100,14 @@ export default function LoginPage() {
     } else if (result?.ok) {
       try {
         await bootstrapPlatformSession(primedPlatformToken);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unable to establish secure Maxed session.');
-        return;
+      } catch {
+        // Platform session bootstrap failed — proceed if we have a primed token
+        // (cookie was already set in primePlatformSession). If not, the middleware
+        // will redirect back to login when no session exists at all.
+        if (!primedPlatformToken) {
+          setError('Platform session unavailable. Check that the platform API is running.');
+          return;
+        }
       }
       router.push(callbackUrl);
     }
