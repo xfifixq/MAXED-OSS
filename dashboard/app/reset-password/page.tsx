@@ -15,7 +15,7 @@ function ResetPasswordForm() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -9,7 +9,7 @@ Routes all services behind `*.maxed.dev` subdomains.
 | app.maxed.dev | Dashboard | 3005 |
 | portal.maxed.dev | Client Portal | 3006 |
 | opencpa.maxed.dev | OpenCPA Site | 3007 |
-| api.maxed.dev | Maxed API | 4000 |
+| api.maxed.dev | Maxed Gateway | 4100 |
 | books.maxed.dev | Bigcapital | 3001 |
 | docs.maxed.dev | Paperless-ngx | 8000 |
 | flow.maxed.dev | n8n | 5678 |

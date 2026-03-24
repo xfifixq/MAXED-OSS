@@ -1,3 +1,29 @@
+x-maxed-runtime-base: &maxed-runtime-base
+  build:
+    context: ../platform
+  restart: unless-stopped
+  env_file:
+    - ../platform/.env
+  environment:
+    MAXED_GATEWAY_PORT: 4100
+    MAXED_AUTH_PORT: 4101
+    MAXED_API_PORT: 4102
+    MAXED_EXTERNAL_API_PORT: 4103
+    MAXED_STREAM_PORT: 4104
+    MAXED_CONFIG_PORT: 4105
+    MAXED_GATEWAY_INTERNAL_URL: http://maxed-gateway:4100
+    MAXED_AUTH_INTERNAL_URL: http://maxed-auth:4101
+    MAXED_API_INTERNAL_URL: http://maxed-api:4102
+    MAXED_EXTERNAL_API_INTERNAL_URL: http://maxed-external-api:4103
+    MAXED_STREAM_INTERNAL_URL: http://maxed-stream:4104
+    MAXED_CONFIG_INTERNAL_URL: http://maxed-config:4105
+    PUBLIC_API_URL: https://api.maxed.life
+  volumes:
+    - maxed_storage:/app/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+
 services:
   # ============================================
   # SHARED INFRASTRUCTURE
@@ -33,6 +59,65 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ============================================
+  # MAXED OPENFRAME RUNTIME
+  # ============================================
+
+  maxed-gateway:
+    <<: *maxed-runtime-base
+    container_name: maxed-gateway
+    command: npm run start:gateway
+    ports:
+      - "127.0.0.1:4100:4100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      maxed-auth:
+        condition: service_started
+      maxed-api:
+        condition: service_started
+      maxed-external-api:
+        condition: service_started
+      maxed-stream:
+        condition: service_started
+      maxed-config:
+        condition: service_started
+
+  maxed-auth:
+    <<: *maxed-runtime-base
+    container_name: maxed-auth
+    command: npm run start:auth
+    ports:
+      - "127.0.0.1:4101:4101"
+
+  maxed-api:
+    <<: *maxed-runtime-base
+    container_name: maxed-api
+    command: npm run start:api
+    ports:
+      - "127.0.0.1:4102:4102"
+
+  maxed-external-api:
+    <<: *maxed-runtime-base
+    container_name: maxed-external-api
+    command: npm run start:external-api
+    ports:
+      - "127.0.0.1:4103:4103"
+
+  maxed-stream:
+    <<: *maxed-runtime-base
+    container_name: maxed-stream
+    command: npm run start:stream
+    ports:
+      - "127.0.0.1:4104:4104"
+
+  maxed-config:
+    <<: *maxed-runtime-base
+    container_name: maxed-config
+    command: npm run start:config
+    ports:
+      - "127.0.0.1:4105:4105"
 
   # ============================================
   # 1. BIGCAPITAL (Bookkeeping)
@@ -383,6 +468,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  maxed_storage:
   bigcapital_mysql_data:
   paperless_data:
   paperless_media:

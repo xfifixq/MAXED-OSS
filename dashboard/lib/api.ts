@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 const FIRM_STORAGE_KEY = 'maxed:firmId';
 const PLATFORM_SESSION_STORAGE_KEY = 'maxed:platformSessionToken';
 

@@ -44,7 +44,7 @@ http {
     server { listen 443 ssl; server_name opencpa.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { proxy_pass http://127.0.0.1:3007; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; } }
 
     server { listen 80; server_name api.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { return 301 https://$host$request_uri; } }
-    server { listen 443 ssl; server_name api.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { proxy_pass http://127.0.0.1:4000; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; } }
+    server { listen 443 ssl; server_name api.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { proxy_pass http://127.0.0.1:4100; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; } }
 
     server { listen 80; server_name books.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { return 301 https://$host$request_uri; } }
     server { listen 443 ssl; server_name books.maxed.life; location /.well-known/acme-challenge/ { root /var/www/certbot; } location / { proxy_pass http://127.0.0.1:3001; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; } }

@@ -53,6 +53,7 @@ echo "=== Maxed OpenCPA is starting up ==="
 echo ""
 echo "Services will be available at:"
 echo "  Dashboard:      http://app.maxed.life"
+echo "  API Gateway:    http://api.maxed.life"
 echo "  Bookkeeping:    http://books.maxed.life"
 echo "  Documents:      http://docs.maxed.life"
 echo "  Workflows:      http://flow.maxed.life"
@@ -68,4 +69,4 @@ echo "Check status with: docker compose ps"
 echo "Check logs with:   docker compose logs -f <service-name>"
 
 
-sleep 180 && for port in 3001 8000 5678 3002 3003 8080 3004 8001 8065; do printf "$port: "; curl -so /dev/null -w "%{http_code}" http://127.0.0.1:$port; echo; done
+sleep 180 && for port in 4100 4101 4102 4103 4104 4105 3001 8000 5678 3002 3003 8080 3004 8001 8065; do printf "$port: "; curl -so /dev/null -w "%{http_code}" http://127.0.0.1:$port; echo; done

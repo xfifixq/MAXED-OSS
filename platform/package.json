@@ -5,6 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:legacy": "node server.js",
+    "start:gateway": "node services/maxed-gateway/server.js",
+    "start:auth": "node services/maxed-auth/server.js",
+    "start:api": "node services/maxed-api/server.js",
+    "start:external-api": "node services/maxed-external-api/server.js",
+    "start:stream": "node services/maxed-stream/server.js",
+    "start:config": "node services/maxed-config/server.js",
     "dev": "nodemon server.js",
     "seed": "prisma db seed"
   },

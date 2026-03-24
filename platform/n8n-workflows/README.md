@@ -101,6 +101,6 @@ These workflows assume the following service URLs (matching the Docker Compose n
 | Invoice Ninja | `http://invoice-ninja:80` |
 | Paperless-ngx | `http://paperless:8000` |
 | Bigcapital | `http://bigcapital:8000` |
-| Maxed API | `http://localhost:4000` |
+| Maxed API | `http://maxed-api:4102` |
 
 Adjust these URLs in the workflow nodes if your deployment uses different hostnames or ports.

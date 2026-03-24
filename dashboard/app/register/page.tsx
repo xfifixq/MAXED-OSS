@@ -23,7 +23,7 @@ export default function RegisterPage() {
   const [adminPassword, setAdminPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
 
   const handleStep1 = (e: React.FormEvent) => {
     e.preventDefault();

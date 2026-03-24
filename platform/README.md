@@ -38,15 +38,20 @@ Unified data layer for the Maxed accounting firm management platform. Built with
    npm run seed
    ```
 
-5. **Start the server**
+5. **Start the runtime**
 
    ```bash
-   # Production
-   npm start
+   # Gateway boundary
+   npm run start:gateway
 
-   # Development (auto-reload)
-   npm run dev
+   # Internal API
+   npm run start:api
+
+   # Auth service
+   npm run start:auth
    ```
+
+For the full decomposed runtime, use the PM2 file at [ecosystem.config.cjs](/Users/fifisiddiqui/Desktop/MAXED-OSS/MAXED-OSS/infra/pm2/ecosystem.config.cjs) or the Docker Compose stack in [docker-compose.yml](/Users/fifisiddiqui/Desktop/MAXED-OSS/MAXED-OSS/infra/docker-compose.yml).
 
 ## API Endpoints
 

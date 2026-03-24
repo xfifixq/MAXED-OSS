@@ -19,54 +19,31 @@ const {
   buildCanonicalIdentity,
   buildSuggestedServiceCredential,
 } = require("./src/openframe/serviceRegistry");
-const { PrismaClient } = require("@prisma/client");
+const { prisma, supabase, LOCAL_STORAGE_ROOT } = require("./src/shared/platformData");
+const {
+  createPlatformSessionHelpers,
+  createRequireAuth,
+  hashOpaqueToken,
+  isPlatformAdminEmail,
+} = require("./src/shared/platformSession");
 const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
 
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 4000;
-const PLATFORM_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BROKER_SESSION_TTL_MS = 15 * 60 * 1000;
-const LOCAL_STORAGE_ROOT = path.resolve(process.env.LOCAL_STORAGE_ROOT || path.join(__dirname, "storage"));
-
-// ---------------------------------------------------------------------------
-// Supabase client (optional — used when SUPABASE_URL is configured)
-// ---------------------------------------------------------------------------
-let supabase = null;
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  const { createClient } = require("@supabase/supabase-js");
-  supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-  console.log("Supabase client initialized");
-}
+const { issuePlatformSession, resolvePlatformSessionFromRequest } =
+  createPlatformSessionHelpers({ prisma });
 
 // ---------------------------------------------------------------------------
 // API Key Authentication Middleware
 // ---------------------------------------------------------------------------
 const API_KEY = process.env.MAXED_API_KEY || "";
 
-async function requireAuth(req, res, next) {
-  // Skip auth in development if no key is configured
-  if (!API_KEY) return next();
-
-  const platformSession = await resolvePlatformSessionFromRequest(req);
-  if (platformSession) {
-    req.platformSession = platformSession;
-    return next();
-  }
-
-  const key =
-    req.headers["x-api-key"] ||
-    req.headers["authorization"]?.replace("Bearer ", "");
-
-  if (key !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  next();
-}
+const requireAuth = createRequireAuth({
+  apiKey: API_KEY,
+  resolvePlatformSessionFromRequest,
+});
 
 const app = createPlatformApp({
   requireAuth,
@@ -79,71 +56,6 @@ const app = createPlatformApp({
 const bcryptAvailable = (() => {
   try { require("bcryptjs"); return true; } catch { return false; }
 })();
-
-function generateOpaqueToken(bytes = 32) {
-  return crypto.randomBytes(bytes).toString("hex");
-}
-
-function hashOpaqueToken(token) {
-  return crypto.createHash("sha256").update(String(token)).digest("hex");
-}
-
-function isPlatformAdminEmail(email) {
-  return email === "admin@maxed.dev" || email === "admin@maxed.life";
-}
-
-async function issuePlatformSession(member) {
-  const rawToken = generateOpaqueToken(32);
-  const tokenHash = hashOpaqueToken(rawToken);
-  const session = await prisma.platformSession.create({
-    data: {
-      tokenHash,
-      teamMemberId: member.id,
-      firmId: member.firmId,
-      role: member.role,
-      isPlatformAdmin: isPlatformAdminEmail(member.email),
-      expiresAt: new Date(Date.now() + PLATFORM_SESSION_TTL_MS),
-    },
-  });
-
-  return {
-    rawToken,
-    session,
-  };
-}
-
-async function resolvePlatformSession(rawToken) {
-  if (!rawToken) return null;
-  const tokenHash = hashOpaqueToken(rawToken);
-  const session = await prisma.platformSession.findUnique({
-    where: { tokenHash },
-    include: {
-      teamMember: {
-        include: { firm: true },
-      },
-    },
-  });
-
-  if (!session) return null;
-  if (new Date(session.expiresAt).getTime() <= Date.now()) return null;
-
-  await prisma.platformSession.update({
-    where: { id: session.id },
-    data: { lastSeenAt: new Date() },
-  }).catch(() => {});
-
-  return session;
-}
-
-async function resolvePlatformSessionFromRequest(req) {
-  const headerToken =
-    req.headers["x-maxed-session"] ||
-    req.headers["x-platform-session"] ||
-    req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
-
-  if (!headerToken) return null;
-  return resolvePlatformSession(headerToken);
-}
 
 async function getFirmStatsPayload(firmId) {
   const clients = await prisma.client.findMany({
