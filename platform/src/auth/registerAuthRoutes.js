@@ -44,6 +44,55 @@ module.exports = function registerAuthRoutes(app, deps) {
     resolvePlatformSessionFromRequest,
   } = deps;
 
+  async function ensureEnvPlatformAdmin(normalizedEmail) {
+    const envAdminEmail = String(process.env.SERVICE_ADMIN_EMAIL || "").trim().toLowerCase();
+    if (!envAdminEmail || normalizedEmail !== envAdminEmail || !isPlatformAdminEmail(normalizedEmail)) {
+      return null;
+    }
+
+    const existingMember = await prisma.teamMember.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+      },
+      include: { firm: true },
+    });
+
+    if (existingMember) {
+      return existingMember;
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const firm =
+        await tx.firm.findFirst({
+          where: {
+            OR: [
+              { email: envAdminEmail },
+              { name: "Maxed Platform" },
+            ],
+          },
+        }) ||
+        await tx.firm.create({
+          data: {
+            name: "Maxed Platform",
+            email: envAdminEmail,
+          },
+        });
+
+      return tx.teamMember.create({
+        data: {
+          firmId: firm.id,
+          name: "Maxed Admin",
+          email: envAdminEmail,
+          role: "admin",
+        },
+        include: { firm: true },
+      });
+    });
+  }
+
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -55,7 +104,7 @@ module.exports = function registerAuthRoutes(app, deps) {
       const envAdminEmail = String(process.env.SERVICE_ADMIN_EMAIL || "").trim().toLowerCase();
       const envAdminPassword = String(process.env.SERVICE_ADMIN_PASSWORD || "");
 
-      const member = await prisma.teamMember.findFirst({
+      let member = await prisma.teamMember.findFirst({
         where: {
           email: {
             equals: normalizedEmail,
@@ -64,6 +113,10 @@ module.exports = function registerAuthRoutes(app, deps) {
         },
         include: { firm: true },
       });
+
+      if (!member) {
+        member = await ensureEnvPlatformAdmin(normalizedEmail);
+      }
 
       if (!member) {
         return res.status(401).json({ error: "Invalid credentials" });
