@@ -23,6 +23,22 @@ if ! command -v pm2 >/dev/null 2>&1; then
   exit 1
 fi
 
+kill_listener_on_port() {
+  local port="$1"
+  local pids=""
+
+  if command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  elif command -v fuser >/dev/null 2>&1; then
+    pids="$(fuser -n tcp "$port" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$pids" ]]; then
+    echo "Clearing existing listener(s) on port $port: $pids"
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
+}
+
 delete_pm2_app() {
   pm2 delete "$1" >/dev/null 2>&1 || true
 }
@@ -46,6 +62,11 @@ restart_pm2_stack() {
 
   for name in "${app_names[@]}"; do
     delete_pm2_app "$name"
+  done
+
+  local ports=(3005 3006 3007 4000 4100 4101 4102 4103 4104 4105)
+  for port in "${ports[@]}"; do
+    kill_listener_on_port "$port"
   done
 
   pm2 start "$ECOSYSTEM_FILE" --update-env
@@ -73,6 +94,7 @@ build_app_if_present() {
   echo "Building $label..."
   (
     cd "$ROOT_DIR/$dir"
+    rm -rf .next
     npm run build
   )
 }

@@ -49,10 +49,23 @@ function nextApp(name, cwd, port) {
   };
 }
 
+function standaloneNextApp(name, cwd, port) {
+  return {
+    name,
+    cwd,
+    script: "node",
+    args: ".next/standalone/server.js",
+    env: {
+      NODE_ENV: "production",
+      PORT: String(port),
+    },
+  };
+}
+
 const frontendApps = [
   hasPackageJson(dashboardCwd) ? nextApp("dashboard", dashboardCwd, 3005) : null,
-  hasPackageJson(portalCwd) ? nextApp("portal", portalCwd, 3006) : null,
-  hasPackageJson(opencpaCwd) ? nextApp("opencpa", opencpaCwd, 3007) : null,
+  hasPackageJson(portalCwd) ? standaloneNextApp("portal", portalCwd, 3006) : null,
+  hasPackageJson(opencpaCwd) ? standaloneNextApp("opencpa", opencpaCwd, 3007) : null,
 ].filter(Boolean);
 
 const platformApps = hasSplitPlatform
