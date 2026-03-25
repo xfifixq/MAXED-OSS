@@ -25,19 +25,31 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
+  const allowBrowserFallback = process.env.NODE_ENV !== 'production';
 
   const primePlatformSession = async (userEmail: string, userPassword: string) => {
-    const loginRes = await fetch(`${API}/api/auth/login`, {
+    let loginRes = await fetch('/api/platform/session/prime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: userEmail,
         password: userPassword,
       }),
-      credentials: 'include',
-    });
+    }).catch(() => null);
 
-    if (!loginRes.ok) {
+    if (!loginRes?.ok && allowBrowserFallback) {
+      loginRes = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          password: userPassword,
+        }),
+        credentials: 'include',
+      }).catch(() => null);
+    }
+
+    if (!loginRes?.ok) {
       return '';
     }
 

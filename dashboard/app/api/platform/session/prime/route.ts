@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const PLATFORM_API_URL =
-  process.env.PLATFORM_API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:4100';
+import { postPlatformLogin } from '@/lib/server-platform';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,22 +15,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const res = await fetch(`${PLATFORM_API_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const payload = await res.json().catch(() => null);
-
-    if (!res.ok) {
+    const result = await postPlatformLogin(email, password);
+    if (!result.ok) {
       return NextResponse.json(
-        { error: payload?.error || 'Invalid credentials' },
-        { status: res.status },
+        { error: 'Invalid credentials' },
+        { status: result.response?.status || 502 },
       );
     }
 
-    return NextResponse.json(payload);
+    return NextResponse.json(result.payload);
   } catch {
     return NextResponse.json(
       { error: 'Platform API unreachable' },

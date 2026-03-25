@@ -1,10 +1,6 @@
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-
-const API_URL =
-  process.env.PLATFORM_API_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  'http://localhost:4100';
+import { postPlatformLogin } from '@/lib/server-platform';
 const NEXTAUTH_SECRET =
   process.env.NEXTAUTH_SECRET ||
   process.env.MAXED_API_KEY ||
@@ -25,17 +21,9 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const res = await fetch(`${API_URL}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: credentials.email,
-              password: credentials.password,
-            }),
-          });
-
-          if (res.ok) {
-            const user = await res.json();
+          const result = await postPlatformLogin(credentials.email, credentials.password);
+          if (result.ok) {
+            const user = result.payload;
             return {
               id: user.id,
               email: user.email,

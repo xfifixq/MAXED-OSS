@@ -11,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const callbackUrl = '/dashboard';
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
+  const allowBrowserFallback = process.env.NODE_ENV !== 'production';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +27,7 @@ export default function LoginPage() {
     }).catch(() => null);
 
     // Fallback: call the platform API directly from the browser
-    if (!loginRes?.ok) {
+    if (!loginRes?.ok && allowBrowserFallback) {
       loginRes = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

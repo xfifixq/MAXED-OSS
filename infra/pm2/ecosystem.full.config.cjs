@@ -46,6 +46,10 @@ function nextApp(name, cwd, port) {
     env: {
       NODE_ENV: "production",
       PORT: String(port),
+      PLATFORM_API_URL: "http://127.0.0.1:4100",
+      PLATFORM_AUTH_URL: "http://127.0.0.1:4101",
+      MAXED_GATEWAY_INTERNAL_URL: "http://127.0.0.1:4100",
+      MAXED_AUTH_INTERNAL_URL: "http://127.0.0.1:4101",
     },
   };
 }
@@ -59,6 +63,10 @@ function standaloneNextApp(name, cwd, port) {
     env: {
       NODE_ENV: "production",
       PORT: String(port),
+      PLATFORM_API_URL: "http://127.0.0.1:4100",
+      PLATFORM_AUTH_URL: "http://127.0.0.1:4101",
+      MAXED_GATEWAY_INTERNAL_URL: "http://127.0.0.1:4100",
+      MAXED_AUTH_INTERNAL_URL: "http://127.0.0.1:4101",
     },
   };
 }

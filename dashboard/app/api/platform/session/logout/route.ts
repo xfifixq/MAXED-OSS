@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { resolveNextAuthToken } from '@/lib/nextauth-token';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
+import { getPlatformAuthUrls } from '@/lib/server-platform';
 
 function resolveCookieDomain(host: string | null): string | undefined {
   const hostname = String(host || '').split(':')[0].toLowerCase();
@@ -29,15 +28,18 @@ export async function POST(request: NextRequest) {
       : '');
 
   if (platformSessionToken) {
-    try {
-      await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${platformSessionToken}`,
-        },
-      });
-    } catch {
-      // Best-effort revocation; clear browser cookie either way.
+    for (const baseUrl of getPlatformAuthUrls()) {
+      try {
+        await fetch(`${baseUrl}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${platformSessionToken}`,
+          },
+        });
+        break;
+      } catch {
+        // Try the next internal/public auth endpoint.
+      }
     }
   }
 
