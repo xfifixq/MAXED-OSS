@@ -1,5 +1,14 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4100';
+const GATEWAY_PROXY_PREFIX = process.env.NEXT_PUBLIC_GATEWAY_PROXY_PREFIX || '/edge';
 const FIRM_STORAGE_KEY = 'maxed:firmId';
+
+function normalizePath(path: string): string {
+  return path.startsWith('/') ? path : `/${path}`;
+}
+
+function gatewayBaseUrl(): string {
+  return typeof window === 'undefined' ? API_URL : GATEWAY_PROXY_PREFIX;
+}
 
 function readStoredFirmId(): string {
   if (typeof window === 'undefined') return '';
@@ -30,7 +39,7 @@ export function getFirmId(): string {
 }
 
 export function apiUrl(path: string): string {
-  return `${API_URL}${path}`;
+  return `${gatewayBaseUrl()}${normalizePath(path)}`;
 }
 
 export function bridgeUrl(service: string, options?: { firmId?: string; mode?: 'maxed' | 'direct' }): string {
@@ -39,11 +48,11 @@ export function bridgeUrl(service: string, options?: { firmId?: string; mode?: '
   if (firmId) params.set('firmId', firmId);
   if (options?.mode) params.set('mode', options.mode);
   const query = params.toString();
-  return `${API_URL}/bridge/${service}${query ? `?${query}` : ''}`;
+  return `${gatewayBaseUrl()}/bridge/${service}${query ? `?${query}` : ''}`;
 }
 
 export function firmApiUrl(path: string): string {
-  return `${API_URL}/api/firms/${getFirmId()}${path}`;
+  return `${gatewayBaseUrl()}/api/firms/${getFirmId()}${normalizePath(path)}`;
 }
 
 // Headers to include on all service proxy calls — tells the API which firm's credentials to use
@@ -70,7 +79,12 @@ export function installApiFetchCredentials() {
 
     const shouldIncludeCredentials =
       typeof requestUrl === 'string' &&
-      (requestUrl.startsWith(API_URL) || requestUrl.startsWith('/api/platform/session/'));
+      (
+        requestUrl.startsWith(GATEWAY_PROXY_PREFIX) ||
+        requestUrl.startsWith(`${window.location.origin}${GATEWAY_PROXY_PREFIX}`) ||
+        requestUrl.startsWith(API_URL) ||
+        requestUrl.startsWith('/api/platform/session/')
+      );
 
     const nextInit = shouldIncludeCredentials && !init?.credentials
       ? { ...init, credentials: 'include' as RequestCredentials }

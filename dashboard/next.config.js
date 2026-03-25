@@ -1,8 +1,16 @@
 /** @type {import('next').NextConfig} */
 
-// Production service URLs. `NEXT_PUBLIC_API_URL` is the Maxed gateway boundary.
+const GATEWAY_PROXY_PREFIX = '/edge';
+const INTERNAL_GATEWAY_URL =
+  process.env.MAXED_GATEWAY_INTERNAL_URL ||
+  process.env.PLATFORM_API_URL ||
+  'http://127.0.0.1:4100';
+
+// Production service URLs. `NEXT_PUBLIC_API_URL` remains the public gateway origin,
+// but browser traffic should stay same-origin via the dashboard BFF proxy.
 const PROD_URLS = {
   NEXT_PUBLIC_API_URL: 'https://api.maxed.life',
+  NEXT_PUBLIC_GATEWAY_PROXY_PREFIX: GATEWAY_PROXY_PREFIX,
   NEXT_PUBLIC_BIGCAPITAL_URL: 'https://books.maxed.life',
   NEXT_PUBLIC_PAPERLESS_URL: 'https://docs.maxed.life',
   NEXT_PUBLIC_INVOICE_NINJA_URL: 'https://billing.maxed.life',
@@ -20,6 +28,14 @@ const env = { ...PROD_URLS };
 const nextConfig = {
   reactStrictMode: true,
   env,
+  async rewrites() {
+    return [
+      {
+        source: `${GATEWAY_PROXY_PREFIX}/:path*`,
+        destination: `${INTERNAL_GATEWAY_URL}/:path*`,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
