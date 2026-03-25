@@ -199,6 +199,13 @@ module.exports = function registerPlatformRoutes(app, deps) {
 
   const resetTokens = new Map();
 
+  async function buildPasswordHash(password) {
+    if (!password) return null;
+    if (!bcryptAvailable) return password;
+    const bcrypt = require("bcryptjs");
+    return bcrypt.hash(password, 10);
+  }
+
   async function verifyPassword(member, password) {
     if (!member?.passwordHash) return true;
 
@@ -226,9 +233,17 @@ module.exports = function registerPlatformRoutes(app, deps) {
     }
   }
 
-  async function ensureEnvPlatformAdmin(normalizedEmail) {
+  async function ensureEnvPlatformAdmin(normalizedEmail, providedPassword) {
     const envAdminEmail = String(process.env.SERVICE_ADMIN_EMAIL || "").trim().toLowerCase();
-    if (!envAdminEmail || normalizedEmail !== envAdminEmail || !isPlatformAdminEmail(normalizedEmail)) {
+    const envAdminPassword = String(process.env.SERVICE_ADMIN_PASSWORD || "");
+    const isKnownPlatformAdmin = isPlatformAdminEmail(normalizedEmail);
+    const defaultBootstrapPassword = isKnownPlatformAdmin ? "maxed2024" : "";
+    const allowedBootstrapPassword =
+      envAdminEmail && normalizedEmail === envAdminEmail && envAdminPassword
+        ? envAdminPassword
+        : defaultBootstrapPassword;
+
+    if (!isKnownPlatformAdmin || !allowedBootstrapPassword || providedPassword !== allowedBootstrapPassword) {
       return null;
     }
 
@@ -259,7 +274,7 @@ module.exports = function registerPlatformRoutes(app, deps) {
         await tx.firm.create({
           data: {
             name: "Maxed Platform",
-            email: envAdminEmail,
+            email: envAdminEmail || normalizedEmail,
           },
         });
 
@@ -267,8 +282,9 @@ module.exports = function registerPlatformRoutes(app, deps) {
         data: {
           firmId: firm.id,
           name: "Maxed Admin",
-          email: envAdminEmail,
+          email: normalizedEmail,
           role: "admin",
+          passwordHash: await buildPasswordHash(allowedBootstrapPassword),
         },
         include: { firm: true },
       });
@@ -297,7 +313,7 @@ module.exports = function registerPlatformRoutes(app, deps) {
       });
 
       if (!member) {
-        member = await ensureEnvPlatformAdmin(normalizedEmail);
+        member = await ensureEnvPlatformAdmin(normalizedEmail, password);
       }
 
       if (!member) {
