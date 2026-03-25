@@ -3,6 +3,8 @@ const prisma = new PrismaClient();
 
 async function main() {
   console.log("Seeding Maxed unified database...");
+  const bcrypt = require("bcryptjs");
+  const defaultPasswordHash = await bcrypt.hash("maxed2024", 10);
 
   // ---- Firm ----------------------------------------------------------------
   const firm = await prisma.firm.create({
@@ -22,7 +24,7 @@ async function main() {
       name: "James Carter",
       email: "james@jamescpa.com",
       role: "admin",
-      passwordHash: "hashed_maxed2024",
+      passwordHash: defaultPasswordHash,
     },
   });
   console.log(`Created team member: ${admin.name}`);

@@ -44,6 +44,35 @@ module.exports = function registerAuthRoutes(app, deps) {
     resolvePlatformSessionFromRequest,
   } = deps;
 
+  async function verifyPassword(member, password) {
+    if (!member?.passwordHash) return true;
+
+    const storedHash = String(member.passwordHash);
+    if (!bcryptAvailable) {
+      return storedHash === password;
+    }
+
+    const bcrypt = require("bcryptjs");
+
+    // Legacy seed data stored a placeholder string instead of a bcrypt hash.
+    // Accept it once for the known default password and upgrade the row in place.
+    if (storedHash === "hashed_maxed2024" && password === "maxed2024") {
+      const upgradedHash = await bcrypt.hash(password, 10);
+      await prisma.teamMember.update({
+        where: { id: member.id },
+        data: { passwordHash: upgradedHash },
+      }).catch(() => {});
+      member.passwordHash = upgradedHash;
+      return true;
+    }
+
+    try {
+      return await bcrypt.compare(password, storedHash);
+    } catch {
+      return storedHash === password;
+    }
+  }
+
   async function ensureEnvPlatformAdmin(normalizedEmail) {
     const envAdminEmail = String(process.env.SERVICE_ADMIN_EMAIL || "").trim().toLowerCase();
     if (!envAdminEmail || normalizedEmail !== envAdminEmail || !isPlatformAdminEmail(normalizedEmail)) {
@@ -128,9 +157,8 @@ module.exports = function registerAuthRoutes(app, deps) {
         isPlatformAdminEmail(normalizedEmail) &&
         password === envAdminPassword;
 
-      if (!allowEnvAdminPassword && bcryptAvailable && member.passwordHash) {
-        const bcrypt = require("bcryptjs");
-        const valid = await bcrypt.compare(password, member.passwordHash);
+      if (!allowEnvAdminPassword) {
+        const valid = await verifyPassword(member, password);
         if (!valid) {
           return res.status(401).json({ error: "Invalid credentials" });
         }
