@@ -6,6 +6,7 @@ const platformCwd = path.join(rootCwd, "platform");
 const dashboardCwd = path.join(rootCwd, "dashboard");
 const portalCwd = path.join(rootCwd, "client-portal");
 const opencpaCwd = path.join(rootCwd, "opencpa");
+const enableOpencpa = process.env.MAXED_ENABLE_OPENCPA_PM2 === "1";
 
 const splitPlatformEntrypoint = path.join(
   platformCwd,
@@ -65,7 +66,7 @@ function standaloneNextApp(name, cwd, port) {
 const frontendApps = [
   hasPackageJson(dashboardCwd) ? nextApp("dashboard", dashboardCwd, 3005) : null,
   hasPackageJson(portalCwd) ? standaloneNextApp("portal", portalCwd, 3006) : null,
-  hasPackageJson(opencpaCwd) ? standaloneNextApp("opencpa", opencpaCwd, 3007) : null,
+  enableOpencpa && hasPackageJson(opencpaCwd) ? standaloneNextApp("opencpa", opencpaCwd, 3007) : null,
 ].filter(Boolean);
 
 const platformApps = hasSplitPlatform

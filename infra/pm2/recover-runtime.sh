@@ -4,15 +4,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ECOSYSTEM_FILE="$ROOT_DIR/infra/pm2/ecosystem.full.config.cjs"
 REBUILD=0
+ENABLE_OPENCPA_PM2=0
 
 for arg in "$@"; do
   case "$arg" in
     --rebuild)
       REBUILD=1
       ;;
+    --with-opencpa)
+      ENABLE_OPENCPA_PM2=1
+      ;;
     *)
       echo "Unknown argument: $arg" >&2
-      echo "Usage: $0 [--rebuild]" >&2
+      echo "Usage: $0 [--rebuild] [--with-opencpa]" >&2
       exit 1
       ;;
   esac
@@ -69,7 +73,7 @@ restart_pm2_stack() {
     kill_listener_on_port "$port"
   done
 
-  pm2 start "$ECOSYSTEM_FILE" --update-env
+  MAXED_ENABLE_OPENCPA_PM2="$ENABLE_OPENCPA_PM2" pm2 start "$ECOSYSTEM_FILE" --update-env
   pm2 save
 }
 
@@ -108,7 +112,9 @@ if [[ "$REBUILD" -eq 1 ]]; then
   build_app_if_present "platform" "platform"
   build_app_if_present "dashboard" "dashboard"
   build_app_if_present "client-portal" "client portal"
-  build_app_if_present "opencpa" "OpenCPA"
+  if [[ "$ENABLE_OPENCPA_PM2" -eq 1 ]]; then
+    build_app_if_present "opencpa" "OpenCPA"
+  fi
 fi
 
 echo "Restarting PM2 runtime with a clean app set..."
