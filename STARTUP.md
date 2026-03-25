@@ -139,23 +139,16 @@ On a server (e.g. DigitalOcean droplet), use PM2 so the Node apps survive discon
 ```bash
 npm install -g pm2
 
-cd ~/MAXED-OSS/platform
-pm2 start npm --name maxed-api -- start
+cd ~/MAXED-OSS
+chmod +x infra/pm2/recover-runtime.sh
+./infra/pm2/recover-runtime.sh --rebuild
 
-cd ~/MAXED-OSS/dashboard
-pm2 start npm --name maxed-dashboard -- start
-
-cd ~/MAXED-OSS/client-portal
-pm2 start npm --name maxed-portal -- start
-
-cd ~/MAXED-OSS/opencpa
-pm2 start npm --name maxed-opencpa -- start
-
-pm2 save
 pm2 startup   # Run the command it prints to enable on boot
 ```
 
 Docker containers already use `restart: unless-stopped`, so they come back after a server reboot.
+
+If you switch between older commits and the newer split-service runtime, do not keep manually reusing the same PM2 process set. Run `./infra/pm2/recover-runtime.sh --rebuild` again so PM2 drops stale legacy or split-platform processes before restart.
 
 ---
 
@@ -189,6 +182,7 @@ docker compose down
 | Dashboard "Failed to fetch" | Platform API not running or wrong URL in `dashboard/.env.local` |
 | Port already in use | Another process is using it; stop it or change the port |
 | Prisma migration fails | `cd platform && npx prisma migrate deploy` after Postgres is up |
+| Old commit still runs new PM2 services | `cd ~/MAXED-OSS && ./infra/pm2/recover-runtime.sh --rebuild` to clear stale PM2 apps and restart the runtime that matches the current checkout |
 
 ---
 

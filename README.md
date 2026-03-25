@@ -528,21 +528,14 @@ cd ../opencpa && npm install && npm run build
 ```bash
 npm install -g pm2
 
-cd ~/MAXED-OSS/platform
-pm2 start npm --name maxed-api -- start
+cd ~/MAXED-OSS
+chmod +x infra/pm2/recover-runtime.sh
+./infra/pm2/recover-runtime.sh --rebuild
 
-cd ~/MAXED-OSS/dashboard
-pm2 start npm --name maxed-dashboard -- start
-
-cd ~/MAXED-OSS/client-portal
-pm2 start npm --name maxed-portal -- start
-
-cd ~/MAXED-OSS/opencpa
-pm2 start npm --name maxed-opencpa -- start
-
-pm2 save
 pm2 startup   # Run the command it prints
 ```
+
+This recovery script clears stale legacy `platform` processes and stale split-service PM2 apps before starting the stack defined by the current checkout. Use it after switching commits or pulling runtime changes so PM2 and the repo stay aligned.
 
 #### 7. Start nginx
 
