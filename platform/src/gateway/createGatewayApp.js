@@ -36,6 +36,13 @@ function resolveGatewayTarget(pathname) {
   return "api";
 }
 
+function resolveGatewayTimeoutMs(pathname) {
+  if (/^\/api\/firms\/[^/]+\/provisioning(?:\/|$)/.test(pathname)) {
+    return 5 * 60 * 1000;
+  }
+  return 30 * 1000;
+}
+
 module.exports = function createGatewayApp({ readinessCheck = null } = {}) {
   const app = createServiceApp({
     serviceName: "maxed-gateway",
@@ -92,6 +99,7 @@ module.exports = function createGatewayApp({ readinessCheck = null } = {}) {
       extraHeaders: {
         ...req.gatewayIdentityHeaders,
       },
+      timeoutMs: resolveGatewayTimeoutMs(req.path),
     });
   });
 
